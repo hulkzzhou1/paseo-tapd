@@ -10,7 +10,7 @@ A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo works
 - Six permanent dropdown filters: status scope (all / unfinished / done), iteration, updated-within, owner, creator, and priority. People are searchable single-selects with exact-nickname fallback; priority supports multiple selections. Selections apply immediately and remain compatible with saved views. Severity, keyword, labels, and applied advanced conditions are also visible in the toolbar; Add Condition opens the field picker and value editor for workflow states and other dynamic fields.
 - Status scope follows each project’s workflow end states, including custom completed statuses; advanced status conditions intersect with the selected scope.
 - Views as reusable filter presets: built-in "Related to me" (owner, creator, developer, participator, watcher, or commenter, plus linked-task involvement), plus keyword, owner, creator, status scope, iteration, updated-within, priorities, bug severities, labels, and any field from the workspace's TAPD field definitions
-- Detail window up to 1040px wide with complete structured descriptions/comments, readable paragraph spacing, headings, lists, code and horizontally scrollable tables. Images and external links open only on click; story details additionally list the tasks and bugs attached to the story (paginated, with a truncation hint past 200), and task/bug details link back to their parent story
+- Detail window up to 1040px wide with complete structured descriptions/comments, readable paragraph spacing, headings, lists, code and horizontally scrollable tables. Images load inline with loading/error feedback and retry; original-image and external links open on click; story details additionally list the tasks and bugs attached to the story (paginated, with a truncation hint past 200), and task/bug details link back to their parent story
 - Task/bug cards show `#id` on its own line under the title plus a "story: title" chip; details-page child-list row titles show the full text in a hover tooltip
 - Dispatch to an agent: pick a repository and provider/model; the plugin creates a worktree workspace and starts an agent preloaded with the item snapshot, then tracks it from the card
 - Write back to TAPD: comments (plain text converted to HTML), workflow status changes from an anchored menu (select another status to apply immediately), and new item creation — story details can one-click create a task or bug under that story, prefilled with the parent (story_id) and the story's workspace; the mounted form lists the type's writable TAPD fields dynamically (dropdowns for enum/user fields, a month calendar with yesterday/today/tomorrow shortcuts for date-like fields), defaults the owner to the current token user, and its field layout (order + hidden) is kept per entity type and backed up via settings sync
@@ -49,7 +49,8 @@ Pick an agent from the item detail window to link the item to that conversation.
 
 - No credentials are stored in this repository. The token is used only by the daemon-side plugin, as the TAPD `Authorization` header.
 - Prefer environment variables (`TAPD_TOKEN`, `TAPD_WORKSPACE_IDS`). A token saved in the plugin settings is stored as plain JSON on the daemon host and is readable by the connected settings interface.
-- The plugin calls only the TAPD OpenAPI. The API base URL and web link base can be set in the plugin settings, falling back to `TAPD_API_ENDPOINT` and `TAPD_SITE_URL`. API credentials go only to the configured API address; redirects are rejected. Addresses stay local and are excluded from Git settings sync.
+- The daemon uses the TAPD OpenAPI for TAPD item data. The API base URL and web link base can be set in the plugin settings, falling back to `TAPD_API_ENDPOINT` and `TAPD_SITE_URL`. API credentials go only to the configured API address; redirects are rejected. Addresses stay local and are excluded from Git settings sync.
+- Description/comment images load directly in the client from validated HTTP(S) content URLs, without configured TAPD credentials. The browser may use normal site cookies; protected images may need login at the original site.
 - Opening a person filter reads configured projects’ member nicknames only, without names or email addresses. Candidate failures retain exact-nickname input and allow retry. Status-menu options come from the item’s project.
 - Reads cover every configured project. Write operations (comments, status changes, item creation) target the item's actual project when known, falling back to the first configured TAPD project.
 - Agent dispatch sends the item snapshot (used as the prompt) to the selected agent provider through the Paseo SDK.
@@ -129,7 +130,8 @@ paseo plugin add git:<repo-url>
 
 - 本仓库不存储任何凭据。Token 仅由 daemon 侧插件使用，作为 TAPD 的 `Authorization` 头。
 - 优先使用环境变量（`TAPD_TOKEN`、`TAPD_WORKSPACE_IDS`）。保存在插件设置中的 token 以明文 JSON 存于 daemon 主机，可被已连接的设置界面读取。
-- 插件只调用 TAPD OpenAPI。API 基地址与网页链接基地址可用 `TAPD_API_ENDPOINT`、`TAPD_SITE_URL` 按 daemon 覆盖。
+- daemon 通过 TAPD OpenAPI 读取与处理单据。API 基地址与网页链接基地址可用 `TAPD_API_ENDPOINT`、`TAPD_SITE_URL` 按 daemon 覆盖。
+- 正文及评论图片由客户端直接请求经校验的 HTTP(S) 图片地址，不附加配置的 TAPD 凭据；浏览器可能使用通常的站点 Cookie，受保护图片可能需要在原站登录。
 - 读取覆盖所有已配置项目。写操作（评论、状态变更、建单）优先作用于单据实际所在项目（无法确定时回退第一个配置的 TAPD 项目）。
 - 看板与单条接口结果缓存在 daemon 内存（看板整体 90 秒 SWR、单条请求 20 秒、元数据最长 30 分钟），跨项目列表请求按项目并行发出。缓存只在本机 daemon 内存里，不落盘不外传；修改插件设置会清空全部缓存，「刷新」按钮可强制取最新。
 - 派给 Agent 时，单据快照（作为提示词）经 Paseo SDK 发送给所选的 agent provider。

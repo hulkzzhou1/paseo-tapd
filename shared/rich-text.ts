@@ -58,3 +58,13 @@ export function parseRichText(html: string, base: string): RichNode[] {
   }
   return root.children;
 }
+
+/** Only site-local TAPD images use the authenticated image metadata endpoint. */
+export function tapdImagePath(source: string | undefined, base: string): string | undefined {
+  try {
+    if (!source) return;
+    const url = new URL(source);
+    if (url.origin === new URL(base).origin && !url.username && !url.password
+      && /^\/tfl\/(?:captures|pictures)\/.+\.(?:png|gif|jpe?g|bmp)$/i.test(url.pathname)) return url.pathname;
+  } catch { return; }
+}

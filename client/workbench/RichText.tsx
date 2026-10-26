@@ -25,7 +25,7 @@ function imageRuns(nodes: InlineNode[]): InlineNode[] {
   return runs;
 }
 
-export function RichText({ html, text, baseUrl, theme }: { html?: string; text: string; baseUrl: string; theme: WorkbenchTheme }) {
+export function RichText({ html, text, baseUrl, workspaceId, theme }: { html?: string; text: string; baseUrl: string; workspaceId: string; theme: WorkbenchTheme }) {
   const nodes = useMemo(() => html ? parseRichText(html, baseUrl) : null, [html, baseUrl]);
   const [focused, setFocused] = useState<RichNode | null>(null);
   const colors = theme.colors;
@@ -58,11 +58,11 @@ export function RichText({ html, text, baseUrl, theme }: { html?: string; text: 
   }
   function flow(nodes: RichNode[], key: number, style: TextStyle = body, heading = false): ReactNode {
     return <View key={key} style={{ width: "100%", gap: 12 }}>{imageRuns(nodes).map((run, index) => run.tag === "img"
-      ? <ContentImage key={`${index}-${run.href}`} source={run.href} label={run.text || "图片"} theme={theme} />
+      ? <ContentImage key={`${index}-${run.href}`} source={run.href} baseUrl={baseUrl} workspaceId={workspaceId} label={run.text || "图片"} theme={theme} />
       : <Text key={index} selectable accessibilityRole={heading ? "header" : undefined} style={style}>{run.children.map(inline)}</Text>)}</View>;
   }
   function render(node: RichNode, key: number): ReactNode {
-    if (node.tag === "img") return <ContentImage key={`${key}-${node.href}`} source={node.href} label={node.text || "图片"} theme={theme} />;
+    if (node.tag === "img") return <ContentImage key={`${key}-${node.href}`} source={node.href} baseUrl={baseUrl} workspaceId={workspaceId} label={node.text || "图片"} theme={theme} />;
     if (node.tag === "text" && !node.text?.trim()) return null;
     if (node.tag === "ul" || node.tag === "ol") {
       let number = 0;

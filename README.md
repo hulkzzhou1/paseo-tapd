@@ -50,7 +50,7 @@ Pick an agent from the item detail window to link the item to that conversation.
 - No credentials are stored in this repository. The token is used only by the daemon-side plugin, as the TAPD `Authorization` header.
 - Prefer environment variables (`TAPD_TOKEN`, `TAPD_WORKSPACE_IDS`). A token saved in the plugin settings is stored as plain JSON on the daemon host and is readable by the connected settings interface.
 - The daemon uses the TAPD OpenAPI for TAPD item data. The API base URL and web link base can be set in the plugin settings, falling back to `TAPD_API_ENDPOINT` and `TAPD_SITE_URL`. API credentials go only to the configured API address; redirects are rejected. Addresses stay local and are excluded from Git settings sync.
-- Description/comment images load directly in the client from validated HTTP(S) content URLs, without configured TAPD credentials. The browser may use normal site cookies; protected images may need login at the original site.
+- Site-local TAPD images use their actual project and the configured API’s `/files/get_image` endpoint. The daemon reads the API-issued download URL once without Authorization/cookies, validates PNG/JPEG/GIF/BMP bytes (up to 8 MiB), and returns inline image data to the client. Other HTTP(S) images load directly in the client without configured TAPD credentials. Image data stays in memory; nothing is written to disk.
 - Opening a person filter reads configured projects’ member nicknames only, without names or email addresses. Candidate failures retain exact-nickname input and allow retry. Status-menu options come from the item’s project.
 - Reads cover every configured project. Write operations (comments, status changes, item creation) target the item's actual project when known, falling back to the first configured TAPD project.
 - Agent dispatch sends the item snapshot (used as the prompt) to the selected agent provider through the Paseo SDK.
@@ -131,7 +131,7 @@ paseo plugin add git:<repo-url>
 - 本仓库不存储任何凭据。Token 仅由 daemon 侧插件使用，作为 TAPD 的 `Authorization` 头。
 - 优先使用环境变量（`TAPD_TOKEN`、`TAPD_WORKSPACE_IDS`）。保存在插件设置中的 token 以明文 JSON 存于 daemon 主机，可被已连接的设置界面读取。
 - daemon 通过 TAPD OpenAPI 读取与处理单据。API 基地址与网页链接基地址可用 `TAPD_API_ENDPOINT`、`TAPD_SITE_URL` 按 daemon 覆盖。
-- 正文及评论图片由客户端直接请求经校验的 HTTP(S) 图片地址，不附加配置的 TAPD 凭据；浏览器可能使用通常的站点 Cookie，受保护图片可能需要在原站登录。
+- 本站 TAPD 图片使用单据实际项目，通过配置的 API `/files/get_image` 获取下载地址；daemon 不附加 Authorization/Cookie，仅读取一次下载地址，校验 PNG/JPEG/GIF/BMP 数据（最多 8 MiB），通过 RPC 返回内嵌图片。其他 HTTP(S) 图片仍由客户端直接加载，不附加配置凭据。图片只保留在内存，不落盘。
 - 读取覆盖所有已配置项目。写操作（评论、状态变更、建单）优先作用于单据实际所在项目（无法确定时回退第一个配置的 TAPD 项目）。
 - 看板与单条接口结果缓存在 daemon 内存（看板整体 90 秒 SWR、单条请求 20 秒、元数据最长 30 分钟），跨项目列表请求按项目并行发出。缓存只在本机 daemon 内存里，不落盘不外传；修改插件设置会清空全部缓存，「刷新」按钮可强制取最新。
 - 派给 Agent 时，单据快照（作为提示词）经 Paseo SDK 发送给所选的 agent provider。
@@ -170,7 +170,7 @@ MIT
 
 详情描述和已读取评论保留完整文字及标题、段落、列表、引用、链接、代码、表格结构，不再静默截成 4000 / 800 字；表格可横向滚动，正文及评论中的图片直接显示，按阅读宽度等比缩放，保留说明和「查看原图」；加载中显示提示，失败后可重试。新建表单按基本信息、处理安排与扩展字段分区，保持个人字段顺序与隐藏设置，桌面分列、窄屏单列。
 
-Dialogs share one theme-aware shell with bounded widths and keyboard focus. Detail actions replace the reading page and return to its prior scroll position. New-item/comment drafts require confirmation before discarding. Creation fields stay visible in sections and preserve personal layout choices. Rich content is rendered as safe text structures; scripts/styles are ignored. Description and comment images load inline at their natural aspect ratio within the reading width, with loading feedback, retry and a view-original link. Image requests use validated HTTP(S) URLs directly from the client without the configured TAPD credentials.
+Dialogs share one theme-aware shell with bounded widths and keyboard focus. Detail actions replace the reading page and return to its prior scroll position. New-item/comment drafts require confirmation before discarding. Creation fields stay visible in sections and preserve personal layout choices. Rich content is rendered as safe text structures; scripts/styles are ignored. Description and comment images load inline at their natural aspect ratio within the reading width, with loading feedback, retry and a view-original link. Protected site-local TAPD images are read once by the daemon through the configured API and returned as validated inline data; other safe HTTP(S) images load directly in the client. Download requests never receive configured TAPD credentials.
 
 迭代下拉框与选中回显标注「当前迭代」：按客户端本地日期判断，今天在有效起止日期内（含首尾）且迭代未关闭；过去、未来或缺少有效日期的迭代仍可选择，但不标为当前。不会自动更改已选迭代或保存视图。
 

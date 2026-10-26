@@ -37,10 +37,11 @@ async function main() {
     export const useSettings=()=>({status:'ready',values:window.settings,revision:1,save:async values=>{window.settings=values;return true;},reset:async()=>{},reload:async()=>{}});
     const Setting=({children,title,label})=><View><Text>{title||label||''}</Text>{children}</View>;
     export const SettingsAction=Setting,SettingsCard=Setting,SettingsInput=Setting,SettingsRow=Setting,SettingsSection=Setting,SettingsSwitch=Setting;
-    const html='<h2>阅读标题</h2><p>完整段落 <strong>重点文字</strong> 与 <a href="https://example.com/help">参考链接</a></p><ul><li>第一条要求</li></ul><pre><code>sample code</code><img src="/image.png" alt="代码旁图片"></pre><table><tr><th>字段</th><td><p>示例值</p><p>第二行<img src="/image.png" alt="表格图片"></p></td></tr></table><p>图片前文 <strong>重点在前<img src="/image.png" alt="示例图片">重点在后</strong> 图片后文</p><p><a href="/retry-image.png"><img src="/retry-image.png" alt="重试图片"></a></p><script>不应显示的脚本</script>'+('<p>较长正文用于验证阅读位置和完整内容。</p>'.repeat(80))+'<p>最末尾完整描述</p>';
-    const item={kind:'story',id:'12345678',workspaceId:'12345678',title:'示例需求',url:window.location.origin+'/project/item',status:'open',statusLabel:'待处理',owner:'example-member',creator:'example-creator',priority:'高',iterationName:'示例迭代',createdAt:'2026-01-01',modifiedAt:'2026-01-02',modified:'2026-01-02',done:false,description:'plain snapshot',descriptionHtml:html,comments:[{id:'11111111',author:'example-member',createdAt:'2026-01-02',text:'示例评论',html:'<p>示例评论</p><p><img src="/image.png" alt="评论图片"></p>'}],commentsError:null,childTasks:[],childBugs:[],childTasksTotal:0,childBugsTotal:0,parentStory:null};
+    const html='<h2>阅读标题</h2><p>完整段落 <strong>重点文字</strong> 与 <a href="https://example.com/help">参考链接</a></p><ul><li>第一条要求</li></ul><pre><code>sample code</code><img src="/image.png" alt="代码旁图片"></pre><table><tr><th>字段</th><td><p>示例值</p><p>第二行<img src="/image.png" alt="表格图片"></p></td></tr></table><p><img src="/tfl/captures/example.png" alt="受保护图片"></p><p>图片前文 <strong>重点在前<img src="/image.png" alt="示例图片">重点在后</strong> 图片后文</p><p><a href="/retry-image.png"><img src="/retry-image.png" alt="重试图片"></a></p><script>不应显示的脚本</script>'+('<p>较长正文用于验证阅读位置和完整内容。</p>'.repeat(80))+'<p>最末尾完整描述</p>';
+    const item={kind:'story',id:'12345678',workspaceId:'12345678',title:'示例需求',url:window.location.origin+'/project/item',status:'open',statusLabel:'待处理',owner:'example-member',creator:'example-creator',priority:'高',iterationName:'示例迭代',createdAt:'2026-01-01',modifiedAt:'2026-01-02',modified:'2026-01-02',done:false,description:'plain snapshot',descriptionHtml:html,comments:[{id:'11111111',author:'example-member',createdAt:'2026-01-02',text:'示例评论',html:'<p>示例评论</p><p><img src="/image.png" alt="评论图片"><img src="/tfl/captures/example.png" alt="受保护评论图片"></p>'}],commentsError:null,childTasks:[],childBugs:[],childTasksTotal:0,childBugsTotal:0,parentStory:null};
     export const useRpc=rpc=>async input=>{
       window.calls=(window.calls||[]).concat({name:rpc.name,input});
+      if(rpc.name==='tapd.image'){window.imageAttempts=(window.imageAttempts||0)+1;if(window.imageAttempts===1)throw new Error('untrusted image service response');if(input.workspaceId!=='12345678'||input.imagePath!=='/tfl/captures/example.png')throw new Error('Invalid image project/path');return await (await fetch('/fixture-image-data')).json();}
       if(rpc.name==='tapd.board')return {fetchedAt:'2026-01-02',stale:false,me:{nick:'example-member'},columns:{story:{items:[item],total:1,truncated:false,error:null},task:{items:[],total:0,error:null},bug:{items:[],total:0,error:null}}};
       if(rpc.name==='tapd.filter_options')return {iterations:[],priorities:[{value:'high',label:'高',kinds:['story','task','bug']}],severities:[],statuses:{story:[{value:'open',label:'待处理'}],task:[],bug:[]}};
       if(rpc.name==='tapd.update_check')return {updateAvailable:false};
@@ -60,6 +61,7 @@ async function main() {
     let allowImageRetry=false, imageAuthHeaderSeen=false, releaseImages;
     const imagesReady=new Promise(resolve=>{releaseImages=resolve;});
     const server = http.createServer(async(req,res)=>{
+      if(req.url==='/fixture-image-data'){res.setHeader('content-type','application/json');res.end(JSON.stringify({dataUri:'data:image/png;base64,'+readFileSync(path.join(root,'assets/icon.png')).toString('base64')}));return;}
       if(req.url==='/allow-image-load'){releaseImages();res.end('ok');return;}
       if(req.url==='/allow-image-retry'){allowImageRetry=true;res.end('ok');return;}
       if(req.url==='/image.png'||req.url==='/retry-image.png'){
@@ -92,6 +94,10 @@ async function main() {
       await page.evaluate(()=>fetch('/allow-image-load'));
       await page.waitForFunction(()=>document.querySelector('[aria-label="示例图片"] img')?.naturalWidth>0);
       await detail.getByText('图片加载中…',{exact:true}).first().waitFor({state:'hidden'});
+      await detail.getByRole('button',{name:'重试加载图片：受保护图片',exact:true}).click();
+      for(const name of ['受保护图片','受保护评论图片'])await detail.getByRole('img',{name,exact:true}).waitFor();
+      assert.equal((await calls('tapd.image')).length,2,'description/comment share one failed read and one retry');
+      assert.equal(await detail.getByText('untrusted image service response',{exact:true}).count(),0);
       const imageBox=await detail.getByRole('img',{name:'示例图片',exact:true}).boundingBox();
       assert.ok(imageBox.width>0&&imageBox.width<=760&&imageBox.height>0);
       for(const name of ['评论图片','表格图片','代码旁图片']) assert.equal(await detail.getByRole('img',{name,exact:true}).count(),1,'all supported content containers share inline images');

@@ -77,8 +77,22 @@ export function resolveView(
   return views.find((view) => view.id === wanted) ?? views[0];
 }
 
+export const tapdBaseUrlSchema = z.union([
+  z.literal(""),
+  z.url({ protocol: /^https?$/ }).max(2048).refine((value) => {
+    try {
+      const url = new URL(value);
+      return !url.username && !url.password && !url.search && !url.hash;
+    } catch {
+      return false;
+    }
+  }, "地址不能包含账号、密码、查询参数或片段"),
+]);
+
 export const tapdSettingsSchema = z.object({
   token: z.string().default(""),
+  apiEndpoint: tapdBaseUrlSchema.default(""),
+  siteUrl: tapdBaseUrlSchema.default(""),
   workspaceIds: z.string().default(""),
   views: z.array(viewSchema).default([]),
   defaultViewId: z.string().default(""),
@@ -465,6 +479,8 @@ export const tapdAttachmentSource = defineAttachmentSource({
 export const checkRpc = defineRpc({
   name: "tapd.check",
   input: z.object({
+    apiEndpoint: tapdBaseUrlSchema.optional(),
+    siteUrl: tapdBaseUrlSchema.optional(),
     token: z.string().optional(),
     workspaceIds: z.string().optional(),
   }),

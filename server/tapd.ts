@@ -14,6 +14,8 @@ export interface TapdConfig {
 export interface TapdConfigInput {
   token: string;
   workspaceIds: string;
+  apiEndpoint?: string;
+  siteUrl?: string;
 }
 
 export interface EntitySummary {
@@ -150,8 +152,8 @@ const FALLBACK_ACTIVE_STATUSES: Record<EntityKind, readonly string[]> = {
 };
 
 export function resolveConfig(settings: TapdConfigInput): TapdConfig {
-  const endpoint = (process.env.TAPD_API_ENDPOINT || "https://api.tapd.cn").trim().replace(/\/+$/, "");
-  const site = (process.env.TAPD_SITE_URL || "https://www.tapd.cn").trim().replace(/\/+$/, "");
+  const endpoint = normalizeBaseUrl(settings.apiEndpoint?.trim() || process.env.TAPD_API_ENDPOINT || "https://api.tapd.cn");
+  const site = normalizeBaseUrl(settings.siteUrl?.trim() || process.env.TAPD_SITE_URL || "https://www.tapd.cn");
   const settingsToken = settings.token.trim();
   const envToken = (process.env.TAPD_TOKEN || "").trim();
   const token = settingsToken || envToken;
@@ -165,6 +167,17 @@ export function resolveConfig(settings: TapdConfigInput): TapdConfig {
       .filter((part) => part.length > 0),
   )];
   return { endpoint, site, token, tokenSource, workspaceIds };
+}
+
+function normalizeBaseUrl(value: string): string {
+  try {
+    if (value.trim().length > 2048) throw new Error();
+    const url = new URL(value.trim());
+    if (!/^https?:$/.test(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
+    return url.href.replace(/\/+$/, "");
+  } catch {
+    throw new Error("TAPD 地址需为完整 HTTP(S) URL，不能包含账号、密码、查询参数或片段");
+  }
 }
 
 export function describeError(error: unknown): string {
@@ -258,6 +271,7 @@ async function requestJson(
     let response: Response;
     try {
       response = await fetch(url, {
+        redirect: "error",
         headers: { Authorization: `Bearer ${config.token}` },
         signal: controller.signal,
       });
@@ -767,6 +781,7 @@ async function requestPost(
   let response: Response;
   try {
     response = await fetch(`${config.endpoint}${path}`, {
+      redirect: "error",
       method: "POST",
       headers: {
         Authorization: `Bearer ${config.token}`,

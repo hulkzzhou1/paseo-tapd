@@ -1,26 +1,40 @@
 import { openExternalUrl } from "@getpaseo/plugin/client";
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Platform, ScrollView, Text, View, type TextStyle } from "react-native";
 import { parseRichText, type RichNode } from "../../shared/rich-text";
 import type { WorkbenchTheme } from "./bits";
 
 export function RichText({ html, text, baseUrl, theme }: { html?: string; text: string; baseUrl: string; theme: WorkbenchTheme }) {
   const nodes = useMemo(() => html ? parseRichText(html, baseUrl) : null, [html, baseUrl]);
+  const [focused, setFocused] = useState<RichNode | null>(null);
   const colors = theme.colors;
+  function linkProps(node: RichNode) {
+    return {
+      accessibilityRole: node.href ? "link" as const : undefined,
+      onPress: node.href ? () => void openExternalUrl(node.href!) : undefined,
+      onFocus: () => setFocused(node),
+      onBlur: () => setFocused(null),
+      ...(Platform.OS === "web" && node.href ? {
+        tabIndex: 0,
+        onKeyDown: (event: { key: string; preventDefault(): void }) => {
+          if (event.key === "Enter") { event.preventDefault(); void openExternalUrl(node.href!); }
+        },
+      } : {}),
+    };
+  }
   const body: TextStyle = { color: colors.foreground, fontSize: 15, lineHeight: 26 };
   const mono = Platform.OS === "ios" ? "Menlo" : "monospace";
   function inline(node: RichNode, key: number): ReactNode {
     if (node.tag === "text") return node.text;
     if (node.tag === "br") return "\n";
-    if (node.tag === "img") return <Text key={key} accessibilityRole={node.href ? "link" : undefined} onPress={node.href ? () => void openExternalUrl(node.href!) : undefined} style={{ color: node.href ? colors.accent : colors.foregroundMuted }}>{`[${node.text || "图片"}${node.href ? " · 查看原图" : ""}]`}</Text>;
+    if (node.tag === "img") return <Text key={key} {...linkProps(node)} style={{ color: node.href ? colors.accent : colors.foregroundMuted, backgroundColor: focused === node ? colors.surface2 : undefined }}>{`[${node.text || "图片"}${node.href ? " · 查看原图" : ""}]`}</Text>;
     const style: TextStyle = node.tag === "strong" || node.tag === "b" ? { fontWeight: "700" }
       : node.tag === "em" || node.tag === "i" ? { fontStyle: "italic" }
       : node.tag === "code" ? { fontFamily: mono, backgroundColor: colors.surface2 }
       : node.tag === "s" ? { textDecorationLine: "line-through" }
       : node.tag === "u" ? { textDecorationLine: "underline" } : {};
-    return <Text key={key} style={[style, node.tag === "a" && node.href ? { color: colors.accent, textDecorationLine: "underline" } : null]}
-      accessibilityRole={node.tag === "a" && node.href ? "link" : undefined}
-      onPress={node.tag === "a" && node.href ? () => void openExternalUrl(node.href!) : undefined}>{node.children.map(inline)}</Text>;
+    return <Text key={key} style={[style, node.tag === "a" && node.href ? { color: colors.accent, textDecorationLine: "underline", backgroundColor: focused === node ? colors.surface2 : undefined } : null]}
+      {...(node.tag === "a" ? linkProps(node) : {})}>{node.children.map(inline)}{node.tag === "p" || node.tag === "div" ? "\n" : null}</Text>;
   }
   function render(node: RichNode, key: number): ReactNode {
     if (node.tag === "text" && !node.text?.trim()) return null;

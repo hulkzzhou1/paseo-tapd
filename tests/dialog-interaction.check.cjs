@@ -37,7 +37,7 @@ async function main() {
     export const useSettings=()=>({status:'ready',values:window.settings,revision:1,save:async values=>{window.settings=values;return true;},reset:async()=>{},reload:async()=>{}});
     const Setting=({children,title,label})=><View><Text>{title||label||''}</Text>{children}</View>;
     export const SettingsAction=Setting,SettingsCard=Setting,SettingsInput=Setting,SettingsRow=Setting,SettingsSection=Setting,SettingsSwitch=Setting;
-    const html='<h2>阅读标题</h2><p>完整段落 <strong>重点文字</strong> 与 <a href="https://example.com/help">参考链接</a></p><ul><li>第一条要求</li></ul><pre><code>sample code</code></pre><table><tr><th>字段</th><td>示例值</td></tr></table><img src="/image.png" alt="示例图片"><script>不应显示的脚本</script>'+('<p>较长正文用于验证阅读位置和完整内容。</p>'.repeat(80))+'<p>最末尾完整描述</p>';
+    const html='<h2>阅读标题</h2><p>完整段落 <strong>重点文字</strong> 与 <a href="https://example.com/help">参考链接</a></p><ul><li>第一条要求</li></ul><pre><code>sample code</code></pre><table><tr><th>字段</th><td><p>示例值</p><p>第二行</p></td></tr></table><img src="/image.png" alt="示例图片"><script>不应显示的脚本</script>'+('<p>较长正文用于验证阅读位置和完整内容。</p>'.repeat(80))+'<p>最末尾完整描述</p>';
     const item={kind:'story',id:'12345678',workspaceId:'12345678',title:'示例需求',url:'https://example.com/project/item',status:'open',statusLabel:'待处理',owner:'example-member',creator:'example-creator',priority:'高',iterationName:'示例迭代',createdAt:'2026-01-01',modifiedAt:'2026-01-02',modified:'2026-01-02',done:false,description:'plain snapshot',descriptionHtml:html,comments:[{id:'11111111',author:'example-member',createdAt:'2026-01-02',text:'示例评论',html:'<p>示例评论</p>'}],commentsError:null,childTasks:[],childBugs:[],childTasksTotal:0,childBugsTotal:0,parentStory:null};
     export const useRpc=rpc=>async input=>{
       window.calls=(window.calls||[]).concat({name:rpc.name,input});
@@ -78,8 +78,15 @@ async function main() {
       assert.equal(await close.evaluate(e=>getComputedStyle(e).borderTopColor),'rgb(37, 99, 235)');
       assert.equal(panel.width,1040);assert.ok(panel.y>=24&&panel.y+panel.height<=876);
       assert.equal(await page.getByText('不应显示的脚本',{exact:true}).count(),0);
+      await detail.getByRole('link',{name:'参考链接',exact:true}).focus();
+      assert.equal(await detail.getByRole('link',{name:'参考链接',exact:true}).evaluate(e=>getComputedStyle(e).backgroundColor),'rgb(226, 232, 240)');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(()=>window.openedUrls?.length===1);
+      await detail.getByRole('link',{name:/示例图片/}).focus();
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(()=>window.openedUrls?.length===2);
       await detail.getByRole('link',{name:/示例图片/}).click();
-      assert.deepEqual(await page.evaluate(()=>window.openedUrls),['https://example.com/image.png']);
+      assert.deepEqual(await page.evaluate(()=>window.openedUrls),['https://example.com/help','https://example.com/image.png','https://example.com/image.png']);
       assert.deepEqual(remote,[]);
       const body=detail.getByText('最末尾完整描述',{exact:true});await body.waitFor();
       const scrollTop=await body.evaluate(e=>{let p=e.parentElement;while(p&&p.scrollHeight<=p.clientHeight+1)p=p.parentElement;p.scrollTop=220;p.dispatchEvent(new Event('scroll'));return p.scrollTop;});
@@ -131,7 +138,7 @@ async function main() {
       const narrowOwner=await create.getByLabel('处理人',{exact:true}).boundingBox();
       assert.ok(Math.abs(narrowTitle.width-narrowOwner.width)<2);
       await page.keyboard.press('Escape');await page.getByRole('dialog').waitFor({state:'hidden'});
-      console.log('PASS workbench dialog consumer: complete structured reading, safe image links, desktop/compact dark bounds, single visible page, return scroll, discard/continue, create/comment error retry, project semantics, dispatch/bind return, Escape');
+      console.log('PASS workbench dialog consumer: complete structured reading, safe image links and Enter activation, desktop/compact dark bounds, single visible page, return scroll, discard/continue, create/comment error retry, project semantics, dispatch/bind return, Escape');
     } finally {if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
   } finally {rmSync(temp,{recursive:true,force:true});}
 }

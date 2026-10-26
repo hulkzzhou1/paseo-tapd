@@ -386,6 +386,8 @@ export interface IterationInfo {
   id: string;
   name: string;
   status: string;
+  startDate: string;
+  endDate: string;
 }
 
 export interface FilterOption {
@@ -589,7 +591,7 @@ export async function fetchIterations(config: TapdConfig): Promise<IterationInfo
       const data = await requestJson(
         config,
         "/iterations",
-        { workspace_id: workspaceId, limit: 200, fields: "id,name,status" },
+        { workspace_id: workspaceId, limit: 200, fields: "id,name,status,startdate,enddate" },
         10 * 60_000,
       );
       for (const row of unwrapRows(data, ["Iteration"])) {
@@ -598,6 +600,8 @@ export async function fetchIterations(config: TapdConfig): Promise<IterationInfo
             id: String(row.id),
             name: String(row.name ?? ""),
             status: String(row.status ?? ""),
+            startDate: String(row.startdate ?? ""),
+            endDate: String(row.enddate ?? ""),
           });
         }
       }

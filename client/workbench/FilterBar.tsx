@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { View } from "react-native";
 import { filterOptionsRpc, membersRpc, type TapdFilters } from "../../shared/contracts";
+import { isCurrentIteration } from "../../shared/iterations";
 import { AdditionalFilters } from "./AdvancedFilter";
 import { Dropdown, type DropdownOption } from "./Dropdown";
 import { ToolbarButton, type WorkbenchTheme } from "./bits";
@@ -53,7 +54,7 @@ export function FilterBar({ theme, filters, onChange, onReset }: {
   });
   const iterations = withSavedValues((optionsQuery.data?.iterations ?? []).map(item => ({
     value: item.id,
-    label: item.status === "done" ? `${item.name}（已关闭）` : item.name,
+    label: item.status === "done" || item.status === "closed" ? `${item.name}（已关闭）` : isCurrentIteration(item) ? `${item.name}（当前迭代）` : item.name,
   })), [filters.iterationId]);
   const priorities = withSavedValues(optionsQuery.data?.priorities ?? [], filters.priorities);
   const severities = withSavedValues(optionsQuery.data?.severities ?? [], filters.severities);

@@ -40,7 +40,7 @@ export function ViewsSection({ theme, settings }: { theme: WorkbenchTheme; setti
               : "全部"
       }`,
     );
-    parts.push(filters.statusScope === "active" ? "仅进行中" : filters.statusScope === "done" ? "仅已结束" : "全部状态");
+    parts.push(filters.statusScope === "active" ? "仅未结束" : filters.statusScope === "done" ? "仅已结束" : "全部状态");
     if (filters.iterationId) parts.push(`迭代：${iterationName(filters.iterationId)}`);
     if (filters.keyword) parts.push(`关键词：${filters.keyword}`);
     if (filters.creator) parts.push(`创建人：${filters.creator}`);

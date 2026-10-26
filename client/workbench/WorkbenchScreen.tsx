@@ -260,7 +260,7 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
   const views = effectiveViews(readySettings.values);
   const activeView = resolveView(readySettings.values, activeViewId ?? "");
   const dirty = filters !== null && !filtersEqual(filters, activeView.filters);
-  const emptyText = filters?.statusScope === "active" ? "没有进行中的条目" : "没有条目";
+  const emptyText = filters?.statusScope === "active" ? "没有未结束的条目" : "没有条目";
   const kindTab: EntityKind | null = activeTab === "all" ? null : activeTab;
   const { pickerStatuses, pickerCounts, columns: statusColumns } = buildStatusColumns(
     kindTab ? board.data?.columns[kindTab]?.items ?? [] : [],
@@ -661,7 +661,7 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
             <Text style={styles.hint}>把当前全部过滤条件保存为可复用的视图。</Text>
             <TextInput
               style={styles.modalInput}
-              placeholder="视图名称，例如：我进行中的缺陷"
+              placeholder="视图名称，例如：我未结束的缺陷"
               placeholderTextColor={theme.colors.foregroundMuted}
               value={newViewName}
               onChangeText={setNewViewName}

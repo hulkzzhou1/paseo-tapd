@@ -35,15 +35,15 @@ async function main() {
     import {View,Text,Pressable} from 'react-native';
     export {TextInput,ScrollView,FlatList} from 'react-native';
     export const Icon=()=>null;
-    export function Modal({open,title,children,onOpenChange}) {return open?<View accessibilityRole="dialog" accessibilityLabel={title}><Text>{title}</Text>{children}<Pressable accessibilityRole="button" onPress={()=>onOpenChange(false)}><Text>关闭更多筛选</Text></Pressable></View>:null;}
+    export function Modal({open,title,children,onOpenChange}) {return open?<View accessibilityRole="dialog" accessibilityLabel={title}><Text>{title}</Text>{children}<Pressable accessibilityRole="button" onPress={()=>onOpenChange(false)}><Text>关闭条件编辑器</Text></Pressable></View>:null;}
     Modal.Content=({children})=><View>{children}</View>;
   `);
   writeFileSync(path.join(temp, 'rpc.ts'), `
     export const defineRpc=x=>x,defineSettings=x=>x,defineAttachmentSource=x=>x;
     const methods={
-      'tapd.filter_options':async()=>({iterations:[{id:'iteration-one',name:'示例迭代',status:'open'}],priorities:[{value:'high',label:'高',kinds:['story']},{value:'low',label:'低',kinds:['task']}],severities:[{value:'major',label:'严重'}],statuses:{story:[],task:[],bug:[]}}),
+      'tapd.filter_options':async()=>({iterations:[{id:'iteration-one',name:'示例迭代',status:'open'}],priorities:[{value:'high',label:'高',kinds:['story']},{value:'low',label:'低',kinds:['task']}],severities:[{value:'major',label:'严重'},{value:'minor',label:'轻微'}],statuses:{story:[],task:[],bug:[]}}),
       'tapd.members':async()=>{window.memberRequests=(window.memberRequests||0)+1;return {members:[{value:'sample-member',label:'sample-member'}],error:window.memberRequests===1?'部分项目的人员候选读取失败，请重试；仍可输入准确昵称。':null};},
-      'tapd.filter_fields':async()=>({fields:[{key:'status',label:'需求状态',kind:'enum',single:false,kinds:['story'],options:[{value:'developing',label:'开发中'}]}]}),
+      'tapd.filter_fields':async()=>{window.fieldRequests=(window.fieldRequests||0)+1;if(!window.allowFields)throw new Error('untrusted upstream response');return {fields:[{key:'status',label:'需求状态',kind:'enum',single:false,kinds:['story'],options:[{value:'developing',label:'开发中'}]}]};},
     };
     export const useRpc=rpc=>methods[rpc.name];
   `);
@@ -92,20 +92,31 @@ async function main() {
       const {statusScope,iterationId,modifiedWithinDays,creator,ownerMode,priorities}=await result();
       assert.deepEqual({statusScope,iterationId,modifiedWithinDays,creator,ownerMode,priorities},{statusScope:'active',iterationId:'iteration-one',modifiedWithinDays:7,creator:'sample-member',ownerMode:'mine',priorities:['high','low']});
       assert.equal(await page.evaluate(()=>window.memberRequests),2);
-      await page.getByRole('button',{name:'更多筛选',exact:true}).click();
-      const more=page.getByRole('dialog',{name:'更多筛选',exact:true});
-      await more.getByText('关键词',{exact:true}).waitFor();
-      for(const label of ['处理人','创建人','迭代','优先级']) assert.equal(await more.getByText(label,{exact:true}).count(),0);
-      await more.getByText('严重程度',{exact:true}).waitFor();
-      await more.getByText('标签',{exact:true}).waitFor();
-      await more.getByText('+ 添加条件',{exact:true}).click();
+      assert.equal(await page.getByRole('button',{name:/更多筛选/}).count(),0);
+      await page.getByLabel('关键词',{exact:true}).fill('示例关键词');
+      await page.waitForFunction(()=>JSON.parse(document.querySelector('[aria-label="筛选结果"]').textContent).keyword==='示例关键词');
+      await page.getByLabel('标签',{exact:true}).fill('example-label');
+      await page.waitForFunction(()=>JSON.parse(document.querySelector('[aria-label="筛选结果"]').textContent).label==='example-label');
+      await page.getByRole('button',{name:'严重程度：全部',exact:true}).click();
+      await page.getByRole('menuitemcheckbox',{name:'严重',exact:true}).click();
+      await page.getByRole('menuitemcheckbox',{name:'轻微',exact:true}).click();
+      assert.deepEqual((await result()).severities,['major','minor']);
+      await page.keyboard.press('Escape');
+      assert.equal(await page.evaluate(()=>window.fieldRequests||0),0);
+      await page.getByRole('button',{name:'添加条件',exact:true}).click();
+      await page.getByText('字段加载失败，请重试。',{exact:true}).waitFor();
+      await page.evaluate(()=>window.allowFields=true);
+      await page.getByRole('button',{name:'重试',exact:true}).click();
       await page.getByText('需求状态',{exact:true}).click();
       await page.getByText('开发中（developing）',{exact:true}).click();
       await page.getByText('确定',{exact:true}).click();
       assert.deepEqual((await result()).conditions,[{field:'status',label:'需求状态',kind:'enum',kinds:['story'],values:['developing'],from:'',to:''}]);
-      await page.getByRole('button',{name:'关闭更多筛选',exact:true}).click();
-      await page.getByRole('button',{name:'更多筛选 · 1',exact:true}).waitFor();
+      await page.getByText('需求状态：developing',{exact:true}).waitFor();
+      await page.getByRole('button',{name:'移除需求状态条件',exact:true}).click();
+      assert.deepEqual((await result()).conditions,[]);
       await page.getByRole('button',{name:'切换已保存视图',exact:true}).click();
+      assert.equal(await page.getByLabel('关键词',{exact:true}).inputValue(),'');
+      assert.equal(await page.getByLabel('标签',{exact:true}).inputValue(),'');
       for(const name of ['状态：未结束','迭代：saved-iteration','处理人：saved-owner','创建人：saved-creator','优先级：saved-priority']) await page.getByRole('button',{name,exact:true}).waitFor();
       for(const [name,option,role] of [['迭代：saved-iteration','saved-iteration','menuitemradio'],['创建人：saved-creator','saved-creator','menuitemradio'],['处理人：saved-owner','saved-owner','menuitemradio'],['优先级：saved-priority','saved-priority','menuitemcheckbox']]) {
         await page.getByRole('button',{name,exact:true}).click();
@@ -142,8 +153,8 @@ async function main() {
       await page.getByRole('button',{name:'处理人：我相关的',exact:true}).waitFor();
       assert.equal(await page.evaluate(()=>window.memberRequests),2);
       await page.setViewportSize({width:390,height:650});
-      const controls=await page.getByRole('button',{name:/^(状态|迭代|更新时间|处理人|创建人|优先级)：/}).all();
-      assert.equal(controls.length,6);
+      const controls=await page.getByRole('button',{name:/^(状态|迭代|更新时间|处理人|创建人|优先级|严重程度)：/}).all();
+      assert.equal(controls.length,7);
       for(const control of controls) {
         const box=await control.boundingBox();assert.ok(box.x>=0&&box.x+box.width<=390);
       }
@@ -152,7 +163,7 @@ async function main() {
       assert.ok(box.x>=0&&box.y>=0&&box.x+box.width<=390&&box.y+box.height<=650);
       await page.keyboard.press('Escape');
       assert.deepEqual(errors,[]);
-      console.log('PASS FilterBar + More Filters public interactions: six dropdowns, combined immediate filters, lazy shared members/retry/exact nickname, owner modes, multi-select, saved values/reset, advanced workflow state, mobile wrapping');
+      console.log('PASS inline FilterBar public interactions: all filters visible, seven dropdowns, combined immediate filters, lazy shared members/retry/exact nickname, owner modes, multi-select, saved values/reset, inline keyword/label/severity/advanced workflow state, mobile wrapping');
     } finally {if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
   } finally {rmSync(temp,{recursive:true,force:true});}
 }

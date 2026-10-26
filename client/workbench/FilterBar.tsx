@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { View } from "react-native";
 import { filterOptionsRpc, membersRpc, type TapdFilters } from "../../shared/contracts";
-import { AdvancedFilterChip } from "./AdvancedFilter";
+import { AdditionalFilters } from "./AdvancedFilter";
 import { Dropdown, type DropdownOption } from "./Dropdown";
 import { ToolbarButton, type WorkbenchTheme } from "./bits";
 
@@ -56,6 +56,7 @@ export function FilterBar({ theme, filters, onChange, onReset }: {
     label: item.status === "done" ? `${item.name}（已关闭）` : item.name,
   })), [filters.iterationId]);
   const priorities = withSavedValues(optionsQuery.data?.priorities ?? [], filters.priorities);
+  const severities = withSavedValues(optionsQuery.data?.severities ?? [], filters.severities);
   const members = withSavedValues(membersQuery.data?.members ?? [], [filters.owner, filters.creator]);
   const ownerValue = filters.ownerMode === "custom" ? `member:${filters.owner}` : `mode:${filters.ownerMode}`;
   const ownerOptions = [...OWNER_MODES, ...members.map(item => ({ ...item, value: `member:${item.value}` }))];
@@ -98,7 +99,11 @@ export function FilterBar({ theme, filters, onChange, onReset }: {
         options={[{ value: "", label: "全部" }, ...priorities]} selected={filters.priorities.length ? filters.priorities : [""]} multiple
         onSelect={value => onChange({ priorities: !value ? [] : filters.priorities.includes(value)
           ? filters.priorities.filter(item => item !== value) : [...filters.priorities, value] })} {...optionProps} />
-      <AdvancedFilterChip theme={theme} filters={filters} onChange={onChange} />
+      <Dropdown label="严重程度" summary={filters.severities.length > 1 ? `已选 ${filters.severities.length} 项` : severities.find(item => item.value === filters.severities[0])?.label ?? "全部"}
+        options={[{ value: "", label: "全部" }, ...severities]} selected={filters.severities.length ? filters.severities : [""]} multiple
+        onSelect={value => onChange({ severities: !value ? [] : filters.severities.includes(value)
+          ? filters.severities.filter(item => item !== value) : [...filters.severities, value] })} {...optionProps} />
+      <AdditionalFilters theme={theme} filters={filters} onChange={onChange} />
       <ToolbarButton icon="RotateCcw" label="重置" theme={theme} onPress={onReset} />
     </View>
   );

@@ -36,7 +36,7 @@ After installing, enable the plugin under Settings → Plugins and configure it:
 - API Token: TAPD OpenAPI token (falls back to the daemon env var `TAPD_TOKEN`)
 - Project IDs: TAPD `workspace_id` list (falls back to `TAPD_WORKSPACE_IDS`)
 
-Use "Test connection" in the plugin settings to verify.
+Use "Test connection" in the plugin settings to verify. The settings dialog expands to 900px on desktop with a scrolling body; narrow windows and native clients retain the host sheet.
 
 ## Agent binding
 
@@ -142,3 +142,5 @@ paseo plugin reload tapd-workbench                 # 修改后重新加载
 ## 许可证
 
 MIT
+
+设置弹窗在桌面端最大宽度为 900px，长内容在窗内滚动；窄窗口和原生移动端沿用 Paseo 的自适应面板。支持关闭按钮、点击遮罩及 Escape 关闭。

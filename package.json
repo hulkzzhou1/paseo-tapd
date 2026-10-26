@@ -1,7 +1,7 @@
 {
   "name": "tapd-workbench",
   "private": true,
-  "version": "0.4.17",
+  "version": "0.4.19",
   "files": [
     "LICENSE",
     "README.md",
@@ -16,7 +16,8 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "lint": "eslint client index.client.tsx"
+    "lint": "eslint client index.client.tsx",
+    "test": "node --test tests/*.test.mjs"
   },
   "devDependencies": {
     "@getpaseo/plugin": "0.11.2",

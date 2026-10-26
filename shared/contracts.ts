@@ -312,6 +312,27 @@ export const filterOptionsRpc = defineRpc({
   }),
 });
 
+const candidateTextSchema = z.string().trim().min(1).max(200).regex(/^[^\u0000-\u001f\u007f]+$/);
+const candidateOptionSchema = z.object({ value: candidateTextSchema, label: candidateTextSchema });
+
+export const membersRpc = defineRpc({
+  name: "tapd.members",
+  input: z.object({}),
+  output: z.object({
+    members: z.array(candidateOptionSchema),
+    error: z.string().max(200).nullable(),
+  }),
+});
+
+export const statusOptionsRpc = defineRpc({
+  name: "tapd.status_options",
+  input: z.object({
+    kind: entityKindSchema,
+    workspaceId: z.string().trim().min(1).max(128),
+  }),
+  output: z.object({ options: z.array(candidateOptionSchema) }),
+});
+
 export const filterFieldsRpc = defineRpc({
   name: "tapd.filter_fields",
   input: z.object({}),

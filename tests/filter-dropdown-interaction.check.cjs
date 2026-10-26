@@ -46,7 +46,7 @@ async function main() {
   writeFileSync(path.join(temp, 'rpc.ts'), `
     export const defineRpc=x=>x,defineSettings=x=>x,defineAttachmentSource=x=>x;
     const methods={
-      'tapd.filter_options':async()=>({iterations:[{id:'iteration-one',name:'示例迭代',status:'open'}],priorities:[{value:'high',label:'高',kinds:['story']},{value:'low',label:'低',kinds:['task']}],severities:[{value:'major',label:'严重'},{value:'minor',label:'轻微'}],statuses:{story:[],task:[],bug:[]}}),
+      'tapd.filter_options':async()=>({iterations:[{id:'iteration-one',name:'示例迭代',status:'open',startDate:new Date().toLocaleDateString('sv-SE'),endDate:new Date().toLocaleDateString('sv-SE')},{id:'past',name:'过去迭代',status:'open',startDate:'2000-01-01',endDate:'2000-01-02'},{id:'future',name:'未来迭代',status:'open',startDate:'2099-01-01',endDate:'2099-01-02'},{id:'closed',name:'关闭迭代',status:'done',startDate:'2000-01-01',endDate:'2099-01-01'},{id:'undated',name:'无日期迭代',status:'open'}],priorities:[{value:'high',label:'高',kinds:['story']},{value:'low',label:'低',kinds:['task']}],severities:[{value:'major',label:'严重'},{value:'minor',label:'轻微'}],statuses:{story:[],task:[],bug:[]}}),
       'tapd.members':async()=>{window.memberRequests=(window.memberRequests||0)+1;return {members:[{value:'sample-member',label:'sample-member'}],error:window.memberRequests===1?'部分项目的人员候选读取失败，请重试；仍可输入准确昵称。':null};},
       'tapd.filter_fields':async()=>{window.fieldRequests=(window.fieldRequests||0)+1;if(!window.allowFields)throw new Error('untrusted upstream response');return {fields:[{key:'status',label:'需求状态',kind:'enum',single:false,kinds:['story'],options:[{value:'developing',label:'开发中'}]}]};},
     };
@@ -74,7 +74,9 @@ async function main() {
       assert.equal((await result()).statusScope,'active');
       assert.equal(await page.getByRole('menuitemradio',{name:'未结束',exact:true}).count(),0);
       await page.getByRole('button',{name:'迭代：全部',exact:true}).click();
-      await page.getByRole('menuitemradio',{name:'示例迭代',exact:true}).click();
+      for(const name of ['过去迭代','未来迭代','关闭迭代（已关闭）','无日期迭代'])await page.getByRole('menuitemradio',{name,exact:true}).waitFor();
+      await page.getByRole('menuitemradio',{name:'示例迭代（当前迭代）',exact:true}).click();
+      await page.getByRole('button',{name:'迭代：示例迭代（当前迭代）',exact:true}).waitFor();
       await page.getByRole('button',{name:'更新时间：不限',exact:true}).click();
       await page.getByRole('menuitemradio',{name:'近 7 天',exact:true}).click();
       await page.getByRole('button',{name:'创建人：全部',exact:true}).click();

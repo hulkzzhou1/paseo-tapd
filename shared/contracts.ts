@@ -303,7 +303,7 @@ export const filterOptionsRpc = defineRpc({
       z.object({ value: z.string(), label: z.string(), kinds: z.array(entityKindSchema) }),
     ),
     severities: z.array(z.object({ value: z.string(), label: z.string() })),
-    iterations: z.array(z.object({ id: z.string(), name: z.string(), status: z.string() })),
+    iterations: z.array(z.object({ id: z.string(), name: z.string(), status: z.string(), startDate: z.string().default(""), endDate: z.string().default("") })),
     statuses: z.object({
       story: z.array(z.object({ value: z.string(), label: z.string() })),
       task: z.array(z.object({ value: z.string(), label: z.string() })),

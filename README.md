@@ -171,3 +171,7 @@ MIT
 详情描述和已读取评论保留完整文字及标题、段落、列表、引用、链接、代码、表格结构，不再静默截成 4000 / 800 字；表格可横向滚动，正文及评论中的图片直接显示，按阅读宽度等比缩放，保留说明和「查看原图」；加载中显示提示，失败后可重试。新建表单按基本信息、处理安排与扩展字段分区，保持个人字段顺序与隐藏设置，桌面分列、窄屏单列。
 
 Dialogs share one theme-aware shell with bounded widths and keyboard focus. Detail actions replace the reading page and return to its prior scroll position. New-item/comment drafts require confirmation before discarding. Creation fields stay visible in sections and preserve personal layout choices. Rich content is rendered as safe text structures; scripts/styles are ignored. Description and comment images load inline at their natural aspect ratio within the reading width, with loading feedback, retry and a view-original link. Image requests use validated HTTP(S) URLs directly from the client without the configured TAPD credentials.
+
+迭代下拉框与选中回显标注「当前迭代」：按客户端本地日期判断，今天在有效起止日期内（含首尾）且迭代未关闭；过去、未来或缺少有效日期的迭代仍可选择，但不标为当前。不会自动更改已选迭代或保存视图。
+
+Iteration options and the selected summary mark current iterations using the client-local date within valid start/end dates (inclusive), excluding closed iterations. Past, future and undated iterations remain selectable; selections and saved views are preserved.

@@ -179,7 +179,7 @@ async function main() {
       assert.equal(await page.getByLabel('列选择结果',{exact:true}).textContent(),'null');
       await page.getByRole('button',{name:'选择状态列',exact:true}).click();
       await page.getByRole('checkbox',{name:'已完成',exact:true,checked:false}).waitFor();
-      await page.getByRole('button',{name:'关闭条件编辑器',exact:true}).click();
+      await page.getByRole('button',{name:'关闭选择状态列 · 需求',exact:true}).last().click();
       assert.deepEqual(errors,[]);
       console.log('PASS inline FilterBar public interactions: all filters visible, seven dropdowns, combined immediate filters, lazy shared members/retry/exact nickname, owner modes, multi-select, saved values/reset, inline keyword/label/severity/advanced workflow state, mobile wrapping, column defaults/explicit selection/reset');
     } finally {if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}

@@ -1,4 +1,5 @@
-import { Icon, Modal } from "@getpaseo/plugin/client/react-native";
+import { WorkbenchDialog as Modal, dialogFormStyles } from "./WorkbenchDialog";
+import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useState } from "react";
 import { Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
 import { type EntityKind } from "../../shared/contracts";
@@ -54,15 +55,15 @@ export function ColumnPickerModal({ open, onClose, theme, kind, statuses, counts
     },
     count: { color: theme.colors.foregroundMuted, fontSize: 11 },
     hint: { color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 18 },
-    footer: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 10 },
+    footer: dialogFormStyles(theme).footer,
     link: { color: theme.colors.accent, fontSize: 13 },
-    primaryButton: { backgroundColor: theme.colors.accent, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
-    primaryLabel: { color: theme.colors.accentForeground, fontSize: 13 },
+    primaryButton: dialogFormStyles(theme).primaryButton,
+    primaryLabel: dialogFormStyles(theme).primaryLabel,
     disabledButton: { opacity: 0.5 },
   }), [theme]);
 
   return (
-    <Modal title={`选择状态列 · ${KIND_TITLES[kind]}`} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Modal theme={theme} size="small" title={`选择状态列 · ${KIND_TITLES[kind]}`} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Modal.Content>
         {statuses.length === 0 ? (
           <Text style={styles.hint}>暂无可选状态。</Text>

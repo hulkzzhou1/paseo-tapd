@@ -10,7 +10,7 @@ A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo works
 - Six permanent dropdown filters: status scope (all / unfinished / done), iteration, updated-within, owner, creator, and priority. People are searchable single-selects with exact-nickname fallback; priority supports multiple selections. Selections apply immediately and remain compatible with saved views. Severity, keyword, labels, and applied advanced conditions are also visible in the toolbar; Add Condition opens the field picker and value editor for workflow states and other dynamic fields.
 - Status scope follows each project’s workflow end states, including custom completed statuses; advanced status conditions intersect with the selected scope.
 - Views as reusable filter presets: built-in "Related to me" (owner, creator, developer, participator, watcher, or commenter, plus linked-task involvement), plus keyword, owner, creator, status scope, iteration, updated-within, priorities, bug severities, labels, and any field from the workspace's TAPD field definitions
-- Detail window with description, comments, open-in-TAPD, and copy-link; story details additionally list the tasks and bugs attached to the story (paginated, with a truncation hint past 200), and task/bug details link back to their parent story
+- Detail window up to 1040px wide with complete structured descriptions/comments, readable paragraph spacing, headings, lists, code and horizontally scrollable tables. Images and external links open only on click; story details additionally list the tasks and bugs attached to the story (paginated, with a truncation hint past 200), and task/bug details link back to their parent story
 - Task/bug cards show `#id` on its own line under the title plus a "story: title" chip; details-page child-list row titles show the full text in a hover tooltip
 - Dispatch to an agent: pick a repository and provider/model; the plugin creates a worktree workspace and starts an agent preloaded with the item snapshot, then tracks it from the card
 - Write back to TAPD: comments (plain text converted to HTML), workflow status changes from an anchored menu (select another status to apply immediately), and new item creation — story details can one-click create a task or bug under that story, prefilled with the parent (story_id) and the story's workspace; the mounted form lists the type's writable TAPD fields dynamically (dropdowns for enum/user fields, a month calendar with yesterday/today/tomorrow shortcuts for date-like fields), defaults the owner to the current token user, and its field layout (order + hidden) is kept per entity type and backed up via settings sync
@@ -162,6 +162,10 @@ MIT
 
 连接设置支持「API 地址」和「网页域名」：填写完整 HTTP(S) 地址，留空沿用 TAPD_API_ENDPOINT / TAPD_SITE_URL，再回退公共域名。测试连接使用尚未保存的 API 地址；保存后单据链接和新 Agent 会话使用新配置（不覆盖 Agent 已有变量）。两个地址仅保留本机，不随 Git 备份同步。
 
-设置弹窗在桌面端最大宽度为 900px，长内容在窗内滚动；窄窗口和原生移动端沿用 Paseo 的自适应面板。支持关闭按钮、点击遮罩及 Escape 关闭。
+弹窗统一标题、边距、边框和操作按钮：桌面详情最大宽 1040px、设置 900px、表单 800px、小型选择窗 520px，均受窗口边距和高度约束；窄屏单列并在窗内滚动，支持焦点约束、关闭按钮、遮罩和 Escape。详情内进入新建、评论、派发或绑定时只显示一个操作页，返回后恢复阅读位置；新建与评论存在未提交改动时确认是否放弃。
 
 标签采用有色边框、浅色底与圆点，文字保留主题前景色。状态按标签含义区分进行中、测试、完成和拒绝；优先级中紧急 / P0 / P1 为危险色，高 / P2 为警告色，中 / P3 为强调色，其余为中性色。完成卡片不再整体变淡。
+
+详情描述和已读取评论保留完整文字及标题、段落、列表、引用、链接、代码、表格结构，不再静默截成 4000 / 800 字；表格可横向滚动，图片只保留说明与点击查看原图入口，不自动加载。新建表单按基本信息、处理安排与扩展字段分区，保持个人字段顺序与隐藏设置，桌面分列、窄屏单列。
+
+Dialogs share one theme-aware shell with bounded widths and keyboard focus. Detail actions replace the reading page and return to its prior scroll position. New-item/comment drafts require confirmation before discarding. Creation fields stay visible in sections and preserve personal layout choices. Rich content is rendered as safe text structures; scripts/styles are ignored and images are never fetched automatically.

@@ -69,7 +69,7 @@ export function ColumnPickerModal({ open, onClose, theme, kind, statuses, counts
         ) : (
           statuses.map((status) => {
             const on = draft[status.value] === true;
-            const tone = statusTone(kind, status.value);
+            const tone = statusTone(kind, status.value, status.label);
             return (
               <Pressable
                 key={status.value}

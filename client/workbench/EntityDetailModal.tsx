@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions, type TextStyle, type ViewStyle } from "react-native";
 import { agentStatusRpc, entityRpc, type EntityKind, type TapdLink } from "../../shared/contracts";
 import { Chip, agentStatusColor, formatTime, formatIsoTime, type WorkbenchTheme } from "./bits";
-import { statusTone, toneColor } from "./status-tones";
+import { priorityTone, statusTone, toneColor } from "./status-tones";
 
 export interface DetailTarget {
   kind: EntityKind;
@@ -297,7 +297,7 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
   }
   if (!data) return null;
 
-  const tone = statusTone(data.kind, data.status);
+  const tone = statusTone(data.kind, data.status, data.statusLabel);
 
   return (
     <View style={{ gap: 12 }}>
@@ -367,7 +367,12 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
       </View>
       {metaRow("处理人", data.owner)}
       {metaRow("创建人", data.creator)}
-      {metaRow("优先级", data.priority)}
+      {data.priority ? (
+        <View style={styles.metaRow}>
+          <Text style={styles.metaLabel}>优先级</Text>
+          <Chip label={data.priority} theme={theme} color={toneColor(priorityTone(data.priority), theme)} />
+        </View>
+      ) : null}
       {metaRow("迭代", data.iterationName)}
       {metaRow("创建", data.createdAt)}
       {metaRow("更新", data.modifiedAt)}

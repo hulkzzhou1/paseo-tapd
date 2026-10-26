@@ -86,3 +86,13 @@ Checklist before pushing:
 - Bump `package.json` and `shared/version.ts` together; the update check compares the registry pin against `shared/version.ts`.
 - For visual changes, ship a refreshed screenshot only when the author provides one
   (desensitized); never capture or generate screenshots yourself.
+
+## Agent skills
+
+### Issue tracker
+
+Use GitHub Issues in the fork configured as `origin`; close implementation tickets through its integration PR. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Read `GLOSSARY.md` for the workbench's domain language and the originating design under `docs/superpowers/specs/`. Record an ADR only for a consequential trade-off.

@@ -17,12 +17,17 @@ async function main() {
     import {View,Text,Pressable} from 'react-native';
     import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
     import {FilterBar} from ${JSON.stringify(path.join(root, 'client/workbench/FilterBar.tsx'))};
+    import {ColumnPickerModal} from ${JSON.stringify(path.join(root, 'client/workbench/ColumnPickerModal.tsx'))};
     import {DEFAULT_FILTERS} from ${JSON.stringify(path.join(root, 'shared/contracts.ts'))};
     const theme={colors:{surface0:'#fff',surface1:'#f8fafc',surface2:'#e2e8f0',border:'#cbd5e1',foreground:'#0f172a',foregroundMuted:'#475569',accent:'#2563eb',accentForeground:'#fff',statusDanger:'#b91c1c'}};
     function App(){
+      const [columns,setColumns]=useState(null),[pickerOpen,setPickerOpen]=useState(false);
       const [filters,setFilters]=useState({...DEFAULT_FILTERS,ownerMode:'related'});
       return <View style={{padding:24,gap:8}}>
         <FilterBar theme={theme} filters={filters} onChange={patch=>setFilters(current=>({...current,...patch}))} onReset={()=>setFilters({...DEFAULT_FILTERS,ownerMode:'related'})}/>
+        <Pressable accessibilityRole="button" onPress={()=>setPickerOpen(true)}><Text>选择状态列</Text></Pressable>
+        <ColumnPickerModal open={pickerOpen} onClose={()=>setPickerOpen(false)} theme={theme} kind="story" statuses={[{value:'open',label:'待处理'},{value:'done',label:'已完成'}]} counts={{open:1}} current={columns} onSave={value=>{setColumns(value);setPickerOpen(false);}}/>
+        <Text accessibilityLabel="列选择结果">{JSON.stringify(columns)}</Text>
         <Text accessibilityLabel="筛选结果">{JSON.stringify(filters)}</Text>
         <Pressable accessibilityRole="button" onPress={()=>setFilters({...DEFAULT_FILTERS,statusScope:'active',iterationId:'saved-iteration',ownerMode:'custom',owner:'saved-owner',creator:'saved-creator',priorities:['saved-priority']})}><Text>切换已保存视图</Text></Pressable>
         <Pressable accessibilityRole="button" onPress={()=>setFilters({...DEFAULT_FILTERS,ownerMode:'custom',owner:'saved-member',creator:'saved-member'})}><Text>切换同成员视图</Text></Pressable>
@@ -162,8 +167,21 @@ async function main() {
       const box=await page.getByRole('dialog',{name:'处理人选项',exact:true}).boundingBox();
       assert.ok(box.x>=0&&box.y>=0&&box.x+box.width<=390&&box.y+box.height<=650);
       await page.keyboard.press('Escape');
+      await page.getByRole('button',{name:'选择状态列',exact:true}).click();
+      await page.getByRole('checkbox',{name:'待处理',exact:true,checked:true}).waitFor();
+      await page.getByRole('checkbox',{name:'已完成',exact:true,checked:false}).waitFor();
+      await page.getByRole('checkbox',{name:'已完成',exact:true}).click();
+      await page.getByText('保存',{exact:true}).click();
+      assert.deepEqual(JSON.parse(await page.getByLabel('列选择结果',{exact:true}).textContent()),['open','done']);
+      await page.getByRole('button',{name:'选择状态列',exact:true}).click();
+      await page.getByRole('checkbox',{name:'已完成',exact:true,checked:true}).waitFor();
+      await page.getByText('恢复默认（隐藏空列）',{exact:true}).click();
+      assert.equal(await page.getByLabel('列选择结果',{exact:true}).textContent(),'null');
+      await page.getByRole('button',{name:'选择状态列',exact:true}).click();
+      await page.getByRole('checkbox',{name:'已完成',exact:true,checked:false}).waitFor();
+      await page.getByRole('button',{name:'关闭条件编辑器',exact:true}).click();
       assert.deepEqual(errors,[]);
-      console.log('PASS inline FilterBar public interactions: all filters visible, seven dropdowns, combined immediate filters, lazy shared members/retry/exact nickname, owner modes, multi-select, saved values/reset, inline keyword/label/severity/advanced workflow state, mobile wrapping');
+      console.log('PASS inline FilterBar public interactions: all filters visible, seven dropdowns, combined immediate filters, lazy shared members/retry/exact nickname, owner modes, multi-select, saved values/reset, inline keyword/label/severity/advanced workflow state, mobile wrapping, column defaults/explicit selection/reset');
     } finally {if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
   } finally {rmSync(temp,{recursive:true,force:true});}
 }

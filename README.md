@@ -6,7 +6,7 @@ A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo works
 
 ## Features
 
-- Aggregate tab (stories / tasks / bugs side by side, flat by default, with optional collapsible status groups) plus one tab per type with a status-column kanban; selectable columns, theme-aware status, type, and priority badges, and starred pinning
+- Aggregate tab (stories / tasks / bugs side by side, flat by default, with optional collapsible status groups) plus one tab per type with a status-column kanban; empty columns hidden by default with explicit column selection preserved, theme-aware status, type, and priority badges, and starred pinning
 - Six permanent dropdown filters: status scope (all / unfinished / done), iteration, updated-within, owner, creator, and priority. People are searchable single-selects with exact-nickname fallback; priority supports multiple selections. Selections apply immediately and remain compatible with saved views. Severity, keyword, labels, and applied advanced conditions are also visible in the toolbar; Add Condition opens the field picker and value editor for workflow states and other dynamic fields.
 - Status scope follows each project’s workflow end states, including custom completed statuses; advanced status conditions intersect with the selected scope.
 - Views as reusable filter presets: built-in "Related to me" (owner, creator, developer, participator, watcher, or commenter, plus linked-task involvement), plus keyword, owner, creator, status scope, iteration, updated-within, priorities, bug severities, labels, and any field from the workspace's TAPD field definitions
@@ -82,6 +82,7 @@ MIT
 ## 功能
 
 - 聚合页签（需求 / 任务 / 缺陷三栏并排，默认平铺，可通过「分组」按钮开启状态分组折叠）+ 每个类型一个独立页签的状态列看板；列可自选、状态、类型和优先级标签用主题色区分，卡片直接显示状态、卡片可加星置顶
+- 单类型看板默认隐藏空状态列；「列」中仍可查看全部状态和数量、显式选择空列，或恢复默认。已保存的列选择继续保留。
 - 顶部常驻六项下拉筛选：状态范围（全部 / 未结束 / 已结束）、迭代、更新时间、处理人、创建人、优先级；人员支持搜索单选及准确昵称输入，优先级支持多选。选择即时生效，旧视图中的选择继续保留；严重程度、关键词、标签和已添加的高级条件也直接显示在顶部，不再提供「更多筛选」入口。具体工作流状态及其他动态字段通过「添加条件」选择。
 - 状态范围按各项目的工作流结束状态判断，支持自定义完成状态；高级条件中的状态条件与所选范围取交集。
 - 视图 = 可复用的过滤预设：内置「我相关的」（负责人、创建人、开发、参与、关注或评论过，以及关联任务涉及我），另支持关键词、负责人、创建人、状态范围、迭代、最近更新时间、优先级、缺陷严重程度、标签，以及工作区 TAPD 字段定义中的任意字段

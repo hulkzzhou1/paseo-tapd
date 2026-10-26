@@ -1,8 +1,8 @@
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import type { PluginSurfaceProps, SettingsState } from "@getpaseo/plugin/client";
-import { Modal, useToast } from "@getpaseo/plugin/client/react-native";
+import { Icon, Modal, useToast } from "@getpaseo/plugin/client/react-native";
 import { useMemo, useState } from "react";
-import { ActivityIndicator, Text, View, type TextStyle, type ViewStyle } from "react-native";
+import { ActivityIndicator, Modal as NativeModal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions, type TextStyle, type ViewStyle } from "react-native";
 import {
   SettingsAction,
   SettingsCard,
@@ -11,7 +11,7 @@ import {
   SettingsSection,
   SettingsSwitch,
 } from "@getpaseo/plugin/client/ui";
-import { checkRpc, syncPullRpc, syncPushRpc, tapdSettings } from "../../shared/contracts";
+import { checkRpc, syncPullRpc, syncPushRpc, tapdSettings, tapdBaseUrlSchema } from "../../shared/contracts";
 import { PLUGIN_VERSION } from "../../shared/version";
 import type { WorkbenchTheme } from "./bits";
 import { ViewsSection, type ReadySettings } from "./ViewsSection";
@@ -25,6 +25,33 @@ export function SettingsModal({ open, onClose, theme }: {
   onClose: () => void;
   theme: WorkbenchTheme;
 }) {
+  const { width, height } = useWindowDimensions();
+  // SDK Modal 的桌面宽度固定；原生 Modal 在 web 保留焦点约束、Escape 和焦点恢复。
+  if (Platform.OS === "web" && width >= 768) {
+    return (
+      <NativeModal visible={open} transparent animationType="none" onRequestClose={onClose}>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <Pressable
+            accessibilityLabel="关闭设置"
+            accessibilityRole="button"
+            onPress={onClose}
+            style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: theme.colors.foreground, opacity: 0.3 }}
+          />
+          <View style={{ width: Math.min(900, width - 48), maxHeight: height - 48, backgroundColor: theme.colors.surface0, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 16, overflow: "hidden" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 24, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+              <Text accessibilityRole="header" style={{ flex: 1, color: theme.colors.foreground, fontSize: 18, fontWeight: "600" }}>TAPD 工作台设置</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="关闭设置" onPress={onClose} style={{ padding: 10, borderRadius: 8 }}>
+                <Icon name="X" size={20} color={theme.colors.foregroundMuted} />
+              </Pressable>
+            </View>
+            <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ padding: 24 }}>
+              <SettingsBody theme={theme} />
+            </ScrollView>
+          </View>
+        </View>
+      </NativeModal>
+    );
+  }
   return (
     <Modal
       title="TAPD 工作台设置"
@@ -70,6 +97,8 @@ function SettingsBody({ theme }: { theme: WorkbenchTheme }) {
 
 function SettingsEditor({ settings, theme }: { settings: ReadySettings; theme: WorkbenchTheme }) {
   const [token, setToken] = useState(settings.values.token);
+  const [apiEndpoint, setApiEndpoint] = useState(settings.values.apiEndpoint);
+  const [siteUrl, setSiteUrl] = useState(settings.values.siteUrl);
   const [workspaceIds, setWorkspaceIds] = useState(settings.values.workspaceIds);
   const [autoRefresh, setAutoRefresh] = useState(String(settings.values.autoRefreshSeconds || ""));
   const [checkState, setCheckState] = useState<{ ok: boolean; message: string } | null>(null);
@@ -83,10 +112,19 @@ function SettingsEditor({ settings, theme }: { settings: ReadySettings; theme: W
     return Math.max(30, Math.min(3600, parsed));
   }
 
+  function validAddresses(): boolean {
+    if (tapdBaseUrlSchema.safeParse(apiEndpoint.trim()).success && tapdBaseUrlSchema.safeParse(siteUrl.trim()).success) return true;
+    toast.error("地址需为完整 HTTP(S) URL，不能包含账号、密码、查询参数或片段");
+    return false;
+  }
+
   async function save() {
+    if (!validAddresses()) return;
     const ok = await settings.save(
       {
         ...settings.values,
+        apiEndpoint: apiEndpoint.trim(),
+        siteUrl: siteUrl.trim(),
         token: token.trim(),
         workspaceIds: workspaceIds.trim(),
         autoRefreshSeconds: parseAutoRefresh(),
@@ -98,12 +136,15 @@ function SettingsEditor({ settings, theme }: { settings: ReadySettings; theme: W
   }
 
   async function testConnection() {
+    if (!validAddresses()) return;
     setTesting(true);
     setCheckState(null);
     try {
       const result = await check({
-        token: token.trim() || undefined,
-        workspaceIds: workspaceIds.trim() || undefined,
+        apiEndpoint: apiEndpoint.trim(),
+        siteUrl: siteUrl.trim(),
+        token: token.trim(),
+        workspaceIds: workspaceIds.trim(),
       });
       setCheckState({ ok: result.ok, message: result.message });
     } catch (error) {
@@ -122,6 +163,20 @@ function SettingsEditor({ settings, theme }: { settings: ReadySettings; theme: W
     <View style={{ gap: 16 }}>
       <SettingsSection title="连接">
         <SettingsCard>
+          <SettingsInput
+            label="API 地址"
+            hint="凭证会发送到此地址。留空使用 TAPD_API_ENDPOINT，默认 https://api.tapd.cn"
+            placeholder="https://api.tapd.cn"
+            initialValue={settings.values.apiEndpoint}
+            onChangeText={setApiEndpoint}
+          />
+          <SettingsInput
+            label="网页域名"
+            hint="用于单据链接。留空使用 TAPD_SITE_URL，默认 https://www.tapd.cn；请包含 https://"
+            placeholder="https://www.tapd.cn"
+            initialValue={settings.values.siteUrl}
+            onChangeText={setSiteUrl}
+          />
           <SettingsInput
             label="API Token"
             hint="留空则使用 daemon 环境变量 TAPD_TOKEN；填写后以明文 JSON 保存在 daemon，可被本机设置页读取"
@@ -281,7 +336,7 @@ function SyncSettingsSection({ settings, theme }: { settings: ReadySettings; the
           onPress={() => void runSync("pull")}
         />
         <Text style={hintStyle}>
-          同步内容：视图、收藏、看板列、关联记录、Agent 自动回评开关等设置。不推送的隐私字段：TAPD Token、项目 ID、Git 令牌、派活仓库路径，均只保留在本机。
+          同步内容：视图、收藏、看板列、关联记录、Agent 自动回评开关等设置。不推送的隐私字段：TAPD Token、API 地址、网页域名、项目 ID、Git 令牌、派活仓库路径，均只保留在本机。
         </Text>
       </SettingsCard>
     </SettingsSection>

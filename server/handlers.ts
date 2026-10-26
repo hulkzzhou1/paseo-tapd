@@ -170,8 +170,10 @@ export function createHandlers(getValues: GetValues) {
       const values = await getValues();
       const merged: TapdSettingsValues = {
         ...values,
-        token: input.token?.trim() ? input.token.trim() : values.token,
-        workspaceIds: input.workspaceIds?.trim() ? input.workspaceIds.trim() : values.workspaceIds,
+        token: input.token === undefined ? values.token : input.token.trim(),
+        workspaceIds: input.workspaceIds === undefined ? values.workspaceIds : input.workspaceIds.trim(),
+        apiEndpoint: input.apiEndpoint === undefined ? values.apiEndpoint : input.apiEndpoint.trim(),
+        siteUrl: input.siteUrl === undefined ? values.siteUrl : input.siteUrl.trim(),
       };
       const config = resolveConfig(merged);
       if (config.token.length === 0) {

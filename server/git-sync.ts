@@ -18,10 +18,10 @@ export interface SyncSettingsAccess {
 /**
  * 隐私最小化：不进仓库的字段 =
  *  - 密钥：TAPD token、Git token
- *  - 本机/私有标识：项目 ID、派活默认仓库路径
+ *  - 本机/私有标识：项目 ID、派活默认仓库路径、TAPD 地址
  * 其余（视图、收藏、看板列、关联记录、开关等）作为同步内容
  */
-const EXCLUDED_KEYS = ["token", "syncGitToken", "workspaceIds", "lastRepoPath"] as const;
+const EXCLUDED_KEYS = ["token", "syncGitToken", "workspaceIds", "lastRepoPath", "apiEndpoint", "siteUrl"] as const;
 
 export function managedValues(values: TapdSettingsValues): Record<string, unknown> {
   const rest = { ...values } as Record<string, unknown>;

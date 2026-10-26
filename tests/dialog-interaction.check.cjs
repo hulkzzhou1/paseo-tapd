@@ -2,7 +2,7 @@
 // Run with PASEO_APP_DIR pointing to an existing Paseo app checkout.
 const assert = require('node:assert/strict');
 const { createRequire } = require('node:module');
-const { mkdtempSync, writeFileSync, rmSync } = require('node:fs');
+const { mkdtempSync, writeFileSync, readFileSync, rmSync } = require('node:fs');
 const { tmpdir } = require('node:os');
 const path = require('node:path');
 const http = require('node:http');
@@ -37,8 +37,8 @@ async function main() {
     export const useSettings=()=>({status:'ready',values:window.settings,revision:1,save:async values=>{window.settings=values;return true;},reset:async()=>{},reload:async()=>{}});
     const Setting=({children,title,label})=><View><Text>{title||label||''}</Text>{children}</View>;
     export const SettingsAction=Setting,SettingsCard=Setting,SettingsInput=Setting,SettingsRow=Setting,SettingsSection=Setting,SettingsSwitch=Setting;
-    const html='<h2>阅读标题</h2><p>完整段落 <strong>重点文字</strong> 与 <a href="https://example.com/help">参考链接</a></p><ul><li>第一条要求</li></ul><pre><code>sample code</code></pre><table><tr><th>字段</th><td><p>示例值</p><p>第二行</p></td></tr></table><img src="/image.png" alt="示例图片"><script>不应显示的脚本</script>'+('<p>较长正文用于验证阅读位置和完整内容。</p>'.repeat(80))+'<p>最末尾完整描述</p>';
-    const item={kind:'story',id:'12345678',workspaceId:'12345678',title:'示例需求',url:'https://example.com/project/item',status:'open',statusLabel:'待处理',owner:'example-member',creator:'example-creator',priority:'高',iterationName:'示例迭代',createdAt:'2026-01-01',modifiedAt:'2026-01-02',modified:'2026-01-02',done:false,description:'plain snapshot',descriptionHtml:html,comments:[{id:'11111111',author:'example-member',createdAt:'2026-01-02',text:'示例评论',html:'<p>示例评论</p>'}],commentsError:null,childTasks:[],childBugs:[],childTasksTotal:0,childBugsTotal:0,parentStory:null};
+    const html='<h2>阅读标题</h2><p>完整段落 <strong>重点文字</strong> 与 <a href="https://example.com/help">参考链接</a></p><ul><li>第一条要求</li></ul><pre><code>sample code</code><img src="/image.png" alt="代码旁图片"></pre><table><tr><th>字段</th><td><p>示例值</p><p>第二行<img src="/image.png" alt="表格图片"></p></td></tr></table><p>图片前文 <strong>重点在前<img src="/image.png" alt="示例图片">重点在后</strong> 图片后文</p><p><a href="/retry-image.png"><img src="/retry-image.png" alt="重试图片"></a></p><script>不应显示的脚本</script>'+('<p>较长正文用于验证阅读位置和完整内容。</p>'.repeat(80))+'<p>最末尾完整描述</p>';
+    const item={kind:'story',id:'12345678',workspaceId:'12345678',title:'示例需求',url:window.location.origin+'/project/item',status:'open',statusLabel:'待处理',owner:'example-member',creator:'example-creator',priority:'高',iterationName:'示例迭代',createdAt:'2026-01-01',modifiedAt:'2026-01-02',modified:'2026-01-02',done:false,description:'plain snapshot',descriptionHtml:html,comments:[{id:'11111111',author:'example-member',createdAt:'2026-01-02',text:'示例评论',html:'<p>示例评论</p><p><img src="/image.png" alt="评论图片"></p>'}],commentsError:null,childTasks:[],childBugs:[],childTasksTotal:0,childBugsTotal:0,parentStory:null};
     export const useRpc=rpc=>async input=>{
       window.calls=(window.calls||[]).concat({name:rpc.name,input});
       if(rpc.name==='tapd.board')return {fetchedAt:'2026-01-02',stale:false,me:{nick:'example-member'},columns:{story:{items:[item],total:1,truncated:false,error:null},task:{items:[],total:0,error:null},bug:{items:[],total:0,error:null}}};
@@ -57,7 +57,21 @@ async function main() {
     const host = path.join(temp, 'host.tsx');
     const result = fromApp('esbuild').buildSync({stdin:{contents:entry,loader:'tsx',resolveDir:root},bundle:true,write:false,define:{'process.env.NODE_ENV':'"development"'},alias:{react:fromApp.resolve('react'),'react/jsx-runtime':fromApp.resolve('react/jsx-runtime'),'react-dom/client':fromApp.resolve('react-dom/client'),'react-dom':fromApp.resolve('react-dom'),'react-native':fromApp.resolve('react-native-web'),'@getpaseo/plugin':host,'@getpaseo/plugin/client':host,'@getpaseo/plugin/client/react-native':host,'@getpaseo/plugin/client/ui':host},logLevel:'silent'});
     const script = result.outputFiles[0].text;
-    const server = http.createServer((req,res)=>{res.setHeader('content-type',req.url==='/app.js'?'text/javascript':'text/html');res.end(req.url==='/app.js'?script:'<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#root{height:100%;margin:0}#root{display:flex}</style><div id="root"></div><script src="/app.js"></script>');});
+    let allowImageRetry=false, imageAuthHeaderSeen=false, releaseImages;
+    const imagesReady=new Promise(resolve=>{releaseImages=resolve;});
+    const server = http.createServer(async(req,res)=>{
+      if(req.url==='/allow-image-load'){releaseImages();res.end('ok');return;}
+      if(req.url==='/allow-image-retry'){allowImageRetry=true;res.end('ok');return;}
+      if(req.url==='/image.png'||req.url==='/retry-image.png'){
+        imageAuthHeaderSeen=imageAuthHeaderSeen||!!req.headers.authorization;
+        if(req.url==='/image.png')await imagesReady;
+        res.setHeader('cache-control','no-store');
+        if(req.url==='/retry-image.png'&&!allowImageRetry){res.statusCode=503;res.end();return;}
+        res.setHeader('content-type','image/png');res.end(readFileSync(path.join(root,'assets/icon.png')));return;
+      }
+      res.setHeader('content-type',req.url==='/app.js'?'text/javascript':'text/html');
+      res.end(req.url==='/app.js'?script:'<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#root{height:100%;margin:0}#root{display:flex}</style><div id="root"></div><script src="/app.js"></script>');
+    });
     await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
     let browser;
     try {
@@ -72,6 +86,29 @@ async function main() {
       const detail=page.getByRole('dialog',{name:'#12345678 · 单据详情',exact:true});
       await detail.getByRole('heading',{name:'阅读标题',exact:true}).waitFor();
       assert.equal(await page.getByRole('dialog').count(),1);
+      assert.equal(await detail.getByRole('img',{name:'示例图片',exact:true}).count(),1,'description must contain an inline image, not only a text link');
+      await detail.getByRole('img',{name:'示例图片',exact:true}).waitFor();
+      await detail.getByText('图片加载中…',{exact:true}).first().waitFor();
+      await page.evaluate(()=>fetch('/allow-image-load'));
+      await page.waitForFunction(()=>document.querySelector('[aria-label="示例图片"] img')?.naturalWidth>0);
+      await detail.getByText('图片加载中…',{exact:true}).first().waitFor({state:'hidden'});
+      const imageBox=await detail.getByRole('img',{name:'示例图片',exact:true}).boundingBox();
+      assert.ok(imageBox.width>0&&imageBox.width<=760&&imageBox.height>0);
+      for(const name of ['评论图片','表格图片','代码旁图片']) assert.equal(await detail.getByRole('img',{name,exact:true}).count(),1,'all supported content containers share inline images');
+      const intrinsic=await page.evaluate(()=>{const image=document.querySelector('[aria-label="示例图片"] img');return {width:image.naturalWidth,height:image.naturalHeight};});
+      assert.ok(Math.abs(imageBox.width/imageBox.height-intrinsic.width/intrinsic.height)<0.02, JSON.stringify({imageBox,intrinsic}));
+      await detail.getByText('图片加载失败',{exact:true}).waitFor();
+      await page.evaluate(()=>fetch('/allow-image-retry'));
+      await detail.getByRole('button',{name:'重试加载图片：重试图片',exact:true}).click();
+      await page.waitForFunction(()=>document.querySelector('[aria-label="重试图片"] img')?.naturalWidth>0);
+      await detail.getByText('图片加载失败',{exact:true}).waitFor({state:'hidden'});
+      const imageOrder=await detail.getByRole('img',{name:'示例图片',exact:true}).evaluate(image=>{
+        const before=[...document.querySelectorAll('*')].find(e=>e.childNodes.length===1&&e.firstChild.nodeType===3&&e.textContent==='重点在前');
+        const after=[...document.querySelectorAll('*')].find(e=>e.childNodes.length===1&&e.firstChild.nodeType===3&&e.textContent==='重点在后');
+        return {before:!!(before.compareDocumentPosition(image)&Node.DOCUMENT_POSITION_FOLLOWING),after:!!(image.compareDocumentPosition(after)&Node.DOCUMENT_POSITION_FOLLOWING)};
+      });
+      assert.deepEqual(imageOrder,{before:true,after:true});
+
       const panel=await page.getByTestId('workbench-dialog-panel').boundingBox();
       const close=detail.getByRole('button',{name:'关闭#12345678 · 单据详情',exact:true}).last();
       await close.focus();
@@ -86,7 +123,7 @@ async function main() {
       await page.keyboard.press('Enter');
       await page.waitForFunction(()=>window.openedUrls?.length===2);
       await detail.getByRole('link',{name:/示例图片/}).click();
-      assert.deepEqual(await page.evaluate(()=>window.openedUrls),['https://example.com/help','https://example.com/image.png','https://example.com/image.png']);
+      assert.deepEqual(await page.evaluate(()=>window.openedUrls),['https://example.com/help',new URL('/image.png',page.url()).href,new URL('/image.png',page.url()).href]);
       assert.deepEqual(remote,[]);
       const body=detail.getByText('最末尾完整描述',{exact:true});await body.waitFor();
       const scrollTop=await body.evaluate(e=>{let p=e.parentElement;while(p&&p.scrollHeight<=p.clientHeight+1)p=p.parentElement;p.scrollTop=220;p.dispatchEvent(new Event('scroll'));return p.scrollTop;});
@@ -131,6 +168,9 @@ async function main() {
       const created=(await calls('tapd.create')).at(-1).input;assert.equal(created.storyId,'12345678');assert.equal(created.workspaceId,'12345678');
       await page.setViewportSize({width:390,height:680});await page.evaluate(()=>window.setNight());
       const compact=await page.getByTestId('workbench-dialog-panel').boundingBox();assert.ok(compact.x>=8&&compact.x+compact.width<=382&&compact.y>=8&&compact.y+compact.height<=672);
+      const narrowImage=await page.getByRole('img',{name:'示例图片',exact:true}).boundingBox();
+      assert.ok(narrowImage.x>=0&&narrowImage.x+narrowImage.width<=390);
+      assert.equal(imageAuthHeaderSeen,false);
       assert.deepEqual(remote,[]);assert.deepEqual(errors,[]);
       await page.keyboard.press('Escape');await page.getByRole('dialog').waitFor({state:'hidden'});
       await page.getByRole('button',{name:'新建',exact:true}).click();
@@ -138,7 +178,7 @@ async function main() {
       const narrowOwner=await create.getByLabel('处理人',{exact:true}).boundingBox();
       assert.ok(Math.abs(narrowTitle.width-narrowOwner.width)<2);
       await page.keyboard.press('Escape');await page.getByRole('dialog').waitFor({state:'hidden'});
-      console.log('PASS workbench dialog consumer: complete structured reading, safe image links and Enter activation, desktop/compact dark bounds, single visible page, return scroll, discard/continue, create/comment error retry, project semantics, dispatch/bind return, Escape');
+      console.log('PASS workbench dialog consumer: complete structured reading, inline image load/error/retry/order/size and original-link keyboard activation, desktop/compact dark bounds, single visible page, return scroll, discard/continue, create/comment error retry, project semantics, dispatch/bind return, Escape');
     } finally {if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
   } finally {rmSync(temp,{recursive:true,force:true});}
 }

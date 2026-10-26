@@ -1,7 +1,7 @@
 {
   "id": "tapd-workbench",
   "name": "TAPD Workbench",
-  "description": "在 Paseo 中查看与处理 TAPD：默认平铺聚合、全部筛选常驻、默认隐藏空列、完整正文阅读与统一弹窗、状态菜单与 Agent 派活 / TAPD workbench with flat aggregate lists, inline filters, nonempty columns by default, structured reading, consistent dialogs, a status menu and agent dispatch",
+  "description": "在 Paseo 中查看与处理 TAPD：默认平铺聚合、全部筛选常驻、默认隐藏空列、完整正文与内嵌图片阅读、统一弹窗、状态菜单与 Agent 派活 / TAPD workbench with flat aggregate lists, inline filters, nonempty columns by default, structured reading with inline images, consistent dialogs, a status menu and agent dispatch",
   "media": [
     "assets/screenshots/workbench-v2.png"
   ],

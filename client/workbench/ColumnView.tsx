@@ -5,7 +5,7 @@ import { ScrollView, Pressable, Text, View, type TextStyle, type ViewStyle } fro
 import { boardRpc } from "../../shared/contracts";
 import { Chip, agentStatusColor, formatTime, type WorkbenchTheme } from "./bits";
 import type { AgentStatusItem } from "./EntityDetailModal";
-import { statusTone, toneColor } from "./status-tones";
+import { kindColor, priorityTone, statusTone, toneColor } from "./status-tones";
 
 type BoardData = RpcOutput<typeof boardRpc>;
 export type BoardEntityItem = BoardData["columns"]["story"]["items"][number];
@@ -41,7 +41,7 @@ export function StatusColumn({ kind, status, label, items, theme, width, favorit
 }) {
   const ordered = useMemo(() => sortPinnedFirst(items, favorites), [items, favorites]);
 
-  const tone = statusTone(kind, status);
+  const tone = statusTone(kind, status, label, items[0]?.done);
 
   const styles = useMemo<{ column: ViewStyle; header: ViewStyle; count: TextStyle; list: ViewStyle; empty: TextStyle }>(() => ({
     column: {
@@ -111,7 +111,6 @@ function EntityCard({ entity, theme, pinned, linked, status, onTogglePinned, onP
       borderRadius: 8,
       padding: 10,
       gap: 6,
-      opacity: entity.done ? 0.7 : 1,
     },
     titleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
     title: { color: theme.colors.foreground, fontSize: 13, lineHeight: 18, flex: 1 },
@@ -120,7 +119,7 @@ function EntityCard({ entity, theme, pinned, linked, status, onTogglePinned, onP
     subRow: { flexDirection: "row", alignItems: "center", gap: 8 },
     sub: { color: theme.colors.foregroundMuted, fontSize: 11, flex: 1 },
     storyChip: { color: theme.colors.foregroundMuted, fontSize: 10 },
-  }), [theme, entity.done]);
+  }), [theme]);
 
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={styles.card}>
@@ -134,6 +133,7 @@ function EntityCard({ entity, theme, pinned, linked, status, onTogglePinned, onP
       </View>
       <Text style={styles.idText}>#{entity.id}</Text>
       <View style={styles.meta}>
+        <Chip label={entity.statusLabel} theme={theme} color={toneColor(statusTone(entity.kind, entity.status, entity.statusLabel, entity.done), theme)} />
         {linked ? (
           <Chip
             label="已关联"
@@ -142,7 +142,7 @@ function EntityCard({ entity, theme, pinned, linked, status, onTogglePinned, onP
             dot={status?.status ? agentStatusColor(status.status, theme) : undefined}
           />
         ) : null}
-        {entity.priority ? <Chip label={entity.priority} theme={theme} /> : null}
+        {entity.priority ? <Chip label={entity.priority} theme={theme} color={toneColor(priorityTone(entity.priority), theme)} /> : null}
         {entity.iterationName ? <Chip label={entity.iterationName} theme={theme} /> : null}
         {entity.kind !== "story" && entity.storyTitle ? (
           <Chip label={`需求：${entity.storyTitle}`} theme={theme} tone="muted" style={{ maxWidth: "100%" }} />
@@ -250,7 +250,7 @@ export function KindColumn({ kind, label, items, total, truncated, theme, flex, 
   return (
     <View style={styles.column}>
       <View style={styles.header}>
-        <Text style={styles.title}>{label}</Text>
+        <Chip label={label} theme={theme} color={kindColor(kind, theme)} />
         <Text style={styles.count}>
           {truncated ? `${items.length} / 共 ${total} 条` : `共 ${total} 条`}
         </Text>
@@ -261,7 +261,7 @@ export function KindColumn({ kind, label, items, total, truncated, theme, flex, 
         <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={styles.list}>
           {entries.map((entry) => {
             if (entry.type === "header") {
-              const tone = statusTone(kind, entry.group.status);
+              const tone = statusTone(kind, entry.group.status, entry.group.label, entry.group.done);
               return (
                 <Pressable key={entry.entryKey} accessibilityRole="button" style={styles.groupHeader} onPress={() => toggleGroup(entry.group.status)}>
                   <Icon

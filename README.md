@@ -6,7 +6,7 @@ A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo works
 
 ## Features
 
-- Aggregate tab (stories / tasks / bugs side by side, with collapsible status groups) plus one tab per type with a status-column kanban; selectable columns, colored status labels, and starred pinning
+- Aggregate tab (stories / tasks / bugs side by side, with collapsible status groups) plus one tab per type with a status-column kanban; selectable columns, theme-aware status, type, and priority badges, and starred pinning
 - Views as reusable filter presets: built-in "Related to me" (owner, creator, developer, participator, watcher, or commenter, plus linked-task involvement), plus keyword, owner, creator, status scope, iteration, updated-within, priorities, bug severities, labels, and any field from the workspace's TAPD field definitions
 - Detail window with description, comments, open-in-TAPD, and copy-link; story details additionally list the tasks and bugs attached to the story (paginated, with a truncation hint past 200), and task/bug details link back to their parent story
 - Task/bug cards show `#id` on its own line under the title plus a "story: title" chip; details-page child-list row titles show the full text in a hover tooltip
@@ -56,6 +56,7 @@ Pick an agent from the item detail window to link the item to that conversation.
 
 ```bash
 npm install
+npm test                                          # Node.js 22.18+
 npm run typecheck
 npm run lint                                       # React Hooks rule check
 paseo plugin install /absolute/path/to/this/repo   # install from a local directory
@@ -76,7 +77,7 @@ MIT
 
 ## 功能
 
-- 聚合页签（需求 / 任务 / 缺陷三栏并排，按状态分组可折叠）+ 每个类型一个独立页签的状态列看板；列可自选、状态标签带颜色、卡片可加星置顶
+- 聚合页签（需求 / 任务 / 缺陷三栏并排，按状态分组可折叠）+ 每个类型一个独立页签的状态列看板；列可自选、状态、类型和优先级标签用主题色区分，卡片直接显示状态、卡片可加星置顶
 - 视图 = 可复用的过滤预设：内置「我相关的」（负责人、创建人、开发、参与、关注或评论过，以及关联任务涉及我），另支持关键词、负责人、创建人、状态范围、迭代、最近更新时间、优先级、缺陷严重程度、标签，以及工作区 TAPD 字段定义中的任意字段
 - 单据详情浮窗：描述、评论、在 TAPD 中打开、复制链接；需求详情额外展示该需求下挂的任务列表与缺陷列表（分页展示，超过 200 条时显示「前 200 / 共 N 条」截断提示，点击可切换到对应单据详情）；任务/缺陷详情显示所属需求入口；关联的 Agent 以名称显示并实时展示状态与最近工作结果
 - 任务/缺陷卡片把 `#id` 独立展示在标题下一行，并显示「需求：所属需求」标识；详情浮窗中子单据列表行标题悬停时在行内展开全文
@@ -133,6 +134,7 @@ paseo plugin add git:<repo-url>
 
 ```bash
 npm install
+npm test                                          # Node.js 22.18+
 npm run typecheck
 npm run lint                                       # React Hooks 规则检查
 paseo plugin install /本仓库的绝对路径               # 从本地目录安装
@@ -142,3 +144,5 @@ paseo plugin reload tapd-workbench                 # 修改后重新加载
 ## 许可证
 
 MIT
+
+标签采用有色边框、浅色底与圆点，文字保留主题前景色。状态按标签含义区分进行中、测试、完成和拒绝；优先级中紧急 / P0 / P1 为危险色，高 / P2 为警告色，中 / P3 为强调色，其余为中性色。完成卡片不再整体变淡。

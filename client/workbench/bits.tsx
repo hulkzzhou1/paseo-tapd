@@ -48,7 +48,7 @@ export function Chip({ label, theme, tone = "plain", active = false, color, onPr
   theme: WorkbenchTheme;
   tone?: "plain" | "muted" | "accent";
   active?: boolean;
-  /** 指定色相：浅色半透明底 + 同色文字。未指定时沿用 tone 的灰/强调样式。 */
+  /** 色相用于底色、边框和圆点，文字沿用主题前景色以保证可读性。 */
   color?: string;
   onPress?: () => void;
   /** 外层附加样式（如 maxWidth 限制超长标签省略） */
@@ -57,21 +57,25 @@ export function Chip({ label, theme, tone = "plain", active = false, color, onPr
   dot?: string;
 }) {
   const styles = useMemo<{ chip: ViewStyle; text: TextStyle }>(() => {
-    if (color) {
+    if (color && !active) {
       return {
         chip: {
-          backgroundColor: withAlpha(color, 16) ?? theme.colors.surface2,
+          backgroundColor: withAlpha(color, 18) ?? theme.colors.surface2,
+          borderColor: color,
+          borderWidth: 1,
           borderRadius: 6,
           paddingHorizontal: 8,
           paddingVertical: 3,
         },
-        text: { color, fontSize: 12 },
+        text: { color: theme.colors.foreground, fontSize: 12, fontWeight: "600" },
       };
     }
     const isAccent = tone === "accent" || active;
     return {
       chip: {
         backgroundColor: isAccent ? theme.colors.accent : theme.colors.surface2,
+        borderColor: isAccent ? theme.colors.accent : "transparent",
+        borderWidth: 1,
         borderRadius: 6,
         paddingHorizontal: 8,
         paddingVertical: 3,
@@ -88,7 +92,7 @@ export function Chip({ label, theme, tone = "plain", active = false, color, onPr
   }, [theme, tone, active, color]);
   const body = (
     <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-      {dot ? <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: dot }} /> : null}
+      {(dot || color) ? <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: dot || (active ? theme.colors.accentForeground : color) }} /> : null}
       <Text style={styles.text} numberOfLines={1}>
         {label}
       </Text>
@@ -96,7 +100,7 @@ export function Chip({ label, theme, tone = "plain", active = false, color, onPr
   );
   if (onPress) {
     return (
-      <Pressable accessibilityRole="button" onPress={onPress} style={[styles.chip, style]}>
+      <Pressable accessibilityRole="button" accessibilityState={{ selected: active }} onPress={onPress} style={[styles.chip, style]}>
         {body}
       </Pressable>
     );

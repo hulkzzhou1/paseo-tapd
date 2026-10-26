@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View, type TextStyle, type ViewStyle } from "react-native";
 import { agentStatusRpc, boardRpc, effectiveViews, filterOptionsRpc, resolveView, tapdSettings, updateCheckRpc, type EntityKind, type TapdFilters, type TapdLink, type TapdView } from "../../shared/contracts";
 import { Chip, ToolbarButton } from "./bits";
+import { kindColor } from "./status-tones";
 import { BindAgentModal } from "./BindAgentModal";
 import { ColumnPickerModal } from "./ColumnPickerModal";
 import { KindColumn, StatusColumn, type BoardEntityItem } from "./ColumnView";
@@ -478,6 +479,7 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
                 key={kind}
                 label={`${KIND_TITLES[kind]} ${board.data.columns[kind].items.length}`}
                 theme={theme}
+                color={kindColor(kind, theme)}
                 active={activeTab === kind}
                 onPress={() => setActiveTab(kind)}
               />

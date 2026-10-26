@@ -1,100 +1,74 @@
 import { useRpc } from "@getpaseo/plugin/client";
-import { Icon, Modal, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
+import { Modal, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
-import { addCommentRpc, filterOptionsRpc, updateStatusRpc, type EntityKind } from "../../shared/contracts";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
+import { addCommentRpc, statusOptionsRpc, updateStatusRpc, type EntityKind } from "../../shared/contracts";
 import { type WorkbenchTheme } from "./bits";
+import { Dropdown } from "./Dropdown";
 
-/** 快捷修改单据状态（状态选项来自字段信息，动态获取） */
-export function StatusModal({ open, onClose, theme, kind, id, workspaceId, current, onDone }: {
-  open: boolean;
-  onClose: () => void;
+/** 选中即写回，候选只来自单据所属项目和类型。 */
+export function StatusDropdown({ theme, kind, id, workspaceId, current, currentLabel, onDone }: {
   theme: WorkbenchTheme;
   kind: EntityKind;
   id: string;
   /** 单据实际所在项目（多项目配置时保证回写正确） */
-  workspaceId?: string;
+  workspaceId: string;
   current: string;
+  currentLabel: string;
   onDone: () => void;
 }) {
-  const fetchOptions = useRpc(filterOptionsRpc);
+  const fetchOptions = useRpc(statusOptionsRpc);
   const updateStatus = useRpc(updateStatusRpc);
   const toast = useToast();
-  const [submitting, setSubmitting] = useState("");
+  const [opened, setOpened] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const [writeError, setWriteError] = useState("");
 
   const optionsQuery = useQuery({
-    queryKey: ["tapd-filter-options"],
-    queryFn: () => fetchOptions({}),
-    enabled: open,
+    queryKey: ["tapd-status-options", workspaceId, kind],
+    queryFn: () => fetchOptions({ kind, workspaceId }),
+    enabled: opened,
     staleTime: 600_000,
-    retry: 1,
+    retry: false,
   });
 
-  useEffect(() => {
-    if (!open) setSubmitting("");
-  }, [open]);
+  const options = optionsQuery.data?.options ?? [];
 
-  const options = optionsQuery.data?.statuses[kind] ?? [];
-
-  async function apply(value: string, label: string) {
-    if (submitting) return;
-    setSubmitting(value);
+  async function apply(value: string) {
+    if (submittingRef.current || value === current) return false;
+    submittingRef.current = true;
+    setSubmitting(true);
+    setWriteError("");
     try {
-      await updateStatus({ kind, id, status: value, workspaceId: workspaceId ?? "" });
-      toast.show(`状态已更新为「${label}」`, { variant: "success" });
-      onDone();
-      onClose();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
+      await updateStatus({ kind, id, status: value, workspaceId });
+    } catch {
+      setWriteError("修改状态失败，请重试。");
+      return false;
     } finally {
-      setSubmitting("");
+      submittingRef.current = false;
+      setSubmitting(false);
     }
+    toast.show(`状态已更新为「${options.find(option => option.value === value)?.label ?? value}」`, { variant: "success" });
+    onDone();
+    return true;
   }
 
-  const styles = useMemo<{ row: ViewStyle; rowText: TextStyle; hint: TextStyle; center: ViewStyle }>(() => ({
-    row: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-      paddingVertical: 11,
-      paddingHorizontal: 4,
-      borderBottomWidth: 1,
-      borderBottomColor: theme.colors.border,
-    },
-    rowText: { color: theme.colors.foreground, fontSize: 13, flex: 1 },
-    hint: { color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 18 },
-    center: { alignItems: "center", padding: 20 },
-  }), [theme]);
-
   return (
-    <Modal title={`修改状态 · #${id}`} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
-      <Modal.Content>
-        {optionsQuery.isPending ? (
-          <View style={styles.center}>
-            <ActivityIndicator color={theme.colors.foreground} />
-          </View>
-        ) : options.length === 0 ? (
-          <Text style={styles.hint}>没有可用的状态选项，请稍后重试。</Text>
-        ) : (
-          options.map((option) => (
-            <Pressable
-              key={option.value}
-              accessibilityRole="button"
-              style={styles.row}
-              onPress={() => void apply(option.value, option.label)}
-            >
-              <Text style={styles.rowText}>{option.label}</Text>
-              {current === option.value ? (
-                <Icon name="Check" size={16} color={theme.colors.foregroundMuted} />
-              ) : submitting === option.value ? (
-                <ActivityIndicator color={theme.colors.accent} />
-              ) : null}
-            </Pressable>
-          ))
-        )}
-      </Modal.Content>
-    </Modal>
+    <Dropdown
+      label="修改状态"
+      summary={currentLabel || current}
+      selected={[current]}
+      options={options}
+      onSelect={apply}
+      onOpen={() => setOpened(true)}
+      loading={opened && optionsQuery.isFetching}
+      disabled={submitting || !workspaceId}
+      error={writeError || (optionsQuery.isError ? "读取状态选项失败，请重试。" : null)}
+      onRetry={optionsQuery.isError ? () => void optionsQuery.refetch() : undefined}
+      theme={theme}
+    />
   );
 }
 

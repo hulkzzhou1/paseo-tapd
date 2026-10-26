@@ -76,6 +76,7 @@ export function ColumnPickerModal({ open, onClose, theme, kind, statuses, counts
                 accessibilityRole="checkbox"
                 accessibilityLabel={status.label}
                 accessibilityState={{ checked: on }}
+                aria-checked={on}
                 style={styles.row}
                 onPress={() =>
                   setDraft((currentDraft) => ({ ...currentDraft, [status.value]: !currentDraft[status.value] }))

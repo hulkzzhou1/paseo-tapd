@@ -129,9 +129,9 @@ const LIST_FIELDS: Record<EntityKind, string> = {
 
 // 终态状态：默认「隐藏已完成」时过滤掉这些状态。
 export const TERMINAL_STATUSES: Record<EntityKind, readonly string[]> = {
-  story: ["resolved", "status_7", "status_3", "status_18", "rejected"],
+  story: ["resolved", "rejected", "done", "closed"],
   task: ["done"],
-  bug: ["closed", "rejected", "status_2"],
+  bug: ["closed", "rejected"],
 };
 
 const TASK_STATUS_LABELS: Record<string, string> = {
@@ -575,12 +575,30 @@ export async function fetchIterationMap(config: TapdConfig): Promise<Map<string,
   return map;
 }
 
-function activeStatuses(kind: EntityKind, labels: Record<string, string>): string[] {
-  const terminal = new Set(TERMINAL_STATUSES[kind]);
+async function fetchTerminalStatuses(config: TapdConfig, kind: EntityKind, labels: Record<string, string>): Promise<Set<string>> {
+  if (kind !== "task") {
+    try {
+      const data = await requestJson(config, "/workflows/last_steps", {
+        workspace_id: config.workspaceIds[0], system: kind,
+      }, 30 * 60_000);
+      if (data && typeof data === "object" && !Array.isArray(data) && Object.keys(data).length > 0 && Object.values(data).every((label) => typeof label === "string")) {
+        return new Set(Object.keys(data));
+      }
+    } catch {
+      // shortcut: 工作流接口不可用时按标准状态和明确的结束标签兜底，恢复权限后以项目工作流为准。
+    }
+  }
+  return new Set([
+    ...TERMINAL_STATUSES[kind],
+    ...Object.keys(labels).filter((status) => /^(?:已完成|已结束|已关闭|已拒绝|已取消|done|closed|completed|rejected|cancelled)$/i.test(labels[status].trim())),
+  ]);
+}
+
+function activeStatuses(kind: EntityKind, labels: Record<string, string>, terminal: ReadonlySet<string>): string[] {
   const known = Object.keys(labels);
   const source = known.length > 0 ? known : [...FALLBACK_ACTIVE_STATUSES[kind]];
   const active = source.filter((status) => !terminal.has(status));
-  return active.length > 0 ? active : [...FALLBACK_ACTIVE_STATUSES[kind]];
+  return active;
 }
 
 function ownerParamName(kind: EntityKind): string {
@@ -598,6 +616,7 @@ function toSummary(
   row: any,
   labels: Record<string, string>,
   iterationMap: Map<string, string>,
+  terminal: ReadonlySet<string>,
   storyTitles?: Map<string, string>,
 ): EntitySummary {
   const id = String(row?.id ?? "");
@@ -615,7 +634,7 @@ function toSummary(
     priority: String(row?.priority_label ?? "").trim(),
     iterationName: iterationId && iterationId !== "0" ? iterationMap.get(iterationId) ?? null : null,
     modified: String(row?.modified ?? ""),
-    done: TERMINAL_STATUSES[kind].includes(status),
+    done: terminal.has(status),
     url: entityUrl(config, workspaceId, kind, id),
     storyId: storyKey ? storyId : "",
     storyTitle: storyTitles?.get(storyKey) ?? "",
@@ -1047,13 +1066,14 @@ function buildDimensionParams(
   kind: EntityKind,
   options: ColumnQueryOptions,
   labels: Record<string, string>,
+  terminal: ReadonlySet<string>,
 ): Record<string, QueryValue> {
   const statusFilter =
     options.statusScope === "all"
       ? undefined
       : options.statusScope === "done"
-        ? TERMINAL_STATUSES[kind].join("|")
-        : activeStatuses(kind, labels).join("|");
+        ? [...terminal].join("|")
+        : activeStatuses(kind, labels, terminal).join("|");
   const params: Record<string, QueryValue> = {
     status: statusFilter,
     iteration_id: options.iterationId || undefined,
@@ -1097,16 +1117,38 @@ export async function fetchColumn(
   kind: EntityKind,
   options: ColumnQueryOptions,
 ): Promise<ColumnResult> {
+  // 自定义状态编号只在项目内有效，不能混用不同项目的标签和终态。
+  if (config.workspaceIds.length > 1) {
+    const columns = await Promise.all([...new Set(config.workspaceIds)].map((workspaceId) =>
+      fetchColumn({ ...config, workspaceIds: [workspaceId] }, kind, options)));
+    const items = columns.flatMap((column) => column.items).sort((a, b) => b.modified.localeCompare(a.modified));
+    return {
+      kind, items: items.slice(0, 300), total: columns.reduce((sum, column) => sum + column.total, 0),
+      truncated: items.length > 300 || columns.some((column) => column.truncated),
+      error: columns.map((column) => column.error).filter(Boolean).join("；") || null,
+    };
+  }
   const items: EntitySummary[] = [];
   let total = 0;
   let truncated = false;
   try {
     const labels = await fetchStatusLabels(config, kind);
+    const terminal = await fetchTerminalStatuses(config, kind, labels);
     const iterationMap = await fetchIterationMap(config);
     const fieldKeys = await fetchFieldKeySet(config, kind);
-    const dimensionParams = {
-      ...buildDimensionParams(kind, options, labels),
-      ...buildConditionParams(kind, options.conditions, fieldKeys),
+    const dimensionParams = buildDimensionParams(kind, options, labels, terminal);
+    const conditions = buildConditionParams(kind, options.conditions, fieldKeys);
+    if (options.statusScope !== "all") {
+      const allowed = String(dimensionParams.status ?? "").split("|").filter(Boolean);
+      const selected = conditions.status ? String(conditions.status).split("|") : allowed;
+      conditions.status = selected.filter((status) => allowed.includes(status)).join("|");
+      if (!conditions.status) return { kind, total: 0, items: [], truncated: false, error: null };
+    }
+    Object.assign(dimensionParams, conditions);
+    const matchesStatus = (row: any) => {
+      const status = String(row?.status ?? "");
+      return (options.statusScope === "all" || terminal.has(status) === (options.statusScope === "done")) &&
+        (!dimensionParams.status || String(dimensionParams.status).split("|").includes(status));
     };
 
     if (options.relatedOwner) {
@@ -1138,10 +1180,11 @@ export async function fetchColumn(
       const mergedRefs: EntityRowRef[] = [];
       for (const batch of batches) {
         for (const ref of batch) {
+          if (!matchesStatus(ref.row)) continue;
           const key = `${ref.workspaceId}-${String(ref.row?.id ?? "")}`;
           if (seen.has(key)) continue;
           seen.add(key);
-          merged.push(toSummary(config, ref.workspaceId, kind, ref.row, labels, iterationMap));
+          merged.push(toSummary(config, ref.workspaceId, kind, ref.row, labels, iterationMap, terminal));
           mergedRefs.push(ref);
         }
         if (batch.length >= 200) truncated = true;
@@ -1149,7 +1192,7 @@ export async function fetchColumn(
       if (kind !== "story" && merged.length > 0) {
         const storyTitles = await resolveStoryTitles(config, mergedRefs);
         for (let index = 0; index < merged.length; index += 1) {
-          merged[index] = toSummary(config, mergedRefs[index].workspaceId, kind, mergedRefs[index].row, labels, iterationMap, storyTitles);
+          merged[index] = toSummary(config, mergedRefs[index].workspaceId, kind, mergedRefs[index].row, labels, iterationMap, terminal, storyTitles);
         }
       }
       merged.sort((a, b) => b.modified.localeCompare(a.modified));
@@ -1177,12 +1220,15 @@ export async function fetchColumn(
     }
     const seenIds = new Set<string>();
     for (const ref of refs) {
+      if (!matchesStatus(ref.row)) continue;
       const key = `${ref.workspaceId}-${String(ref.row?.id ?? "")}`;
       if (seenIds.has(key)) continue;
       seenIds.add(key);
-      items.push(toSummary(config, ref.workspaceId, kind, ref.row, labels, iterationMap, storyTitles));
+      items.push(toSummary(config, ref.workspaceId, kind, ref.row, labels, iterationMap, terminal, storyTitles));
     }
     if (total > refs.length) truncated = true;
+    total = truncated ? Math.max(items.length, total - refs.filter((ref) => !matchesStatus(ref.row)).length) : items.length;
+    if (items.length > 300) truncated = true;
   } catch (error) {
     return { kind, total, items, truncated, error: describeError(error) };
   }
@@ -1355,7 +1401,7 @@ export async function searchEntities(config: TapdConfig, query: string): Promise
       try {
         const data = await requestJson(config, LIST_PATH[kind], base);
         for (const row of unwrapRows(data, [KIND_WRAPPER[kind]])) {
-          const summary = toSummary(config, workspaceId, kind, row, labels, iterationMap);
+          const summary = toSummary(config, workspaceId, kind, row, labels, iterationMap, new Set(TERMINAL_STATUSES[kind]));
           const lines = [
             `TAPD ${KIND_LABELS[kind]}单据快照（#${summary.id}）`,
             `- 标题：${summary.title}`,

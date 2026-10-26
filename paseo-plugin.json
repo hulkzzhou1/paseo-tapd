@@ -1,7 +1,7 @@
 {
   "id": "tapd-workbench",
   "name": "TAPD Workbench",
-  "description": "在 Paseo 中查看与处理 TAPD 需求、任务与缺陷：可配置域名、宽屏设置、按项目工作流筛选、彩色标签与 Agent 派活 / TAPD workbench with configurable domains, wide settings, project-aware status filters, colored badges and agent dispatch",
+  "description": "在 Paseo 中查看与处理 TAPD 需求、任务与缺陷：默认平铺聚合、可配置域名、宽屏设置、按项目工作流筛选、彩色标签与 Agent 派活 / TAPD workbench with flat aggregate lists by default, configurable domains, wide settings, project-aware status filters, colored badges and agent dispatch",
   "media": [
     "assets/screenshots/workbench-v2.png"
   ],

@@ -1,9 +1,11 @@
+import { WorkbenchDialog as Modal } from "./WorkbenchDialog";
+import { RichText } from "./RichText";
 import type { RpcOutput } from "@getpaseo/plugin";
 import { openExternalUrl, usePaseo, useRpc, type PluginScreenProps } from "@getpaseo/plugin/client";
-import { Icon, Modal, copyText, useToast } from "@getpaseo/plugin/client/react-native";
+import { Icon, copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions, type TextStyle, type ViewStyle } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Text, View, useWindowDimensions, type TextStyle, type ViewStyle } from "react-native";
 import { agentStatusRpc, entityRpc, type EntityKind, type TapdLink } from "../../shared/contracts";
 import { Chip, agentStatusColor, formatTime, formatIsoTime, type WorkbenchTheme } from "./bits";
 import { priorityTone, statusTone, toneColor } from "./status-tones";
@@ -34,95 +36,30 @@ export interface DetailExtras {
   onOpenEntity?: (target: DetailTarget) => void;
 }
 
-/** 宽屏：居中浮窗（宽度自主控制，遮罩点击 / X 关闭） */
-export function EntityDetailOverlay({ target, onClose, theme, extras }: {
-  target: DetailTarget;
-  onClose: () => void;
-  theme: WorkbenchTheme;
-  extras: DetailExtras;
-}) {
-  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
-  const dialogWidth = Math.min(780, Math.max(420, Math.round(windowWidth * 0.55)));
-
-  const styles = useMemo<{
-    root: ViewStyle;
-    scrim: ViewStyle;
-    dialog: ViewStyle;
-    header: ViewStyle;
-    headerTitle: TextStyle;
-    body: ViewStyle;
-  }>(() => ({
-    root: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", padding: 24 },
-    scrim: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0, 0, 0, 0.45)" },
-    dialog: {
-      width: dialogWidth,
-      maxHeight: Math.round(windowHeight * 0.85),
-      backgroundColor: theme.colors.surface1,
-      borderColor: theme.colors.border,
-      borderWidth: 1,
-      borderRadius: 12,
-      overflow: "hidden",
-    },
-    header: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-      paddingHorizontal: 14,
-      paddingVertical: 11,
-      borderBottomWidth: 1,
-      borderBottomColor: theme.colors.border,
-    },
-    headerTitle: { color: theme.colors.foreground, fontSize: 13, flex: 1 },
-    body: { padding: 16 },
-  }), [theme, dialogWidth, windowHeight]);
-
-  return (
-    <View style={styles.root} pointerEvents="box-none">
-      <Pressable accessibilityRole="button" accessibilityLabel="关闭详情" style={styles.scrim} onPress={onClose} />
-      <View style={styles.dialog}>
-        <View style={styles.header}>
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            #{target.id} · {target.title}
-          </Text>
-          <Pressable accessibilityRole="button" hitSlop={8} onPress={onClose}>
-            <Icon name="X" size={16} color={theme.colors.foregroundMuted} />
-          </Pressable>
-        </View>
-        <ScrollView style={{ flexGrow: 0, flexShrink: 1 }} contentContainerStyle={styles.body}>
-          <DetailBody target={target} theme={theme} extras={extras} />
-        </ScrollView>
-      </View>
-    </View>
-  );
-}
-
-/** 移动端/窄窗口：底部抽屉 */
-export function EntityDetailModal({ target, onClose, theme, extras }: {
+/** One visible dialog page; keep the reading offset when an action temporarily takes focus. */
+export function EntityDetailModal({ target, onClose, theme, extras, hidden = false }: {
   target: DetailTarget | null;
   onClose: () => void;
   theme: WorkbenchTheme;
   extras: DetailExtras;
+  hidden?: boolean;
 }) {
-  const open = target !== null;
-  const modalTitle = target
-    ? `#${target.id} ${target.title.length > 20 ? `${target.title.slice(0, 20)}…` : target.title}`
-    : "TAPD 单据";
-  return (
-    <Modal
-      title={modalTitle}
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) onClose();
-      }}
-    >
-      <Modal.Content>
-        <DetailBody target={target} theme={theme} extras={extras} />
-      </Modal.Content>
-    </Modal>
-  );
+  const offset = useRef(0);
+  const scroll = useRef<ScrollView>(null);
+  const restoring = useRef(true);
+  useEffect(() => { offset.current = 0; }, [target?.kind, target?.id]);
+  useEffect(() => { restoring.current = true; }, [hidden]);
+  return <Modal theme={theme} size="reading" title={target ? `#${target.id} · 单据详情` : "单据详情"} open={target !== null && !hidden} onOpenChange={next => { if (!next) onClose(); }}>
+    <ScrollView ref={scroll} style={{ flexShrink: 1 }} contentContainerStyle={{ padding: 24 }}
+      scrollEventThrottle={16} onScroll={event => { if (!restoring.current) offset.current = event.nativeEvent.contentOffset.y; }}
+      onContentSizeChange={() => { scroll.current?.scrollTo({ y: offset.current, animated: false }); restoring.current = false; }}>
+      <DetailBody target={target} theme={theme} extras={extras} />
+    </ScrollView>
+  </Modal>;
 }
 
 function DetailBody({ target, theme, extras }: { target: DetailTarget | null; theme: WorkbenchTheme; extras: DetailExtras }) {
+  const { width } = useWindowDimensions();
   const open = target !== null;
   const kind = target?.kind ?? "story";
   const id = target?.id ?? "";
@@ -203,7 +140,6 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
     description: TextStyle;
     comment: ViewStyle;
     commentHead: TextStyle;
-    commentText: TextStyle;
     error: TextStyle;
     center: ViewStyle;
   }>(() => ({
@@ -218,11 +154,11 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
       paddingVertical: 7,
     },
     actionLabel: { color: theme.colors.foreground, fontSize: 13 },
-    title: { color: theme.colors.foreground, fontSize: 16, lineHeight: 22, fontWeight: "600" },
-    metaRow: { flexDirection: "row", gap: 8, alignItems: "flex-start" },
+    title: { color: theme.colors.foreground, fontSize: 23, lineHeight: 32, fontWeight: "600" },
+    metaRow: { flexDirection: "row", gap: 8, alignItems: "flex-start", width: width >= 900 ? "48%" : "100%" },
     metaLabel: { color: theme.colors.foregroundMuted, fontSize: 12, width: 64 },
-    metaValue: { color: theme.colors.foreground, fontSize: 12, flex: 1 },
-    section: { color: theme.colors.foregroundMuted, fontSize: 12, marginTop: 2 },
+    metaValue: { color: theme.colors.foreground, fontSize: 13, lineHeight: 21, flex: 1 },
+    section: { color: theme.colors.foreground, fontSize: 16, lineHeight: 24, fontWeight: "600", marginTop: 16 },
     linkRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -255,11 +191,10 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
       padding: 10,
       gap: 4,
     },
-    commentHead: { color: theme.colors.foregroundMuted, fontSize: 11 },
-    commentText: { color: theme.colors.foreground, fontSize: 13, lineHeight: 19 },
+    commentHead: { color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 20 },
     error: { color: theme.colors.statusDanger, fontSize: 13, lineHeight: 19 },
     center: { alignItems: "center", padding: 24 },
-  }), [theme]);
+  }), [theme, width]);
 
   const data = detail.data;
 
@@ -301,8 +236,8 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
   const tone = statusTone(data.kind, data.status, data.statusLabel);
 
   return (
-    <View style={{ gap: 12 }}>
-      <Text style={styles.title}>{data.title}</Text>
+    <View style={{ gap: 18 }}>
+      <Text accessibilityRole="header" style={styles.title}>{data.title}</Text>
       <View style={styles.actions}>
         <Pressable accessibilityRole="button" style={styles.action} onPress={() => extras.onDispatch?.(data)}>
           <Icon name="Bot" size={14} color={theme.colors.foreground} />
@@ -364,6 +299,7 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
           <Text style={styles.actionLabel}>刷新</Text>
         </Pressable>
       </View>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, padding: 16, backgroundColor: theme.colors.surface1, borderRadius: 10 }}>
       <View style={styles.metaRow}>
         <Text style={styles.metaLabel}>状态</Text>
         <View style={{ flex: 1, alignItems: "flex-start" }}>
@@ -386,6 +322,9 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
       {metaRow("迭代", data.iterationName)}
       {metaRow("创建", data.createdAt)}
       {metaRow("更新", data.modifiedAt)}
+      </View>
+      <Text style={styles.section}>描述</Text>
+      <RichText html={data.descriptionHtml} text={data.description} baseUrl={data.url} theme={theme} />
       {data.parentStory ? (
         <View style={styles.metaRow}>
           <Text style={styles.metaLabel}>所属需求</Text>
@@ -439,12 +378,6 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
           extras={extras}
         />
       ) : null}
-      <Text style={styles.section}>描述</Text>
-      <View style={styles.box}>
-        <Text style={styles.description} selectable>
-          {data.description || "（无描述）"}
-        </Text>
-      </View>
       <Text style={styles.section}>评论（{data.comments.length}）</Text>
       {data.commentsError ? <Text style={styles.error}>评论加载失败：{data.commentsError}</Text> : null}
       {data.comments.length === 0 ? (
@@ -457,9 +390,7 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
             <Text style={styles.commentHead}>
               {comment.author || "未知"} · {formatTime(comment.createdAt)}
             </Text>
-            <Text style={styles.commentText} selectable>
-              {comment.text}
-            </Text>
+            <RichText html={comment.html} text={comment.text} baseUrl={data.url} theme={theme} />
           </View>
         ))
       )}

@@ -1,6 +1,7 @@
+import { WorkbenchDialog as Modal, dialogFormStyles } from "./WorkbenchDialog";
 import type { RpcOutput } from "@getpaseo/plugin";
 import { usePaseo } from "@getpaseo/plugin/client";
-import { FlatList, Icon, Modal, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
+import { FlatList, Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
 import { entityRpc, type TapdLink } from "../../shared/contracts";
@@ -50,8 +51,9 @@ function buildPrompt(data: EntityData): string {
 }
 
 /** 从单据派发 Agent：新建 worktree 工作区 + 起一个带单据上下文的 agent */
-export function DispatchModal({ open, onClose, theme, data, defaultRepoPath, defaultProvider, onCreated }: {
+export function DispatchModal({ open, onClose, theme, data, defaultRepoPath, defaultProvider, onCreated, backToDetail }: {
   open: boolean;
+  backToDetail?: boolean;
   onClose: () => void;
   theme: WorkbenchTheme;
   data: EntityData;
@@ -241,25 +243,15 @@ export function DispatchModal({ open, onClose, theme, data, defaultRepoPath, def
     },
     rowLabel: { color: theme.colors.foregroundMuted, fontSize: 13, width: 64 },
     rowValue: { color: theme.colors.foreground, fontSize: 13, flex: 1 },
-    input: {
-      backgroundColor: theme.colors.surface2,
-      borderColor: theme.colors.border,
-      borderWidth: 1,
-      borderRadius: 8,
-      paddingHorizontal: 10,
-      paddingVertical: 7,
-      color: theme.colors.foreground,
-      fontSize: 13,
-      flex: 1,
-    },
+    input: { ...dialogFormStyles(theme).input, flex: 1 },
     inputMultiline: { minHeight: 150, textAlignVertical: "top" },
     sectionTitle: { color: theme.colors.foregroundMuted, fontSize: 12, marginTop: 2 },
     hint: { color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 18 },
     backRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4 },
     link: { color: theme.colors.accent, fontSize: 13 },
-    footer: { flexDirection: "row", justifyContent: "flex-end", gap: 8, paddingTop: 6 },
-    primaryButton: { backgroundColor: theme.colors.accent, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
-    primaryLabel: { color: theme.colors.accentForeground, fontSize: 13 },
+    footer: dialogFormStyles(theme).footer,
+    primaryButton: dialogFormStyles(theme).primaryButton,
+    primaryLabel: dialogFormStyles(theme).primaryLabel,
     disabledButton: { opacity: 0.5 },
     optionRow: {
       flexDirection: "row",
@@ -286,7 +278,7 @@ export function DispatchModal({ open, onClose, theme, data, defaultRepoPath, def
 
   if (mode === "repo") {
     return (
-      <Modal title="派给 Agent · 选择仓库" open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+      <Modal theme={theme} pending={dispatching} onBack={backToDetail ? onClose : undefined} title="派给 Agent · 选择仓库" open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
         <Modal.Content scrollable={false} contentContainerStyle={{ padding: 0, gap: 0 }}>
           <View style={{ flex: 1, minHeight: 0, paddingTop: 8, paddingHorizontal: 14 }}>
             <Pressable accessibilityRole="button" style={styles.backRow} onPress={() => setMode("form")}>
@@ -324,7 +316,7 @@ export function DispatchModal({ open, onClose, theme, data, defaultRepoPath, def
 
   if (mode === "model") {
     return (
-      <Modal title="派给 Agent · 选择模型" open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+      <Modal theme={theme} pending={dispatching} onBack={backToDetail ? onClose : undefined} title="派给 Agent · 选择模型" open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
         <Modal.Content scrollable={false} contentContainerStyle={{ padding: 0, gap: 0 }}>
           <View style={{ flex: 1, minHeight: 0, paddingTop: 8, paddingHorizontal: 14 }}>
             <Pressable accessibilityRole="button" style={styles.backRow} onPress={() => setMode("form")}>
@@ -395,7 +387,7 @@ export function DispatchModal({ open, onClose, theme, data, defaultRepoPath, def
   const canDispatch = repoPath.trim().length > 0 && provider.trim().length > 0 && prompt.trim().length > 0 && !dispatching;
 
   return (
-    <Modal title={`派给 Agent · #${data.id}`} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Modal theme={theme} pending={dispatching} onBack={backToDetail ? onClose : undefined} title={`派给 Agent · #${data.id}`} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Modal.Content>
         <View style={{ gap: 8 }}>
           {loading ? (

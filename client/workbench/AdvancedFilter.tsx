@@ -1,6 +1,7 @@
+import { WorkbenchDialog as Modal, dialogFormStyles } from "./WorkbenchDialog";
 import type { RpcOutput } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
-import { FlatList, Icon, Modal, TextInput } from "@getpaseo/plugin/client/react-native";
+import { FlatList, Icon, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View, type TextStyle } from "react-native";
@@ -104,7 +105,7 @@ export function AdditionalFilters({ theme, filters, onChange }: {
       onPress={() => { setSearch(""); setPicked(null); setOpen(true); }}>
       <Text style={{ color: colors.accent, fontSize: 12 }}>+ 添加条件</Text>
     </Pressable>
-    <Modal title={picked ? `设置条件 · ${picked.label}` : "添加条件"} open={open} onOpenChange={setOpen}>
+    <Modal theme={theme} title={picked ? `设置条件 · ${picked.label}` : "添加条件"} open={open} onOpenChange={setOpen}>
       <Modal.Content scrollable={picked !== null} contentContainerStyle={picked ? undefined : { padding: 14, gap: 8 }}>
         {!picked ? <View style={{ flex: 1, minHeight: 0, gap: 8 }}>
           <TextInput accessibilityLabel="搜索过滤条件" placeholder="搜索过滤条件（中文名或字段 key）" placeholderTextColor={colors.foregroundMuted}
@@ -139,8 +140,8 @@ export function AdditionalFilters({ theme, filters, onChange }: {
           </Pressable>) : <TextInput accessibilityLabel="条件值" placeholder={picked.kind === "user" ? "输入人员昵称" : "输入匹配值"}
             placeholderTextColor={colors.foregroundMuted} value={fieldValues[0] ?? ""} onChangeText={text => setFieldValues([text])} style={input} />}
           <Pressable accessibilityRole="button" disabled={!canConfirm} onPress={confirm}
-            style={{ alignSelf: "flex-end", backgroundColor: colors.accent, borderRadius: 6, paddingHorizontal: 14, paddingVertical: 8, opacity: canConfirm ? 1 : 0.5 }}>
-            <Text style={{ color: colors.accentForeground }}>确定</Text>
+            style={[dialogFormStyles(theme).primaryButton, { alignSelf: "flex-end", opacity: canConfirm ? 1 : 0.5 }]}>
+            <Text style={dialogFormStyles(theme).primaryLabel}>确定</Text>
           </Pressable>
         </View>}
       </Modal.Content>

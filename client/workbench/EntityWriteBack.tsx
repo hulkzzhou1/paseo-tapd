@@ -1,5 +1,6 @@
+import { WorkbenchDialog as Modal, dialogFormStyles } from "./WorkbenchDialog";
 import { useRpc } from "@getpaseo/plugin/client";
-import { Modal, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
+import { TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
@@ -73,8 +74,9 @@ export function StatusDropdown({ theme, kind, id, workspaceId, current, currentL
 }
 
 /** 写回评论（纯文本自动转 HTML） */
-export function CommentModal({ open, onClose, theme, kind, id, workspaceId, onDone }: {
+export function CommentModal({ open, onClose, theme, kind, id, workspaceId, onDone, backToDetail }: {
   open: boolean;
+  backToDetail?: boolean;
   onClose: () => void;
   theme: WorkbenchTheme;
   kind: EntityKind;
@@ -112,26 +114,15 @@ export function CommentModal({ open, onClose, theme, kind, id, workspaceId, onDo
   }
 
   const styles = useMemo<{ input: TextStyle; footer: ViewStyle; primaryButton: ViewStyle; primaryLabel: TextStyle; disabledButton: ViewStyle }>(() => ({
-    input: {
-      backgroundColor: theme.colors.surface2,
-      borderColor: theme.colors.border,
-      borderWidth: 1,
-      borderRadius: 8,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      color: theme.colors.foreground,
-      fontSize: 13,
-      minHeight: 120,
-      textAlignVertical: "top",
-    },
-    footer: { flexDirection: "row", justifyContent: "flex-end", gap: 8, paddingTop: 8 },
-    primaryButton: { backgroundColor: theme.colors.accent, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
-    primaryLabel: { color: theme.colors.accentForeground, fontSize: 13 },
+    input: { ...dialogFormStyles(theme).input, flex: 1 },
+    footer: dialogFormStyles(theme).footer,
+    primaryButton: dialogFormStyles(theme).primaryButton,
+    primaryLabel: dialogFormStyles(theme).primaryLabel,
     disabledButton: { opacity: 0.5 },
   }), [theme]);
 
   return (
-    <Modal title={`写回评论 · #${id}`} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Modal theme={theme} dirty={!!text.trim()} pending={submitting} onBack={backToDetail ? onClose : undefined} title={`写回评论 · #${id}`} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Modal.Content>
         <View style={{ gap: 10 }}>
           <TextInput

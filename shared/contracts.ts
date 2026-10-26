@@ -449,12 +449,14 @@ export const entityRpc = defineRpc({
     createdAt: z.string(),
     modifiedAt: z.string(),
     description: z.string(),
+    descriptionHtml: z.string().default(""),
     comments: z.array(
       z.object({
         id: z.string(),
         author: z.string(),
         createdAt: z.string(),
         text: z.string(),
+        html: z.string().default(""),
       }),
     ),
     commentsError: z.string().nullable(),

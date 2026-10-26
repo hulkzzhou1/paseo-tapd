@@ -17,13 +17,14 @@ async function main() {
     import {createRoot} from 'react-dom/client';
     import {QueryClient,QueryClientProvider} from '@tanstack/react-query';
     import {Text,View,Pressable} from 'react-native';
-    import {EntityDetailOverlay,EntityDetailModal} from ${JSON.stringify(path.join(root, 'client/workbench/EntityDetailModal.tsx'))};
+    import {EntityDetailModal} from ${JSON.stringify(path.join(root, 'client/workbench/EntityDetailModal.tsx'))};
     const light={surface0:'#ffffff',surface1:'#f8fafc',surface2:'#e2e8f0',border:'#cbd5e1',foreground:'#0f172a',foregroundMuted:'#475569',accent:'#2563eb',accentForeground:'#ffffff',statusSuccess:'#15803d',statusWarning:'#b45309',statusDanger:'#b91c1c'};
     const dark={surface0:'#111827',surface1:'#1f2937',surface2:'#374151',border:'#4b5563',foreground:'#f9fafb',foregroundMuted:'#cbd5e1',accent:'#60a5fa',accentForeground:'#111827',statusSuccess:'#4ade80',statusWarning:'#fbbf24',statusDanger:'#f87171'};
     function App(){
-      const [version,setVersion]=useState(0);const [kind,setKind]=useState('task');const [compact,setCompact]=useState(false);const [night,setNight]=useState(false);
-      const Detail=compact?EntityDetailModal:EntityDetailOverlay;
-      return <View style={{flex:1}}><Pressable accessibilityRole="button" style={{zIndex:10,position:'absolute',top:0}} onPress={()=>{setKind('bug');setCompact(true);setNight(true);}}><Text>切换缺陷详情</Text></Pressable>
+      const [version,setVersion]=useState(0);const [kind,setKind]=useState('task');const [night,setNight]=useState(false);
+      window.changeDetail=()=>{setKind('bug');setNight(true);};
+      const Detail=EntityDetailModal;
+      return <View style={{flex:1}}><Pressable accessibilityRole="button" style={{zIndex:10,position:'absolute',top:0}} onPress={()=>{setKind('bug');setNight(true);}}><Text>切换缺陷详情</Text></Pressable>
         <Text accessibilityLabel="看板状态">{window.savedStatus||'open'}</Text>
         <Detail target={{kind,id:'12345678',title:'示例单据'}} onClose={()=>{}} theme={{colors:night?dark:light}} extras={{links:[],refreshToken:version,onStatusDone:()=>{window.refreshed=(window.refreshed||0)+1;setVersion(v=>v+1);}}}/>
       </View>;
@@ -91,7 +92,7 @@ async function main() {
       assert.ok((await calls('tapd.entity')).length>=2,'detail refreshed');
       assert.equal(await page.getByRole('dialog',{name:'修改状态选项',exact:true}).count(),0);
       await page.evaluate(()=>{window.optionFailure=true;window.savedStatus='open';});
-      await page.getByRole('button',{name:'切换缺陷详情',exact:true}).click();
+      await page.evaluate(()=>window.changeDetail());
       await page.setViewportSize({width:390,height:640});
       await page.getByRole('button',{name:'修改状态：待处理',exact:true}).click();
       await page.getByText('读取状态选项失败，请重试。',{exact:true}).waitFor();

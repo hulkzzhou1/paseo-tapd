@@ -1,5 +1,6 @@
+import { WorkbenchDialog as Modal, dialogFormStyles } from "./WorkbenchDialog";
 import { usePaseo } from "@getpaseo/plugin/client";
-import { Modal, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
+import { TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
 import { type TapdLink } from "../../shared/contracts";
@@ -17,8 +18,9 @@ interface AgentRow {
 }
 
 /** 工作台：把单据绑定到一个已存在的 Agent（绑定后发送跟进提示词） */
-export function BindAgentModal({ open, onClose, theme, data, links, onBound }: {
+export function BindAgentModal({ open, onClose, theme, data, links, onBound, backToDetail }: {
   open: boolean;
+  backToDetail?: boolean;
   onClose: () => void;
   theme: WorkbenchTheme;
   data: EntityDetailData;
@@ -136,16 +138,7 @@ export function BindAgentModal({ open, onClose, theme, data, links, onBound }: {
     hint: { color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 18 },
     error: { color: theme.colors.statusDanger, fontSize: 13, lineHeight: 19 },
     center: { alignItems: "center", padding: 24 },
-    input: {
-      backgroundColor: theme.colors.surface2,
-      borderColor: theme.colors.border,
-      borderWidth: 1,
-      borderRadius: 8,
-      paddingHorizontal: 10,
-      paddingVertical: 7,
-      color: theme.colors.foreground,
-      fontSize: 13,
-    },
+    input: { ...dialogFormStyles(theme).input, flex: 1 },
     noticeInput: {
       height: 84,
       textAlignVertical: "top",
@@ -155,7 +148,7 @@ export function BindAgentModal({ open, onClose, theme, data, links, onBound }: {
   }), [theme]);
 
   return (
-    <Modal title={`绑定 Agent · #${data.id}`} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Modal theme={theme} pending={!!bindingId} onBack={backToDetail ? onClose : undefined} title={`绑定 Agent · #${data.id}`} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Modal.Content>
         <Text style={styles.hint}>选择已有 Agent 关联这张单据；提示词已默认填好，可修改后发送，不发送就清空。</Text>
         <TextInput

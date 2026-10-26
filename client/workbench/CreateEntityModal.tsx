@@ -1,8 +1,9 @@
+import { WorkbenchDialog as Modal, dialogFormStyles } from "./WorkbenchDialog";
 import { useRpc, useSettings, openExternalUrl } from "@getpaseo/plugin/client";
-import { FlatList, Icon, Modal, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
+import { FlatList, Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
+import { Pressable, Text, View, useWindowDimensions, type TextStyle, type ViewStyle } from "react-native";
 import { createFieldsRpc, createRpc, filterOptionsRpc, tapdSettings, type EntityKind } from "../../shared/contracts";
 import { Chip, type WorkbenchTheme } from "./bits";
 import { DatePicker } from "./DatePicker";
@@ -37,13 +38,16 @@ export interface CreateChildPreset {
   storyUrl: string;
 }
 
-export function CreateEntityModal({ open, onClose, theme, onCreated, initial }: {
+export function CreateEntityModal({ open, onClose, theme, onCreated, initial, backToDetail }: {
   open: boolean;
+  backToDetail?: boolean;
   onClose: () => void;
   theme: WorkbenchTheme;
   onCreated: (created: CreatedEntity) => void;
   initial?: CreateChildPreset | null;
 }) {
+  const { width } = useWindowDimensions();
+  const wide = width >= 900;
   const create = useRpc(createRpc);
   const fetchCreateFields = useRpc(createFieldsRpc);
   const fetchOptions = useRpc(filterOptionsRpc);
@@ -151,6 +155,8 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial }: 
     if (!ownerTouched && me && owner === "") setOwner(me);
   }, [ownerTouched, me, owner]);
 
+  const hasDraft = !!(title || description || (ownerTouched && owner !== me) || priority || iterationId || Object.values(extraValues).some(Boolean) || kind !== (initial?.kind ?? "story"));
+
   const priorityOptions = useMemo(
     () => (optionsQuery.data?.priorities ?? []).filter((option) => option.kinds.includes(kind)),
     [optionsQuery.data, kind],
@@ -204,26 +210,16 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial }: 
     layoutActions: ViewStyle;
     layoutAction: ViewStyle;
   }>(() => ({
-    row: { flexDirection: "row", alignItems: "center", gap: 8 },
-    rowLabel: { color: theme.colors.foregroundMuted, fontSize: 13, width: 64 },
-    input: {
-      backgroundColor: theme.colors.surface2,
-      borderColor: theme.colors.border,
-      borderWidth: 1,
-      borderRadius: 8,
-      paddingHorizontal: 10,
-      paddingVertical: 7,
-      color: theme.colors.foreground,
-      fontSize: 13,
-      flex: 1,
-    },
-    inputMultiline: { minHeight: 72, textAlignVertical: "top" },
+    row: { flexDirection: "column", alignItems: "stretch", gap: 8, width: wide ? "48%" : "100%" },
+    rowLabel: { color: theme.colors.foregroundMuted, fontSize: 13, lineHeight: 20 },
+    input: { ...dialogFormStyles(theme).input, flex: 1 },
+    inputMultiline: { minHeight: 180, textAlignVertical: "top" },
     chips: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", flex: 1 },
     backRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4 },
     link: { color: theme.colors.accent, fontSize: 13 },
-    footer: { flexDirection: "row", justifyContent: "flex-end", gap: 8, paddingTop: 6 },
-    primaryButton: { backgroundColor: theme.colors.accent, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
-    primaryLabel: { color: theme.colors.accentForeground, fontSize: 13 },
+    footer: dialogFormStyles(theme).footer,
+    primaryButton: dialogFormStyles(theme).primaryButton,
+    primaryLabel: dialogFormStyles(theme).primaryLabel,
     disabledButton: { opacity: 0.5 },
     optionRow: {
       flexDirection: "row",
@@ -244,13 +240,13 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial }: 
       alignItems: "center",
       justifyContent: "center",
     },
-  }), [theme]);
+  }), [theme, wide]);
 
   if (mode.name === "date") {
     const dateField = fieldsQuery.data?.fields.find((field) => field.key === mode.fieldKey);
     if (dateField) {
       return (
-        <Modal title={`新建单据 · 选择${dateField.label}`} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+        <Modal theme={theme} dirty={hasDraft} pending={submitting} onBack={backToDetail ? onClose : undefined} title={`新建单据 · 选择${dateField.label}`} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
           <Modal.Content scrollable={false} contentContainerStyle={{ padding: 0, gap: 0 }}>
             <View style={{ flex: 1, minHeight: 0, gap: 10, padding: 14 }}>
               <Pressable accessibilityRole="button" style={styles.backRow} onPress={() => setMode({ name: "form" })}>
@@ -316,7 +312,7 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial }: 
       persistLayout(order, hiddenFields.map((field) => field.key));
     };
     return (
-      <Modal title={layoutRowTypeModalTitle} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+      <Modal theme={theme} dirty={hasDraft} pending={submitting} onBack={backToDetail ? onClose : undefined} title={layoutRowTypeModalTitle} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
         <Modal.Content scrollable={false} contentContainerStyle={{ padding: 0, gap: 0 }}>
           <View style={{ flex: 1, minHeight: 0, paddingTop: 8, paddingHorizontal: 14 }}>
             <Pressable accessibilityRole="button" style={styles.backRow} onPress={() => setMode({ name: "form" })}>
@@ -411,7 +407,7 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial }: 
   if (mode.name === "iteration") {
     const rows = [{ id: "", name: "全部迭代", status: "" }, ...iterations];
     return (
-      <Modal title="新建单据 · 选择迭代" open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+      <Modal theme={theme} dirty={hasDraft} pending={submitting} onBack={backToDetail ? onClose : undefined} title="新建单据 · 选择迭代" open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
         <Modal.Content scrollable={false} contentContainerStyle={{ padding: 0, gap: 0 }}>
           <View style={{ flex: 1, minHeight: 0, paddingTop: 8, paddingHorizontal: 14 }}>
             <Pressable accessibilityRole="button" style={styles.backRow} onPress={() => setMode({ name: "form" })}>
@@ -445,11 +441,13 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial }: 
   }
 
   return (
-    <Modal title="新建单据" open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Modal theme={theme} dirty={hasDraft} pending={submitting} onBack={backToDetail ? onClose : undefined} title="新建单据" open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Modal.Content>
-        <View style={{ gap: 10 }}>
+        <View style={{ gap: 24 }}>
+          <View style={{ gap: 16 }}>
+          <Text accessibilityRole="header" style={{ color: theme.colors.foreground, fontSize: 16, fontWeight: "600" }}>基本信息</Text>
           {initial ? (
-            <View style={styles.row}>
+            <View style={[styles.row, { width: "100%" }]}>
               <Text style={styles.rowLabel}>挂载到</Text>
               <Pressable accessibilityRole="button" onPress={() => void openExternalUrl(initial.storyUrl)}>
                 <Text style={{ ...styles.link, flex: 1 }} numberOfLines={1}>
@@ -458,7 +456,7 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial }: 
               </Pressable>
             </View>
           ) : null}
-          <View style={styles.row}>
+          <View style={[styles.row, { width: "100%" }]}>
             <Text style={styles.rowLabel}>类型</Text>
             <View style={styles.chips}>
               {(initial ? (["task", "bug"] as const) : (["story", "task", "bug"] as const)).map((item) => (
@@ -493,31 +491,38 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial }: 
               <Icon name="ChevronRight" size={15} color={theme.colors.foregroundMuted} />
             </Pressable>
           ) : null}
-          <View style={styles.row}>
-            <Text style={styles.rowLabel}>标题</Text>
+          <View style={[styles.row, { width: "100%" }]}>
+            <Text style={styles.rowLabel}>标题 *</Text>
             <TextInput
               style={styles.input}
-              placeholder="必填"
+              accessibilityLabel="标题（必填）"
+              placeholder="请输入清楚的单据标题"
               placeholderTextColor={theme.colors.foregroundMuted}
               value={title}
               onChangeText={setTitle}
             />
           </View>
-          <View style={[styles.row, { alignItems: "flex-start" }]}>
+          <View style={[styles.row, { width: "100%" }]}>
             <Text style={[styles.rowLabel, { paddingTop: 8 }]}>描述</Text>
             <TextInput
               style={[styles.input, styles.inputMultiline]}
-              placeholder="可选，纯文本（保存时自动转 HTML）"
+              accessibilityLabel="描述"
+              placeholder="描述背景、目标与验收要求"
               placeholderTextColor={theme.colors.foregroundMuted}
               multiline
               value={description}
               onChangeText={setDescription}
             />
           </View>
+          </View>
+          <View style={{ gap: 16 }}>
+          <Text accessibilityRole="header" style={{ color: theme.colors.foreground, fontSize: 16, fontWeight: "600" }}>处理安排</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16 }}>
           <View style={styles.row}>
             <Text style={styles.rowLabel}>处理人</Text>
             <TextInput
               style={styles.input}
+              accessibilityLabel="处理人"
               placeholder="昵称，默认当前登录用户"
               placeholderTextColor={theme.colors.foregroundMuted}
               value={owner}
@@ -548,8 +553,12 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial }: 
             <Text style={styles.optionText} numberOfLines={1}>{iterationLabel}</Text>
             <Icon name="ChevronRight" size={15} color={theme.colors.foregroundMuted} />
           </Pressable>
-          {initial
-            ? visibleFields.map((field) => {
+          </View>
+          </View>
+          {initial ? <View style={{ gap: 16 }}>
+            <Text accessibilityRole="header" style={{ color: theme.colors.foreground, fontSize: 16, fontWeight: "600" }}>扩展字段</Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 16 }}>
+            {visibleFields.map((field) => {
                 const value = extraValues[field.key] ?? "";
                 const setValue = (text: string) => setExtraValues((prev) => ({ ...prev, [field.key]: text }));
                 const label = `${field.label}${field.required ? " *" : ""}`;
@@ -600,11 +609,12 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial }: 
                 }
                 if (field.inputKind === "textarea") {
                   return (
-                    <View key={field.key} style={[styles.row, { alignItems: "flex-start" }]}>
+                    <View key={field.key} style={[styles.row, { width: "100%" }]}>
                       <Text style={[styles.rowLabel, { paddingTop: 8 }]}>{label}</Text>
                       <TextInput
                         style={[styles.input, styles.inputMultiline]}
-                        placeholder="可选"
+                        accessibilityLabel={label}
+                        placeholder={field.required ? "必填" : "可选"}
                         placeholderTextColor={theme.colors.foregroundMuted}
                         multiline
                         value={value}
@@ -636,15 +646,17 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial }: 
                     <Text style={styles.rowLabel} numberOfLines={1}>{label}</Text>
                     <TextInput
                       style={styles.input}
-                      placeholder="可选"
+                      accessibilityLabel={label}
+                        placeholder={field.required ? "必填" : "可选"}
                       placeholderTextColor={theme.colors.foregroundMuted}
                       value={value}
                       onChangeText={setValue}
                     />
                   </View>
                 );
-              })
-            : null}
+              })}
+            </View>
+          </View> : null}
           <View style={styles.footer}>
             <Pressable
               accessibilityRole="button"

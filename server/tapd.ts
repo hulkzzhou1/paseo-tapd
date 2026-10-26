@@ -45,6 +45,7 @@ export interface ColumnResult {
 }
 
 export interface EntityComment {
+  html: string;
   id: string;
   author: string;
   createdAt: string;
@@ -78,6 +79,7 @@ export interface EntityDetailResult {
   createdAt: string;
   modifiedAt: string;
   description: string;
+  descriptionHtml: string;
   comments: EntityComment[];
   commentsError: string | null;
   /** 仅需求：该需求下挂的任务（TAPD task.story_id） */
@@ -323,6 +325,8 @@ function unwrapRows(data: unknown, wrappers: readonly string[]): any[] {
 
 export function htmlToText(html: string): string {
   return html
+    .replace(/<(script|style|iframe|object|svg|math|template)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
+    .replace(/<\/(td|th)>/gi, "\t")
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/(p|div|li|h[1-6]|tr)>/gi, "\n")
     .replace(/<li[^>]*>/gi, "• ")
@@ -1333,7 +1337,8 @@ export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: stri
     iterationName: iterationId && iterationId !== "0" ? iterationMap.get(iterationId) ?? null : null,
     createdAt: String(row.created ?? ""),
     modifiedAt: String(row.modified ?? ""),
-    description: truncate(htmlToText(String(row.description ?? "")), 4000),
+    description: htmlToText(String(row.description ?? "")),
+    descriptionHtml: String(row.description ?? ""),
     comments: [],
     commentsError: null,
     childTasks: [],
@@ -1377,7 +1382,8 @@ export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: stri
       id: String(comment?.id ?? ""),
       author: String(comment?.author ?? "").trim(),
       createdAt: String(comment?.created ?? ""),
-      text: truncate(htmlToText(String(comment?.description ?? "")), 800),
+      text: htmlToText(String(comment?.description ?? "")),
+      html: String(comment?.description ?? ""),
     }));
   } catch (error) {
     detail.commentsError = describeError(error);

@@ -1,6 +1,7 @@
+import { WorkbenchDialog as Modal, dialogFormStyles } from "./WorkbenchDialog";
 import { usePaseo, useRpc, useSettings } from "@getpaseo/plugin/client";
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
-import { Modal, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
+import { TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View, type TextStyle, type ViewStyle } from "react-native";
@@ -15,7 +16,6 @@ import { CreateEntityModal, type CreateChildPreset, type CreatedEntity } from ".
 import { DispatchModal } from "./DispatchModal";
 import {
   EntityDetailModal,
-  EntityDetailOverlay,
   type AgentStatusItem,
   type DetailExtras,
   type DetailTarget,
@@ -209,19 +209,10 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
     updateText: { flex: 1, color: theme.colors.foreground, fontSize: 12, lineHeight: 18 },
     updateDismiss: { paddingHorizontal: 4, paddingVertical: 2 },
     updateDismissText: { color: theme.colors.foregroundMuted, fontSize: 12 },
-    modalInput: {
-      backgroundColor: theme.colors.surface2,
-      borderColor: theme.colors.border,
-      borderWidth: 1,
-      borderRadius: 8,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      color: theme.colors.foreground,
-      fontSize: 14,
-    },
+    modalInput: dialogFormStyles(theme).input,
     modalActions: { flexDirection: "row", gap: 8, justifyContent: "flex-end" },
-    primaryButton: { backgroundColor: theme.colors.accent, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
-    primaryLabel: { color: theme.colors.accentForeground, fontSize: 13 },
+    primaryButton: dialogFormStyles(theme).primaryButton,
+    primaryLabel: dialogFormStyles(theme).primaryLabel,
     secondaryButton: { backgroundColor: theme.colors.surface2, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
     secondaryLabel: { color: theme.colors.foreground, fontSize: 13 },
   }), [theme, layout.compact]);
@@ -593,14 +584,10 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
           onSave={(keys) => void saveColumns(keys)}
         />
       ) : null}
-      {layout.compact ? (
-        <EntityDetailModal target={detail} onClose={() => setDetail(null)} theme={theme} extras={detailExtras} />
-      ) : null}
-      {!layout.compact && detail ? (
-        <EntityDetailOverlay target={detail} onClose={() => setDetail(null)} theme={theme} extras={detailExtras} />
-      ) : null}
+      <EntityDetailModal hidden={createOpen || !!dispatchTarget || !!commentTarget || !!bindTarget} target={detail} onClose={() => setDetail(null)} theme={theme} extras={detailExtras} />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} theme={theme} />
         <CreateEntityModal
+          backToDetail={!!detail}
           open={createOpen}
           initial={createPreset}
           onClose={() => {
@@ -612,6 +599,7 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
         />
       {dispatchTarget ? (
         <DispatchModal
+          backToDetail={!!detail}
           open
           onClose={() => setDispatchTarget(null)}
           theme={theme}
@@ -623,6 +611,7 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
       ) : null}
       {commentTarget ? (
         <CommentModal
+          backToDetail={!!detail}
           open
           onClose={() => setCommentTarget(null)}
           theme={theme}
@@ -634,6 +623,7 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
       ) : null}
       {bindTarget ? (
         <BindAgentModal
+          backToDetail={!!detail}
           open
           onClose={() => setBindTarget(null)}
           theme={theme}
@@ -642,7 +632,7 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
           onBound={(link) => void handleLinkCreated({ link })}
         />
       ) : null}
-      <Modal title="保存为新视图" open={saveViewOpen} onOpenChange={(next) => { if (!next) setSaveViewOpen(false); }}>
+      <Modal theme={theme} size="small" title="保存为新视图" open={saveViewOpen} onOpenChange={(next) => { if (!next) setSaveViewOpen(false); }}>
         <Modal.Content>
           <View style={{ gap: 12 }}>
             <Text style={styles.hint}>把当前全部过滤条件保存为可复用的视图。</Text>

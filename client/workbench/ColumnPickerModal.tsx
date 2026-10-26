@@ -24,7 +24,7 @@ export function ColumnPickerModal({ open, onClose, theme, kind, statuses, counts
     if (!open) return;
     const next: Record<string, boolean> = {};
     for (const status of statuses) {
-      const on = current ? current.includes(status.value) : true;
+      const on = current && current.length > 0 ? current.includes(status.value) : (counts[status.value] ?? 0) > 0;
       if (on) next[status.value] = true;
     }
     setDraft(next);
@@ -73,7 +73,9 @@ export function ColumnPickerModal({ open, onClose, theme, kind, statuses, counts
             return (
               <Pressable
                 key={status.value}
-                accessibilityRole="button"
+                accessibilityRole="checkbox"
+                accessibilityLabel={status.label}
+                accessibilityState={{ checked: on }}
                 style={styles.row}
                 onPress={() =>
                   setDraft((currentDraft) => ({ ...currentDraft, [status.value]: !currentDraft[status.value] }))
@@ -94,7 +96,7 @@ export function ColumnPickerModal({ open, onClose, theme, kind, statuses, counts
         )}
         <View style={styles.footer}>
           <Pressable accessibilityRole="button" onPress={() => onSave(null)}>
-            <Text style={styles.link}>恢复默认（全部状态）</Text>
+            <Text style={styles.link}>恢复默认（隐藏空列）</Text>
           </Pressable>
           <View style={{ flex: 1 }} />
           <Pressable

@@ -389,6 +389,55 @@ export interface FilterOption {
   label: string;
 }
 
+function candidateText(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 200 || /[\u0000-\u001f\u007f]/.test(value)) return null;
+  return value.trim() || null;
+}
+
+export async function fetchStatusOptions(config: TapdConfig, kind: EntityKind, workspaceId: string): Promise<FilterOption[]> {
+  if (kind !== "story" && kind !== "task" && kind !== "bug") throw new Error("单据类型无效。");
+  if (typeof workspaceId !== "string" || workspaceId.length > 128 || !config.workspaceIds.includes(workspaceId.trim())) {
+    throw new Error("单据项目未配置，请检查项目设置。");
+  }
+  try {
+    const data = await requestJson(config, FIELDS_INFO_PATH[kind], {
+      workspace_id: workspaceId.trim(), field: "status", fields: "status",
+    }, 0);
+    const options = data?.status?.options;
+    if (!options || typeof options !== "object" || Array.isArray(options)) throw new Error();
+    return Object.entries(options).map(([value, label]) => {
+      const statusValue = candidateText(value);
+      const statusLabel = candidateText(label);
+      if (!statusValue || !statusLabel) throw new Error();
+      return { value: statusValue, label: statusLabel };
+    });
+  } catch {
+    throw new Error("读取状态选项失败，请重试。");
+  }
+}
+
+export async function fetchMembers(config: TapdConfig): Promise<{ members: FilterOption[]; error: string | null }> {
+  const members = new Set<string>();
+  let failed = false;
+  for (const workspaceId of config.workspaceIds) {
+    try {
+      const data = await requestJson(config, "/workspaces/users", { workspace_id: workspaceId, fields: "user" }, 0);
+      if (!Array.isArray(data)) throw new Error();
+      for (const row of unwrapRows(data, ["UserWorkspace"])) {
+        const user = candidateText(row?.user);
+        if (user) members.add(user);
+        else failed = true;
+      }
+    } catch {
+      failed = true;
+    }
+  }
+  return {
+    members: [...members].sort().map((value) => ({ value, label: value })),
+    error: failed ? "部分项目的人员候选读取失败，请重试；仍可输入准确昵称。" : null,
+  };
+}
+
 function commentEntryKind(entryType: string): EntityKind | null {
   if (entryType === "stories" || entryType === "story") return "story";
   if (entryType === "tasks" || entryType === "task") return "task";
@@ -717,8 +766,8 @@ export interface FilterField {
 }
 
 // 已有一等公民过滤维度的字段不放进「更多筛选」，避免重复与语义冲突
-// 说明：name/title 由「关键词」覆盖，owner/creator/status/iteration/priority/severity/label/modified
-// 已有一等公民控件；workspace_id 是内部查询参数。其余字段（含 ID、详细描述、抄送人、自定义字段）动态开放。
+// 说明：name/title 由「关键词」覆盖；status 仅通过专用分支提供各类型独立的具体工作流状态。
+// 其余列表字段已有一等公民控件，workspace_id 是内部查询参数。
 const FIELD_DENYLIST = new Set([
   "name",
   "title",
@@ -996,6 +1045,20 @@ export async function fetchFilterFields(config: TapdConfig): Promise<FilterField
     for (const [key, rawInfo] of Object.entries(data)) {
       const info = rawInfo as Record<string, unknown>;
       if (!info || typeof info !== "object") continue;
+      if (key === "status") {
+        const options: FilterOption[] = [];
+        if (info.options && typeof info.options === "object" && !Array.isArray(info.options)) {
+          for (const [value, label] of Object.entries(info.options)) {
+            const statusValue = candidateText(value);
+            const statusLabel = candidateText(label);
+            if (statusValue && statusLabel) options.push({ value: statusValue, label: statusLabel });
+          }
+        }
+        merged.set(`status\u0000${kind}`, {
+          key, label: `${KIND_LABELS[kind]}状态`, kind: "enum", single: false, options, kinds: [kind],
+        });
+        continue;
+      }
       if (FIELD_DENYLIST.has(key)) continue;
       const readonly = info.readonly;
       if (readonly === 1 || readonly === "1" || readonly === true) continue;

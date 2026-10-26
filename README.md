@@ -149,3 +149,5 @@ paseo plugin reload tapd-workbench                 # 修改后重新加载
 MIT
 
 连接设置支持「API 地址」和「网页域名」：填写完整 HTTP(S) 地址，留空沿用 TAPD_API_ENDPOINT / TAPD_SITE_URL，再回退公共域名。测试连接使用尚未保存的 API 地址；保存后单据链接和新 Agent 会话使用新配置（不覆盖 Agent 已有变量）。两个地址仅保留本机，不随 Git 备份同步。
+
+设置弹窗在桌面端最大宽度为 900px，长内容在窗内滚动；窄窗口和原生移动端沿用 Paseo 的自适应面板。支持关闭按钮、点击遮罩及 Escape 关闭。

@@ -1,8 +1,8 @@
 import { useRpc, useSettings } from "@getpaseo/plugin/client";
 import type { PluginSurfaceProps, SettingsState } from "@getpaseo/plugin/client";
-import { Modal, useToast } from "@getpaseo/plugin/client/react-native";
+import { Icon, Modal, useToast } from "@getpaseo/plugin/client/react-native";
 import { useMemo, useState } from "react";
-import { ActivityIndicator, Text, View, type TextStyle, type ViewStyle } from "react-native";
+import { ActivityIndicator, Modal as NativeModal, Platform, Pressable, ScrollView, Text, View, useWindowDimensions, type TextStyle, type ViewStyle } from "react-native";
 import {
   SettingsAction,
   SettingsCard,
@@ -25,6 +25,33 @@ export function SettingsModal({ open, onClose, theme }: {
   onClose: () => void;
   theme: WorkbenchTheme;
 }) {
+  const { width, height } = useWindowDimensions();
+  // SDK Modal 的桌面宽度固定；原生 Modal 在 web 保留焦点约束、Escape 和焦点恢复。
+  if (Platform.OS === "web" && width >= 768) {
+    return (
+      <NativeModal visible={open} transparent animationType="none" onRequestClose={onClose}>
+        <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <Pressable
+            accessibilityLabel="关闭设置"
+            accessibilityRole="button"
+            onPress={onClose}
+            style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: theme.colors.foreground, opacity: 0.3 }}
+          />
+          <View style={{ width: Math.min(900, width - 48), maxHeight: height - 48, backgroundColor: theme.colors.surface0, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 16, overflow: "hidden" }}>
+            <View style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 24, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+              <Text accessibilityRole="header" style={{ flex: 1, color: theme.colors.foreground, fontSize: 18, fontWeight: "600" }}>TAPD 工作台设置</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="关闭设置" onPress={onClose} style={{ padding: 10, borderRadius: 8 }}>
+                <Icon name="X" size={20} color={theme.colors.foregroundMuted} />
+              </Pressable>
+            </View>
+            <ScrollView style={{ flexShrink: 1 }} contentContainerStyle={{ padding: 24 }}>
+              <SettingsBody theme={theme} />
+            </ScrollView>
+          </View>
+        </View>
+      </NativeModal>
+    );
+  }
   return (
     <Modal
       title="TAPD 工作台设置"

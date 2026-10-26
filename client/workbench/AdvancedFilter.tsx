@@ -2,37 +2,23 @@ import type { RpcOutput } from "@getpaseo/plugin";
 import { useRpc } from "@getpaseo/plugin/client";
 import { FlatList, Icon, Modal, TextInput } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
-import {
-  filterFieldsRpc,
-  filterOptionsRpc,
-  type EntityKind,
-  type TapdCondition,
-  type TapdFilters,
-} from "../../shared/contracts";
-import { Chip, type WorkbenchTheme } from "./bits";
+import { useCallback, useEffect, useState } from "react";
+import { ActivityIndicator, Pressable, Text, View, type TextStyle } from "react-native";
+import { filterFieldsRpc, type EntityKind, type TapdCondition, type TapdFilters } from "../../shared/contracts";
+import { type WorkbenchTheme } from "./bits";
 
 type FilterField = RpcOutput<typeof filterFieldsRpc>["fields"][number];
-type Mode = "home" | "severity" | "field-pick" | "field-value";
-
 const KIND_SHORT: Record<EntityKind, string> = { story: "需求", task: "任务", bug: "缺陷" };
 
 /** 本地草稿 + 防抖提交（避免每个按键都发请求） */
-function useDebouncedDraft(
-  value: string,
-  apply: (text: string) => void,
-  delay = 400,
-): [string, (text: string) => void] {
+function useDebouncedDraft(value: string, apply: (text: string) => void): [string, (text: string) => void] {
   const [draft, setDraft] = useState(value);
-  useEffect(() => {
-    setDraft((current) => (current === value ? current : value));
-  }, [value]);
+  useEffect(() => { setDraft(value); }, [value]);
   useEffect(() => {
     if (draft === value) return;
-    const timer = setTimeout(() => apply(draft), delay);
+    const timer = setTimeout(() => apply(draft), 400);
     return () => clearTimeout(timer);
-  }, [draft, value, apply, delay]);
+  }, [draft, value, apply]);
   return [draft, setDraft];
 }
 
@@ -41,418 +27,123 @@ function sameKinds(a: readonly EntityKind[], b: readonly EntityKind[]): boolean 
 }
 
 function conditionSummary(condition: TapdCondition): string {
-  if (condition.kind === "date") {
-    return `${condition.from || "*"} ~ ${condition.to || "*"}`;
-  }
+  if (condition.kind === "date") return `${condition.from || "*"} ~ ${condition.to || "*"}`;
   const visible = condition.values.slice(0, 3).join("、");
-  const extra = condition.values.length > 3 ? ` 等${condition.values.length}项` : "";
-  return `${visible}${extra}` || "(空)";
+  return `${visible}${condition.values.length > 3 ? ` 等${condition.values.length}项` : ""}` || "(空)";
 }
 
-/** 仅统计仍在「更多筛选」中的条件。 */
-function activeFilterCount(filters: TapdFilters): number {
-  let count = filters.conditions.length;
-  if (filters.keyword.trim()) count += 1;
-  if (filters.severities.length > 0) count += 1;
-  if (filters.label.trim()) count += 1;
-  return count;
-}
-
-export function AdvancedFilterChip({ theme, filters, onChange }: {
+export function AdditionalFilters({ theme, filters, onChange }: {
   theme: WorkbenchTheme;
   filters: TapdFilters;
   onChange: (patch: Partial<TapdFilters>) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const count = activeFilterCount(filters);
-  return (
-    <>
-      <Chip
-        label={count > 0 ? `更多筛选 · ${count}` : "更多筛选"}
-        theme={theme}
-        active={count > 0}
-        onPress={() => setOpen(true)}
-      />
-      <MoreFiltersModal
-        open={open}
-        onClose={() => setOpen(false)}
-        theme={theme}
-        filters={filters}
-        onChange={onChange}
-      />
-    </>
-  );
-}
-
-function MoreFiltersModal({ open, onClose, theme, filters, onChange }: {
-  open: boolean;
-  onClose: () => void;
-  theme: WorkbenchTheme;
-  filters: TapdFilters;
-  onChange: (patch: Partial<TapdFilters>) => void;
-}) {
-  const fetchFields = useRpc(filterFieldsRpc);
-  const fetchOptions = useRpc(filterOptionsRpc);
-  const fieldsQuery = useQuery({
-    queryKey: ["tapd-filter-fields"],
-    queryFn: () => fetchFields({}),
-    enabled: open,
-    staleTime: 1_800_000,
-    retry: 1,
-  });
-  const optionsQuery = useQuery({
-    queryKey: ["tapd-filter-options"],
-    queryFn: () => fetchOptions({}),
-    enabled: open,
-    staleTime: 600_000,
-    retry: 1,
-  });
-
-  const [mode, setMode] = useState<Mode>("home");
   const [search, setSearch] = useState("");
   const [picked, setPicked] = useState<FilterField | null>(null);
   const [fieldValues, setFieldValues] = useState<string[]>([]);
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-
+  const fetchFields = useRpc(filterFieldsRpc);
+  const fieldsQuery = useQuery({
+    queryKey: ["tapd-filter-fields"], queryFn: () => fetchFields({}),
+    enabled: open, staleTime: 1_800_000, retry: 1,
+  });
   const applyKeyword = useCallback((text: string) => onChange({ keyword: text }), [onChange]);
   const applyLabel = useCallback((text: string) => onChange({ label: text }), [onChange]);
-
   const [keywordDraft, setKeywordDraft] = useDebouncedDraft(filters.keyword, applyKeyword);
   const [labelDraft, setLabelDraft] = useDebouncedDraft(filters.label, applyLabel);
-
-  useEffect(() => {
-    if (!open) {
-      setMode("home");
-      setSearch("");
-      setPicked(null);
-      setFieldValues([]);
-      setFrom("");
-      setTo("");
-    }
-  }, [open]);
-
-  const filteredFields = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    if (!query) return fieldsQuery.data?.fields ?? [];
-    return (fieldsQuery.data?.fields ?? []).filter(
-      (field) => field.label.toLowerCase().includes(query) || field.key.toLowerCase().includes(query),
-    );
-  }, [fieldsQuery.data, search]);
-
-  const severityOptions = optionsQuery.data?.severities ?? [];
-
-  function toggleListValue(list: string[], value: string): string[] {
-    return list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
-  }
+  const colors = theme.colors;
+  const input: TextStyle = {
+    backgroundColor: colors.surface1, borderColor: colors.border, borderWidth: 1, borderRadius: 6,
+    paddingHorizontal: 10, paddingVertical: 7, color: colors.foreground, fontSize: 12,
+  };
+  const query = search.trim().toLowerCase();
+  const fields = (fieldsQuery.data?.fields ?? []).filter(field =>
+    field.label.toLowerCase().includes(query) || field.key.toLowerCase().includes(query));
+  const canConfirm = picked && (picked.kind === "date" ? !!(from.trim() || to.trim())
+    : picked.kind === "enum" && picked.options.length > 0 ? fieldValues.length > 0 : !!fieldValues[0]?.trim());
 
   function pickField(field: FilterField) {
-    setPicked(field);
-    setFieldValues([]);
-    setFrom("");
-    setTo("");
-    setMode("field-value");
+    setPicked(field); setFieldValues([]); setFrom(""); setTo("");
   }
 
-  function toggleFieldEnumValue(field: FilterField, value: string) {
-    if (field.single) {
-      setFieldValues([value]);
-      return;
-    }
-    setFieldValues((current) =>
-      current.includes(value) ? current.filter((item) => item !== value) : [...current, value],
-    );
-  }
-
-  const canConfirmField = (() => {
-    if (!picked) return false;
-    if (picked.kind === "date") return from.trim().length > 0 || to.trim().length > 0;
-    if (picked.kind === "enum" && picked.options.length > 0) return fieldValues.length > 0;
-    return (fieldValues[0] ?? "").trim().length > 0;
-  })();
-
-  function confirmFieldValue() {
-    if (!picked || !canConfirmField) return;
+  function confirm() {
+    if (!picked || !canConfirm) return;
     const condition: TapdCondition = {
-      field: picked.key,
-      label: picked.label,
-      kind: picked.kind,
-      kinds: [...picked.kinds],
-      values:
-        picked.kind === "date"
-          ? []
-          : picked.kind === "enum"
-            ? fieldValues
-            : fieldValues.slice(0, 1).map((item) => item.trim()),
-      from: picked.kind === "date" ? from.trim() : "",
-      to: picked.kind === "date" ? to.trim() : "",
+      field: picked.key, label: picked.label, kind: picked.kind, kinds: [...picked.kinds],
+      values: picked.kind === "date" ? [] : picked.kind === "enum" ? fieldValues : fieldValues.slice(0, 1).map(value => value.trim()),
+      from: picked.kind === "date" ? from.trim() : "", to: picked.kind === "date" ? to.trim() : "",
     };
-    const rest = filters.conditions.filter(
-      (item) => !(item.field === picked.key && sameKinds(item.kinds, picked.kinds)),
-    );
-    onChange({ conditions: [...rest, condition] });
-    setPicked(null);
-    setMode("home");
+    onChange({ conditions: [...filters.conditions.filter(item =>
+      !(item.field === picked.key && sameKinds(item.kinds, picked.kinds))), condition] });
+    setOpen(false);
   }
 
-  const styles = useMemo<{
-    row: ViewStyle;
-    rowLabel: TextStyle;
-    rowValue: TextStyle;
-    rowSub: TextStyle;
-    link: TextStyle;
-    linkDanger: TextStyle;
-    backRow: ViewStyle;
-    input: TextStyle;
-    sectionTitle: TextStyle;
-    hint: TextStyle;
-    divider: ViewStyle;
-    footer: ViewStyle;
-    primaryButton: ViewStyle;
-    primaryLabel: TextStyle;
-    disabledButton: ViewStyle;
-  }>(() => ({
-    row: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-      paddingVertical: 9,
-      paddingHorizontal: 2,
-      borderBottomWidth: 1,
-      borderBottomColor: theme.colors.border,
-    },
-    rowLabel: { color: theme.colors.foregroundMuted, fontSize: 13, width: 64 },
-    rowValue: { color: theme.colors.foreground, fontSize: 13, flex: 1 },
-    rowSub: { color: theme.colors.foregroundMuted, fontSize: 11, flex: 1, textAlign: "right" },
-    link: { color: theme.colors.accent, fontSize: 13 },
-    linkDanger: { color: theme.colors.statusDanger, fontSize: 13 },
-    backRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4 },
-    input: {
-      backgroundColor: theme.colors.surface2,
-      borderColor: theme.colors.border,
-      borderWidth: 1,
-      borderRadius: 8,
-      paddingHorizontal: 10,
-      paddingVertical: 7,
-      color: theme.colors.foreground,
-      fontSize: 13,
-      flex: 1,
-    },
-    sectionTitle: { color: theme.colors.foregroundMuted, fontSize: 12, marginTop: 2 },
-    hint: { color: theme.colors.foregroundMuted, fontSize: 12, lineHeight: 18 },
-    divider: { height: 1, backgroundColor: theme.colors.border, marginVertical: 4 },
-    footer: { flexDirection: "row", justifyContent: "flex-end", gap: 8, paddingTop: 8 },
-    primaryButton: { backgroundColor: theme.colors.accent, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
-    primaryLabel: { color: theme.colors.accentForeground, fontSize: 13 },
-    disabledButton: { opacity: 0.5 },
-  }), [theme]);
-
-  function backRow(to: Mode) {
-    return (
-      <Pressable accessibilityRole="button" style={styles.backRow} onPress={() => setMode(to)}>
-        <Icon name="ChevronLeft" size={16} color={theme.colors.accent} />
-        <Text style={styles.link}>返回</Text>
+  return <>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+      <Text style={{ color: colors.foregroundMuted, fontSize: 12 }}>关键词</Text>
+      <TextInput accessibilityLabel="关键词" placeholder="标题模糊匹配" placeholderTextColor={colors.foregroundMuted}
+        value={keywordDraft} onChangeText={setKeywordDraft} style={[input, { width: 160 }]} />
+    </View>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+      <Text style={{ color: colors.foregroundMuted, fontSize: 12 }}>标签</Text>
+      <TextInput accessibilityLabel="标签" placeholder="精确匹配" placeholderTextColor={colors.foregroundMuted}
+        value={labelDraft} onChangeText={setLabelDraft} style={[input, { width: 140 }]} />
+    </View>
+    {filters.conditions.map(condition => <View key={`${condition.field}-${condition.kinds.join()}`}
+      style={{ flexDirection: "row", alignItems: "center", gap: 6, maxWidth: 280, paddingHorizontal: 8, borderWidth: 1, borderColor: colors.accent, borderRadius: 6, backgroundColor: colors.surface1 }}>
+      <Text numberOfLines={1} style={{ color: colors.foreground, fontSize: 12, flexShrink: 1 }}>
+        {`${condition.label || condition.field}：${conditionSummary(condition)}`}
+      </Text>
+      <Pressable accessibilityRole="button" accessibilityLabel={`移除${condition.label || condition.field}条件`}
+        style={{ padding: 8 }} onPress={() => onChange({ conditions: filters.conditions.filter(item => item !== condition) })}>
+        <Icon name="X" size={14} color={colors.foregroundMuted} />
       </Pressable>
-    );
-  }
-
-  if (mode === "field-pick") {
-    const loading = fieldsQuery.isPending;
-    return (
-      <Modal title="更多筛选 · 添加条件" open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
-        <Modal.Content scrollable={false} contentContainerStyle={{ padding: 0, gap: 0 }}>
-          <View style={{ flex: 1, minHeight: 0, gap: 8, paddingTop: 8, paddingHorizontal: 14 }}>
-            {backRow("home")}
-            <TextInput
-              style={[styles.input, { flex: undefined }]}
-              placeholder="搜索过滤条件（中文名或字段 key）"
-              placeholderTextColor={theme.colors.foregroundMuted}
-              value={search}
-              onChangeText={setSearch}
-            />
-            {loading ? (
-              <View style={{ padding: 24, alignItems: "center" }}>
-                <ActivityIndicator color={theme.colors.foreground} />
-              </View>
-            ) : filteredFields.length === 0 ? (
-              <Text style={styles.hint}>
-                {fieldsQuery.isError ? "字段加载失败，请检查网络或 Token 后重试。" : "没有匹配的字段。"}
-              </Text>
-            ) : (
-              <FlatList
-                style={{ flex: 1, minHeight: 0 }}
-                data={filteredFields}
-                keyExtractor={(item) => `${item.key}-${item.label}`}
-                renderItem={({ item }) => (
-                  <Pressable accessibilityRole="button" style={styles.row} onPress={() => pickField(item)}>
-                    <Text style={styles.rowValue} numberOfLines={1}>{item.label}</Text>
-                    <Text style={styles.rowSub} numberOfLines={1}>
-                      {item.kinds.map((kind) => KIND_SHORT[kind]).join("/")} · {item.key}
-                    </Text>
-                  </Pressable>
-                )}
-              />
-            )}
-          </View>
-        </Modal.Content>
-      </Modal>
-    );
-  }
-
-  return (
-    <Modal title="更多筛选" open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
-      <Modal.Content>
-        {mode === "home" ? (
-          <View style={{ gap: 6 }}>
-            <View style={styles.row}>
-              <Text style={styles.rowLabel}>关键词</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="标题模糊匹配"
-                placeholderTextColor={theme.colors.foregroundMuted}
-                value={keywordDraft}
-                onChangeText={setKeywordDraft}
-              />
-            </View>
-            <Pressable accessibilityRole="button" style={styles.row} onPress={() => setMode("severity")}>
-              <Text style={styles.rowLabel}>严重程度</Text>
-              <Text style={styles.rowValue} numberOfLines={1}>
-                {filters.severities.length > 0 ? `已选 ${filters.severities.length} 项（缺陷）` : "全部（缺陷）"}
-              </Text>
-              <Icon name="ChevronRight" size={15} color={theme.colors.foregroundMuted} />
+    </View>)}
+    <Pressable accessibilityRole="button" accessibilityLabel="添加条件" style={{ paddingHorizontal: 10, paddingVertical: 8 }}
+      onPress={() => { setSearch(""); setPicked(null); setOpen(true); }}>
+      <Text style={{ color: colors.accent, fontSize: 12 }}>+ 添加条件</Text>
+    </Pressable>
+    <Modal title={picked ? `设置条件 · ${picked.label}` : "添加条件"} open={open} onOpenChange={setOpen}>
+      <Modal.Content scrollable={picked !== null} contentContainerStyle={picked ? undefined : { padding: 14, gap: 8 }}>
+        {!picked ? <View style={{ flex: 1, minHeight: 0, gap: 8 }}>
+          <TextInput accessibilityLabel="搜索过滤条件" placeholder="搜索过滤条件（中文名或字段 key）" placeholderTextColor={colors.foregroundMuted}
+            value={search} onChangeText={setSearch} style={input} />
+          {fieldsQuery.isPending ? <ActivityIndicator color={colors.accent} /> : null}
+          {fieldsQuery.isError ? <View style={{ gap: 8 }}>
+            <Text accessibilityRole="alert" style={{ color: colors.statusDanger }}>字段加载失败，请重试。</Text>
+            <Pressable accessibilityRole="button" onPress={() => void fieldsQuery.refetch()}>
+              <Text style={{ color: colors.accent }}>重试</Text>
             </Pressable>
-            <View style={styles.row}>
-              <Text style={styles.rowLabel}>标签</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="精确匹配，留空=全部"
-                placeholderTextColor={theme.colors.foregroundMuted}
-                value={labelDraft}
-                onChangeText={setLabelDraft}
-              />
-            </View>
-            <View style={styles.divider} />
-            <Text style={styles.sectionTitle}>高级条件（任意动态字段）</Text>
-            {filters.conditions.length === 0 ? (
-              <Text style={styles.hint}>还没有高级条件。可添加如「预计结束」「发布计划」「任务类别」等任意字段。</Text>
-            ) : (
-              filters.conditions.map((condition) => (
-                <View key={`${condition.field}-${condition.kinds.join()}`} style={styles.row}>
-                  <Text style={styles.rowValue} numberOfLines={1}>{condition.label || condition.field}</Text>
-                  <Text style={styles.rowSub} numberOfLines={1}>{conditionSummary(condition)}</Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => onChange({ conditions: filters.conditions.filter((item) => item !== condition) })}
-                  >
-                    <Icon name="Trash2" size={15} color={theme.colors.statusDanger} />
-                  </Pressable>
-                </View>
-              ))
-            )}
-            <Pressable
-              accessibilityRole="button"
-              style={{ paddingVertical: 10 }}
-              onPress={() => {
-                setSearch("");
-                setMode("field-pick");
-              }}
-            >
-              <Text style={styles.link}>+ 添加条件</Text>
-            </Pressable>
-          </View>
-        ) : mode === "severity" ? (
-          <View style={{ gap: 2 }}>
-            {backRow("home")}
-            {severityOptions.length === 0 ? (
-              <Text style={styles.hint}>暂无可选项，请稍后重试。</Text>
-            ) : (
-              severityOptions.map((option) => {
-                const selected = filters.severities.includes(option.value);
-                return (
-                  <Pressable
-                    key={option.value}
-                    accessibilityRole="button"
-                    style={styles.row}
-                    onPress={() => onChange({ severities: toggleListValue(filters.severities, option.value) })}
-                  >
-                    <Text style={styles.rowValue} numberOfLines={1}>
-                      {option.label === option.value ? option.value : `${option.label}（${option.value}）`}
-                    </Text>
-                    {selected ? <Icon name="Check" size={16} color={theme.colors.accent} /> : null}
-                  </Pressable>
-                );
-              })
-            )}
-            {filters.severities.length > 0 ? (
-              <Pressable accessibilityRole="button" style={{ paddingVertical: 10 }} onPress={() => onChange({ severities: [] })}>
-                <Text style={styles.link}>清空选择</Text>
-              </Pressable>
-            ) : null}
-          </View>
-        ) : picked ? (
-          <View style={{ gap: 12 }}>
-            {backRow("field-pick")}
-            <Text style={styles.sectionTitle}>
-              {picked.label}（{picked.key} · {picked.kinds.map((kind) => KIND_SHORT[kind]).join("/")}）
-            </Text>
-            {picked.kind === "date" ? (
-              <View style={{ gap: 8 }}>
-                <TextInput
-                  style={styles.input}
-                  placeholder="开始日期，例如 2026-01-01（可留空）"
-                  placeholderTextColor={theme.colors.foregroundMuted}
-                  value={from}
-                  onChangeText={setFrom}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="结束日期，例如 2026-12-31（可留空）"
-                  placeholderTextColor={theme.colors.foregroundMuted}
-                  value={to}
-                  onChangeText={setTo}
-                />
-              </View>
-            ) : picked.kind === "enum" && picked.options.length > 0 ? (
-              <View>
-                {picked.options.map((option) => {
-                  const selected = fieldValues.includes(option.value);
-                  return (
-                    <Pressable
-                      key={option.value}
-                      accessibilityRole="button"
-                      style={styles.row}
-                      onPress={() => toggleFieldEnumValue(picked, option.value)}
-                    >
-                      <Text style={styles.rowValue} numberOfLines={1}>
-                        {option.label === option.value ? option.value : `${option.label}（${option.value}）`}
-                      </Text>
-                      {selected ? <Icon name="Check" size={16} color={theme.colors.accent} /> : null}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : (
-              <TextInput
-                style={styles.input}
-                placeholder={picked.kind === "user" ? "输入人员昵称" : "输入匹配值"}
-                placeholderTextColor={theme.colors.foregroundMuted}
-                value={fieldValues[0] ?? ""}
-                onChangeText={(text) => setFieldValues([text])}
-              />
-            )}
-            <View style={styles.footer}>
-              <Pressable
-                accessibilityRole="button"
-                style={[styles.primaryButton, !canConfirmField ? styles.disabledButton : null]}
-                disabled={!canConfirmField}
-                onPress={confirmFieldValue}
-              >
-                <Text style={styles.primaryLabel}>确定</Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
+          </View> : !fieldsQuery.isPending && !fields.length ? <Text style={{ color: colors.foregroundMuted }}>没有匹配的字段。</Text> : null}
+          <FlatList style={{ flex: 1, minHeight: 0 }} data={fields} keyExtractor={field => `${field.key}-${field.kinds.join()}`}
+            renderItem={({ item }) => <Pressable accessibilityRole="button" onPress={() => pickField(item)}
+              style={{ flexDirection: "row", gap: 8, paddingVertical: 10, borderBottomWidth: 1, borderColor: colors.border }}>
+              <Text style={{ flex: 1, color: colors.foreground }}>{item.label}</Text>
+              <Text style={{ color: colors.foregroundMuted }}>{item.kinds.map(kind => KIND_SHORT[kind]).join("/")} · {item.key}</Text>
+            </Pressable>} />
+        </View> : <View style={{ gap: 12 }}>
+          <Pressable accessibilityRole="button" onPress={() => setPicked(null)}>
+            <Text style={{ color: colors.accent }}>返回</Text>
+          </Pressable>
+          <Text style={{ color: colors.foregroundMuted }}>{picked.label}（{picked.key} · {picked.kinds.map(kind => KIND_SHORT[kind]).join("/")}）</Text>
+          {picked.kind === "date" ? <>
+            <TextInput accessibilityLabel="开始日期" placeholder="开始日期，例如 2026-01-01（可留空）" placeholderTextColor={colors.foregroundMuted} value={from} onChangeText={setFrom} style={input} />
+            <TextInput accessibilityLabel="结束日期" placeholder="结束日期，例如 2026-12-31（可留空）" placeholderTextColor={colors.foregroundMuted} value={to} onChangeText={setTo} style={input} />
+          </> : picked.kind === "enum" && picked.options.length > 0 ? picked.options.map(option => <Pressable key={option.value} accessibilityRole="checkbox"
+            accessibilityState={{ checked: fieldValues.includes(option.value) }} onPress={() => setFieldValues(current => picked.single ? [option.value]
+              : current.includes(option.value) ? current.filter(value => value !== option.value) : [...current, option.value])}
+            style={{ flexDirection: "row", gap: 8, paddingVertical: 10, borderBottomWidth: 1, borderColor: colors.border }}>
+            <Text style={{ flex: 1, color: colors.foreground }}>{option.label === option.value ? option.value : `${option.label}（${option.value}）`}</Text>
+            {fieldValues.includes(option.value) ? <Icon name="Check" size={16} color={colors.accent} /> : null}
+          </Pressable>) : <TextInput accessibilityLabel="条件值" placeholder={picked.kind === "user" ? "输入人员昵称" : "输入匹配值"}
+            placeholderTextColor={colors.foregroundMuted} value={fieldValues[0] ?? ""} onChangeText={text => setFieldValues([text])} style={input} />}
+          <Pressable accessibilityRole="button" disabled={!canConfirm} onPress={confirm}
+            style={{ alignSelf: "flex-end", backgroundColor: colors.accent, borderRadius: 6, paddingHorizontal: 14, paddingVertical: 8, opacity: canConfirm ? 1 : 0.5 }}>
+            <Text style={{ color: colors.accentForeground }}>确定</Text>
+          </Pressable>
+        </View>}
       </Modal.Content>
     </Modal>
-  );
+  </>;
 }

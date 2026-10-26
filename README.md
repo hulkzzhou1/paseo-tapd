@@ -7,12 +7,13 @@ A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo works
 ## Features
 
 - Aggregate tab (stories / tasks / bugs side by side, flat by default, with optional collapsible status groups) plus one tab per type with a status-column kanban; selectable columns, theme-aware status, type, and priority badges, and starred pinning
+- Six permanent dropdown filters: status scope (all / unfinished / done), iteration, updated-within, owner, creator, and priority. People are searchable single-selects with exact-nickname fallback; priority supports multiple selections. Selections apply immediately and remain compatible with saved views. More Filters keeps keyword, severity, labels, and specific workflow statuses.
 - Status scope follows each project’s workflow end states, including custom completed statuses; advanced status conditions intersect with the selected scope.
 - Views as reusable filter presets: built-in "Related to me" (owner, creator, developer, participator, watcher, or commenter, plus linked-task involvement), plus keyword, owner, creator, status scope, iteration, updated-within, priorities, bug severities, labels, and any field from the workspace's TAPD field definitions
 - Detail window with description, comments, open-in-TAPD, and copy-link; story details additionally list the tasks and bugs attached to the story (paginated, with a truncation hint past 200), and task/bug details link back to their parent story
 - Task/bug cards show `#id` on its own line under the title plus a "story: title" chip; details-page child-list row titles show the full text in a hover tooltip
 - Dispatch to an agent: pick a repository and provider/model; the plugin creates a worktree workspace and starts an agent preloaded with the item snapshot, then tracks it from the card
-- Write back to TAPD: comments (plain text converted to HTML), workflow status changes, and new item creation — story details can one-click create a task or bug under that story, prefilled with the parent (story_id) and the story's workspace; the mounted form lists the type's writable TAPD fields dynamically (dropdowns for enum/user fields, a month calendar with yesterday/today/tomorrow shortcuts for date-like fields), defaults the owner to the current token user, and its field layout (order + hidden) is kept per entity type and backed up via settings sync
+- Write back to TAPD: comments (plain text converted to HTML), workflow status changes from an anchored menu (select another status to apply immediately), and new item creation — story details can one-click create a task or bug under that story, prefilled with the parent (story_id) and the story's workspace; the mounted form lists the type's writable TAPD fields dynamically (dropdowns for enum/user fields, a month calendar with yesterday/today/tomorrow shortcuts for date-like fields), defaults the owner to the current token user, and its field layout (order + hidden) is kept per entity type and backed up via settings sync
 - Attachment source: search TAPD items while composing a prompt and attach a snapshot
 - Agent binding: pick an agent from the item detail window to link it to the item; the prompt is prefilled with a default notice (editable) so sending notifies the agent — clear the field to bind silently; agent sessions still receive the TAPD environment variables (when not already defined) so a linked agent can query and update TAPD
 - Settings sync via Git: point the plugin at your own Git repository (URL + access token in settings) and push a backup, or pull to restore views, favorites, board columns, item↔agent links, and switches after uninstall/reinstall; the synced file is `tapd-workbench-settings.json`; privacy-sensitive fields never leave the machine: the TAPD token, project IDs, the Git token, and the local dispatch repo path
@@ -49,6 +50,7 @@ Pick an agent from the item detail window to link the item to that conversation.
 - No credentials are stored in this repository. The token is used only by the daemon-side plugin, as the TAPD `Authorization` header.
 - Prefer environment variables (`TAPD_TOKEN`, `TAPD_WORKSPACE_IDS`). A token saved in the plugin settings is stored as plain JSON on the daemon host and is readable by the connected settings interface.
 - The plugin calls only the TAPD OpenAPI. The API base URL and web link base can be set in the plugin settings, falling back to `TAPD_API_ENDPOINT` and `TAPD_SITE_URL`. API credentials go only to the configured API address; redirects are rejected. Addresses stay local and are excluded from Git settings sync.
+- Opening a person filter reads configured projects’ member nicknames only, without names or email addresses. Candidate failures retain exact-nickname input and allow retry. Status-menu options come from the item’s project.
 - Reads cover every configured project. Write operations (comments, status changes, item creation) target the item's actual project when known, falling back to the first configured TAPD project.
 - Agent dispatch sends the item snapshot (used as the prompt) to the selected agent provider through the Paseo SDK.
 - Update checks fetch the public registry record and this repository's manifest at the pinned commit from GitHub (`raw.githubusercontent.com`, falling back to `api.github.com`). No credentials are attached and no user data is sent; the result is cached for an hour.
@@ -80,6 +82,7 @@ MIT
 ## 功能
 
 - 聚合页签（需求 / 任务 / 缺陷三栏并排，默认平铺，可通过「分组」按钮开启状态分组折叠）+ 每个类型一个独立页签的状态列看板；列可自选、状态、类型和优先级标签用主题色区分，卡片直接显示状态、卡片可加星置顶
+- 顶部常驻六项下拉筛选：状态范围（全部 / 未结束 / 已结束）、迭代、更新时间、处理人、创建人、优先级；人员支持搜索单选及准确昵称输入，优先级支持多选。选择即时生效，旧视图中的选择继续保留；更多筛选保留关键词、严重程度、标签及具体工作流状态。
 - 状态范围按各项目的工作流结束状态判断，支持自定义完成状态；更多筛选中的状态条件与所选范围取交集。
 - 视图 = 可复用的过滤预设：内置「我相关的」（负责人、创建人、开发、参与、关注或评论过，以及关联任务涉及我），另支持关键词、负责人、创建人、状态范围、迭代、最近更新时间、优先级、缺陷严重程度、标签，以及工作区 TAPD 字段定义中的任意字段
 - 单据详情浮窗：描述、评论、在 TAPD 中打开、复制链接；需求详情额外展示该需求下挂的任务列表与缺陷列表（分页展示，超过 200 条时显示「前 200 / 共 N 条」截断提示，点击可切换到对应单据详情）；任务/缺陷详情显示所属需求入口；关联的 Agent 以名称显示并实时展示状态与最近工作结果
@@ -88,7 +91,7 @@ MIT
 - 看板秒开：89 秒内的看板数据直接复用（同一过滤条件各自独立缓存）；过期先显示上次数据并在顶部提示「后台刷新中…」，同时后台重拉，刷新完成后自动更新；「刷新」按钮强制绕过缓存
 - Agent 状态：看板卡片「已关联」标签内的小圆点与详情面板「关联任务」行实时显示 Agent 状态（运行中绿 / 启动中黄 / 异常红 / 空闲或已关闭灰），详情面板还可展开查看最近一次工作结果摘要，事件流驱动、随 Agent 动态刷新
 - Agent 自动回评：设置 → Agent 开关打开后，派给已关联单据的 Agent 每跑完一轮，自动把结果摘要作为评论写回该单据（默认关闭）
-- 回写 TAPD：评论（纯文本自动转 HTML）、工作流状态变更、新建单据；需求详情可一键创建挂在该需求下的任务/缺陷，自动预挂父需求（story_id）并写入需求所属项目；挂载表单动态列出该类型的可写字段（枚举/人员字段出选项、日期及「开始/结束时间」类字段出月历含昨天/今天/明天快捷项），处理人默认当前登录用户，字段顺序与隐藏布局按类型记忆并随设置同步备份
+- 回写 TAPD：评论（纯文本自动转 HTML）、工作流状态变更（按钮下拉菜单，选中其他状态立即提交）、新建单据；需求详情可一键创建挂在该需求下的任务/缺陷，自动预挂父需求（story_id）并写入需求所属项目；挂载表单动态列出该类型的可写字段（枚举/人员字段出选项、日期及「开始/结束时间」类字段出月历含昨天/今天/明天快捷项），处理人默认当前登录用户，字段顺序与隐藏布局按类型记忆并随设置同步备份
 - 附件源：撰写提示词时搜索 TAPD 单据并附上快照
 - Agent 绑定：在单据详情浮窗中选择一个 Agent 关联该单据；提示词默认填入标准跟进通知，可直接发送、修改后发送，或清空只绑定；Agent 会话会在未定义时注入 TAPD 环境变量，使其可直接查询与更新 TAPD
 - 配置同步（Git）：在设置里填自己的 Git 仓库地址与访问令牌，可把视图 / 收藏 / 看板列 / 单据关联记录 / 开关等设置一键推送备份，或从仓库拉取恢复（卸载重装后凭此找回关联）；同步文件为仓库根目录的 `tapd-workbench-settings.json`，隐私字段不出本机：TAPD Token、项目 ID、Git 令牌、派活仓库路径均不参与同步
@@ -143,6 +146,14 @@ npm run lint                                       # React Hooks 规则检查
 paseo plugin install /本仓库的绝对路径               # 从本地目录安装
 paseo plugin reload tapd-workbench                 # 修改后重新加载
 ```
+
+下拉菜单的浏览器交互检查复用已有 Paseo app 工作区中的 React Native Web、esbuild 和 Playwright，不新增插件依赖：
+
+```bash
+PASEO_APP_DIR=/path/to/paseo/packages/app npm run test:ui
+```
+
+检查使用模拟 RPC，不读取真实 TAPD 数据或执行真实写入。需先准备 Playwright Chromium 及运行所需的系统库。
 
 ## 许可证
 

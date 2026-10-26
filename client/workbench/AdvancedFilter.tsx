@@ -14,7 +14,7 @@ import {
 import { Chip, type WorkbenchTheme } from "./bits";
 
 type FilterField = RpcOutput<typeof filterFieldsRpc>["fields"][number];
-type Mode = "home" | "iteration" | "priority" | "severity" | "field-pick" | "field-value";
+type Mode = "home" | "severity" | "field-pick" | "field-value";
 
 const KIND_SHORT: Record<EntityKind, string> = { story: "需求", task: "任务", bug: "缺陷" };
 
@@ -49,14 +49,10 @@ function conditionSummary(condition: TapdCondition): string {
   return `${visible}${extra}` || "(空)";
 }
 
-/** 「更多筛选」徽标计数：高级条件 + 常用项里非默认启用的数量 */
+/** 仅统计仍在「更多筛选」中的条件。 */
 function activeFilterCount(filters: TapdFilters): number {
   let count = filters.conditions.length;
   if (filters.keyword.trim()) count += 1;
-  if (filters.ownerMode === "all" || filters.ownerMode === "custom") count += 1;
-  if (filters.creator.trim()) count += 1;
-  if (filters.iterationId) count += 1;
-  if (filters.priorities.length > 0) count += 1;
   if (filters.severities.length > 0) count += 1;
   if (filters.label.trim()) count += 1;
   return count;
@@ -120,13 +116,9 @@ function MoreFiltersModal({ open, onClose, theme, filters, onChange }: {
   const [to, setTo] = useState("");
 
   const applyKeyword = useCallback((text: string) => onChange({ keyword: text }), [onChange]);
-  const applyOwner = useCallback((text: string) => onChange({ owner: text }), [onChange]);
-  const applyCreator = useCallback((text: string) => onChange({ creator: text }), [onChange]);
   const applyLabel = useCallback((text: string) => onChange({ label: text }), [onChange]);
 
   const [keywordDraft, setKeywordDraft] = useDebouncedDraft(filters.keyword, applyKeyword);
-  const [ownerDraft, setOwnerDraft] = useDebouncedDraft(filters.owner, applyOwner);
-  const [creatorDraft, setCreatorDraft] = useDebouncedDraft(filters.creator, applyCreator);
   const [labelDraft, setLabelDraft] = useDebouncedDraft(filters.label, applyLabel);
 
   useEffect(() => {
@@ -148,11 +140,6 @@ function MoreFiltersModal({ open, onClose, theme, filters, onChange }: {
     );
   }, [fieldsQuery.data, search]);
 
-  const iterations = optionsQuery.data?.iterations ?? [];
-  const iterationLabel = filters.iterationId
-    ? iterations.find((item) => item.id === filters.iterationId)?.name ?? filters.iterationId
-    : "全部迭代";
-  const priorityOptions = optionsQuery.data?.priorities ?? [];
   const severityOptions = optionsQuery.data?.severities ?? [];
 
   function toggleListValue(list: string[], value: string): string[] {
@@ -224,7 +211,6 @@ function MoreFiltersModal({ open, onClose, theme, filters, onChange }: {
     primaryButton: ViewStyle;
     primaryLabel: TextStyle;
     disabledButton: ViewStyle;
-    chips: ViewStyle;
   }>(() => ({
     row: {
       flexDirection: "row",
@@ -259,7 +245,6 @@ function MoreFiltersModal({ open, onClose, theme, filters, onChange }: {
     primaryButton: { backgroundColor: theme.colors.accent, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
     primaryLabel: { color: theme.colors.accentForeground, fontSize: 13 },
     disabledButton: { opacity: 0.5 },
-    chips: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", flex: 1 },
   }), [theme]);
 
   function backRow(to: Mode) {
@@ -268,39 +253,6 @@ function MoreFiltersModal({ open, onClose, theme, filters, onChange }: {
         <Icon name="ChevronLeft" size={16} color={theme.colors.accent} />
         <Text style={styles.link}>返回</Text>
       </Pressable>
-    );
-  }
-
-  if (mode === "iteration") {
-    const rows = [{ id: "", name: "全部迭代", status: "" }, ...iterations];
-    return (
-      <Modal title="更多筛选 · 迭代" open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
-        <Modal.Content scrollable={false} contentContainerStyle={{ padding: 0, gap: 0 }}>
-          <View style={{ flex: 1, minHeight: 0, paddingTop: 8, paddingHorizontal: 14 }}>
-            {backRow("home")}
-            <FlatList
-              style={{ flex: 1, minHeight: 0 }}
-              data={rows}
-              keyExtractor={(item) => item.id || "__all__"}
-              renderItem={({ item }) => (
-                <Pressable
-                  accessibilityRole="button"
-                  style={styles.row}
-                  onPress={() => {
-                    onChange({ iterationId: item.id });
-                    setMode("home");
-                  }}
-                >
-                  <Text style={styles.rowValue} numberOfLines={1}>
-                    {item.id === "" ? item.name : item.status === "done" ? `${item.name}（已关闭）` : item.name}
-                  </Text>
-                  {filters.iterationId === item.id ? <Icon name="Check" size={16} color={theme.colors.accent} /> : null}
-                </Pressable>
-              )}
-            />
-          </View>
-        </Modal.Content>
-      </Modal>
     );
   }
 
@@ -362,48 +314,6 @@ function MoreFiltersModal({ open, onClose, theme, filters, onChange }: {
                 onChangeText={setKeywordDraft}
               />
             </View>
-            <View style={styles.row}>
-              <Text style={styles.rowLabel}>处理人</Text>
-              <View style={styles.chips}>
-                <Chip label="我" theme={theme} active={filters.ownerMode === "mine"} onPress={() => onChange({ ownerMode: "mine" })} />
-                <Chip label="全部人" theme={theme} active={filters.ownerMode === "all"} onPress={() => onChange({ ownerMode: "all" })} />
-                <Chip label="指定人" theme={theme} active={filters.ownerMode === "custom"} onPress={() => onChange({ ownerMode: "custom" })} />
-              </View>
-            </View>
-            {filters.ownerMode === "custom" ? (
-              <View style={styles.row}>
-                <Text style={styles.rowLabel} />
-                <TextInput
-                  style={styles.input}
-                  placeholder="处理人昵称"
-                  placeholderTextColor={theme.colors.foregroundMuted}
-                  value={ownerDraft}
-                  onChangeText={setOwnerDraft}
-                />
-              </View>
-            ) : null}
-            <View style={styles.row}>
-              <Text style={styles.rowLabel}>创建人</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="昵称，留空=全部"
-                placeholderTextColor={theme.colors.foregroundMuted}
-                value={creatorDraft}
-                onChangeText={setCreatorDraft}
-              />
-            </View>
-            <Pressable accessibilityRole="button" style={styles.row} onPress={() => setMode("iteration")}>
-              <Text style={styles.rowLabel}>迭代</Text>
-              <Text style={styles.rowValue} numberOfLines={1}>{iterationLabel}</Text>
-              <Icon name="ChevronRight" size={15} color={theme.colors.foregroundMuted} />
-            </Pressable>
-            <Pressable accessibilityRole="button" style={styles.row} onPress={() => setMode("priority")}>
-              <Text style={styles.rowLabel}>优先级</Text>
-              <Text style={styles.rowValue} numberOfLines={1}>
-                {filters.priorities.length > 0 ? `已选 ${filters.priorities.length} 项` : "全部"}
-              </Text>
-              <Icon name="ChevronRight" size={15} color={theme.colors.foregroundMuted} />
-            </Pressable>
             <Pressable accessibilityRole="button" style={styles.row} onPress={() => setMode("severity")}>
               <Text style={styles.rowLabel}>严重程度</Text>
               <Text style={styles.rowValue} numberOfLines={1}>
@@ -449,35 +359,6 @@ function MoreFiltersModal({ open, onClose, theme, filters, onChange }: {
             >
               <Text style={styles.link}>+ 添加条件</Text>
             </Pressable>
-          </View>
-        ) : mode === "priority" ? (
-          <View style={{ gap: 2 }}>
-            {backRow("home")}
-            {priorityOptions.length === 0 ? (
-              <Text style={styles.hint}>暂无可选项，请稍后重试。</Text>
-            ) : (
-              priorityOptions.map((option) => {
-                const selected = filters.priorities.includes(option.value);
-                return (
-                  <Pressable
-                    key={option.value}
-                    accessibilityRole="button"
-                    style={styles.row}
-                    onPress={() => onChange({ priorities: toggleListValue(filters.priorities, option.value) })}
-                  >
-                    <Text style={styles.rowValue} numberOfLines={1}>
-                      {option.label === option.value ? option.value : `${option.label}（${option.value}）`}
-                    </Text>
-                    {selected ? <Icon name="Check" size={16} color={theme.colors.accent} /> : null}
-                  </Pressable>
-                );
-              })
-            )}
-            {filters.priorities.length > 0 ? (
-              <Pressable accessibilityRole="button" style={{ paddingVertical: 10 }} onPress={() => onChange({ priorities: [] })}>
-                <Text style={styles.link}>清空选择</Text>
-              </Pressable>
-            ) : null}
           </View>
         ) : mode === "severity" ? (
           <View style={{ gap: 2 }}>

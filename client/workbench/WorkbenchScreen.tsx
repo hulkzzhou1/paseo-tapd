@@ -20,7 +20,7 @@ import {
   type DetailTarget,
   type EntityDetailData,
 } from "./EntityDetailModal";
-import { CommentModal, StatusModal } from "./EntityWriteBack";
+import { CommentModal } from "./EntityWriteBack";
 import { FilterBar } from "./FilterBar";
 import { SettingsModal } from "./SettingsForm";
 
@@ -64,9 +64,7 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
   const [detailVersion, setDetailVersion] = useState(0);
   const [dispatchTarget, setDispatchTarget] = useState<EntityDetailData | null>(null);
   type CommentTarget = { kind: EntityKind; id: string; workspaceId?: string };
-  type StatusTarget = CommentTarget & { current: string };
   const [commentTarget, setCommentTarget] = useState<CommentTarget | null>(null);
-  const [statusTarget, setStatusTarget] = useState<StatusTarget | null>(null);
   const [bindTarget, setBindTarget] = useState<EntityDetailData | null>(null);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [boardHeight, setBoardHeight] = useState(0);
@@ -260,7 +258,7 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
   const views = effectiveViews(readySettings.values);
   const activeView = resolveView(readySettings.values, activeViewId ?? "");
   const dirty = filters !== null && !filtersEqual(filters, activeView.filters);
-  const emptyText = filters?.statusScope === "active" ? "没有进行中的条目" : "没有条目";
+  const emptyText = filters?.statusScope === "active" ? "没有未结束的条目" : "没有条目";
   const kindTab: EntityKind | null = activeTab === "all" ? null : activeTab;
   const { pickerStatuses, pickerCounts, columns: statusColumns } = buildStatusColumns(
     kindTab ? board.data?.columns[kindTab]?.items ?? [] : [],
@@ -400,7 +398,7 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
       });
       setCreateOpen(true);
     },
-    onStatus: (data) => setStatusTarget({ kind: data.kind, id: data.id, current: data.status, workspaceId: data.workspaceId }),
+    onStatusDone: () => void board.refetch(),
     onOpenEntity: (target) => setDetail(target),
   };
 
@@ -633,18 +631,6 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
           onDone={handleWriteDone}
         />
       ) : null}
-      {statusTarget ? (
-        <StatusModal
-          open
-          onClose={() => setStatusTarget(null)}
-          theme={theme}
-          kind={statusTarget.kind}
-          id={statusTarget.id}
-          workspaceId={statusTarget.workspaceId}
-          current={statusTarget.current}
-          onDone={handleWriteDone}
-        />
-      ) : null}
       {bindTarget ? (
         <BindAgentModal
           open
@@ -661,7 +647,7 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
             <Text style={styles.hint}>把当前全部过滤条件保存为可复用的视图。</Text>
             <TextInput
               style={styles.modalInput}
-              placeholder="视图名称，例如：我进行中的缺陷"
+              placeholder="视图名称，例如：我未结束的缺陷"
               placeholderTextColor={theme.colors.foregroundMuted}
               value={newViewName}
               onChangeText={setNewViewName}

@@ -1,6 +1,6 @@
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
-import type { addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, searchRpc, updateCheckRpc, updateStatusRpc } from "../shared/contracts";
+import type { addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, updateCheckRpc, updateStatusRpc } from "../shared/contracts";
 import { DEFAULT_FILTERS, type EntityKind, type TapdSettingsValues } from "../shared/contracts";
 import { getTurnRecord, type AgentTurnRecord } from "./agent-state";
 import {
@@ -13,6 +13,8 @@ import {
   fetchFilterFields,
   fetchFilterOptions,
   fetchMe,
+  fetchMembers,
+  fetchStatusOptions,
   fetchMyCommentedIds,
   fetchCreateFields,
   fetchRelatedStoryIdsFromTasks,
@@ -108,6 +110,16 @@ export function createHandlers(getValues: GetValues) {
     async filterOptions(): Promise<RpcOutput<typeof filterOptionsRpc>> {
       const { config } = await requireConfig();
       return fetchFilterOptions(config);
+    },
+
+    async members(): Promise<RpcOutput<typeof membersRpc>> {
+      const { config } = await requireConfig();
+      return fetchMembers(config);
+    },
+
+    async statusOptions(input: RpcInput<typeof statusOptionsRpc>): Promise<RpcOutput<typeof statusOptionsRpc>> {
+      const { config } = await requireConfig();
+      return { options: await fetchStatusOptions(config, input.kind, input.workspaceId) };
     },
 
     async filterFields(): Promise<RpcOutput<typeof filterFieldsRpc>> {

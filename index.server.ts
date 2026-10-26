@@ -1,5 +1,5 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, searchRpc, syncPullRpc, syncPushRpc, tapdSettings, updateCheckRpc, updateStatusRpc } from "./shared/contracts";
+import { addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, syncPullRpc, syncPushRpc, tapdSettings, updateCheckRpc, updateStatusRpc } from "./shared/contracts";
 import { createHandlers } from "./server/handlers";
 import { recordTurnEnd } from "./server/agent-state";
 import { clearTapdCache, resolveConfig, type TapdConfigInput } from "./server/tapd";
@@ -27,6 +27,8 @@ export default function contribute(server: PluginServerContext) {
   server.handle(searchRpc, handlers.search);
   server.handle(filterOptionsRpc, handlers.filterOptions);
   server.handle(filterFieldsRpc, handlers.filterFields);
+  server.handle(membersRpc, handlers.members);
+  server.handle(statusOptionsRpc, handlers.statusOptions);
   server.handle(checkRpc, handlers.check);
   server.handle(updateCheckRpc, handlers.updateCheck);
   server.handle(agentStatusRpc, handlers.agentStatus);

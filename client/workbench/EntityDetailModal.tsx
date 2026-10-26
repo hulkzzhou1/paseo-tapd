@@ -324,7 +324,7 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
       {metaRow("更新", data.modifiedAt)}
       </View>
       <Text style={styles.section}>描述</Text>
-      <RichText html={data.descriptionHtml} text={data.description} baseUrl={data.url} theme={theme} />
+      <RichText html={data.descriptionHtml} text={data.description} baseUrl={data.url} workspaceId={data.workspaceId} theme={theme} />
       {data.parentStory ? (
         <View style={styles.metaRow}>
           <Text style={styles.metaLabel}>所属需求</Text>
@@ -390,7 +390,7 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
             <Text style={styles.commentHead}>
               {comment.author || "未知"} · {formatTime(comment.createdAt)}
             </Text>
-            <RichText html={comment.html} text={comment.text} baseUrl={data.url} theme={theme} />
+            <RichText html={comment.html} text={comment.text} baseUrl={data.url} workspaceId={data.workspaceId} theme={theme} />
           </View>
         ))
       )}

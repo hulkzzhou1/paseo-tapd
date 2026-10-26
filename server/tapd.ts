@@ -1500,3 +1500,60 @@ export async function searchEntities(config: TapdConfig, query: string): Promise
   }
   return items.slice(0, 15);
 }
+
+/** Download once: protected TAPD links may return HTML after their first read. */
+export async function fetchContentImage(config: TapdConfig, workspaceId: string, imagePath: string): Promise<{ dataUri: string }> {
+  const failure = "图片读取失败，请重试或在 TAPD 查看原图。";
+  if (!config.workspaceIds.includes(workspaceId) || imagePath.length > 4096
+    || !/^\/tfl\/(?:captures|pictures)\/[^\s?#\\]+\.(?:png|gif|jpe?g|bmp)$/i.test(imagePath)
+    || new URL(imagePath, config.site).pathname !== imagePath) throw new Error(failure);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const metadata = await requestJson(config, "/files/get_image", { workspace_id: workspaceId, image_path: imagePath }, 0);
+    if (metadata?.Attachment?.workspace_id != null && String(metadata.Attachment.workspace_id) !== workspaceId) throw new Error();
+    const safeUrl = (value: unknown): URL => {
+      if (typeof value !== "string" || value.length > 16384) throw new Error();
+      const url = new URL(value);
+      if (!["http:", "https:"].includes(url.protocol) || url.username || url.password
+        || (config.token && [config.token, encodeURIComponent(config.token)].some(token => url.href.includes(token)))) throw new Error();
+      return url;
+    };
+    let url = safeUrl(metadata?.Attachment?.download_url);
+    const signal = controller.signal;
+    let response: Response;
+    for (let redirects = 0; ; redirects++) {
+      // No Authorization or cookies follow the API-issued download URL, including redirects.
+      response = await fetch(url, { redirect: "manual", signal });
+      if (![301, 302, 303, 307, 308].includes(response.status)) break;
+      await response.body?.cancel();
+      const location = response.headers.get("location");
+      if (!location || redirects >= 3) throw new Error();
+      url = safeUrl(new URL(location, url).href);
+    }
+    const maxBytes = 8 * 1024 * 1024;
+    if (!response.ok || !response.body || Number(response.headers.get("content-length")) > maxBytes) {
+      await response.body?.cancel(); throw new Error();
+    }
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > maxBytes) throw new Error();
+        chunks.push(value);
+      }
+    } finally { await reader.cancel(); }
+    const bytes = Buffer.concat(chunks);
+    const mime = bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ? "png"
+      : bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 ? "jpeg"
+      : ["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString()) ? "gif"
+      : bytes[0] === 66 && bytes[1] === 77 ? "bmp" : undefined;
+    if (!mime) throw new Error();
+    return { dataUri: `data:image/${mime};base64,${bytes.toString("base64")}` };
+  } catch { throw new Error(failure); }
+  finally { clearTimeout(timer); }
+}

@@ -1,6 +1,6 @@
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
-import type { addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, updateCheckRpc, updateStatusRpc } from "../shared/contracts";
+import type { imageRpc, addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, updateCheckRpc, updateStatusRpc } from "../shared/contracts";
 import { DEFAULT_FILTERS, type EntityKind, type TapdSettingsValues } from "../shared/contracts";
 import { getTurnRecord, type AgentTurnRecord } from "./agent-state";
 import {
@@ -10,6 +10,7 @@ import {
   describeError,
   fetchColumn,
   fetchEntity,
+  fetchContentImage,
   fetchFilterFields,
   fetchFilterOptions,
   fetchMe,
@@ -164,6 +165,11 @@ export function createHandlers(getValues: GetValues) {
       const me = await fetchMe(config).catch(() => null);
       await addComment(config, input.workspaceId ?? "", input.kind, input.id, text, me?.nick ?? "");
       return { ok: true };
+    },
+
+    async image(input: RpcInput<typeof imageRpc>): Promise<RpcOutput<typeof imageRpc>> {
+      const { config } = await requireConfig();
+      return fetchContentImage(config, input.workspaceId, input.imagePath);
     },
 
     async entity(input: RpcInput<typeof entityRpc>): Promise<RpcOutput<typeof entityRpc>> {

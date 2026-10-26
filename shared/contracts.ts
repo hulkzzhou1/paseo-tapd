@@ -564,3 +564,10 @@ export const syncPullRpc = defineRpc({
   }),
 });
 
+
+
+export const imageRpc = defineRpc({
+  name: "tapd.image",
+  input: z.object({ workspaceId: z.string().min(1).max(100), imagePath: z.string().min(1).max(4096) }),
+  output: z.object({ dataUri: z.string().max(12_000_000).regex(/^data:image\/(?:png|jpeg|gif|bmp);base64,[A-Za-z0-9+/]+=*$/) }),
+});

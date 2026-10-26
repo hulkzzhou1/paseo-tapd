@@ -11,7 +11,7 @@ import {
   SettingsSection,
   SettingsSwitch,
 } from "@getpaseo/plugin/client/ui";
-import { checkRpc, syncPullRpc, syncPushRpc, tapdSettings } from "../../shared/contracts";
+import { checkRpc, syncPullRpc, syncPushRpc, tapdSettings, tapdBaseUrlSchema } from "../../shared/contracts";
 import { PLUGIN_VERSION } from "../../shared/version";
 import type { WorkbenchTheme } from "./bits";
 import { ViewsSection, type ReadySettings } from "./ViewsSection";
@@ -70,6 +70,8 @@ function SettingsBody({ theme }: { theme: WorkbenchTheme }) {
 
 function SettingsEditor({ settings, theme }: { settings: ReadySettings; theme: WorkbenchTheme }) {
   const [token, setToken] = useState(settings.values.token);
+  const [apiEndpoint, setApiEndpoint] = useState(settings.values.apiEndpoint);
+  const [siteUrl, setSiteUrl] = useState(settings.values.siteUrl);
   const [workspaceIds, setWorkspaceIds] = useState(settings.values.workspaceIds);
   const [autoRefresh, setAutoRefresh] = useState(String(settings.values.autoRefreshSeconds || ""));
   const [checkState, setCheckState] = useState<{ ok: boolean; message: string } | null>(null);
@@ -83,10 +85,19 @@ function SettingsEditor({ settings, theme }: { settings: ReadySettings; theme: W
     return Math.max(30, Math.min(3600, parsed));
   }
 
+  function validAddresses(): boolean {
+    if (tapdBaseUrlSchema.safeParse(apiEndpoint.trim()).success && tapdBaseUrlSchema.safeParse(siteUrl.trim()).success) return true;
+    toast.error("地址需为完整 HTTP(S) URL，不能包含账号、密码、查询参数或片段");
+    return false;
+  }
+
   async function save() {
+    if (!validAddresses()) return;
     const ok = await settings.save(
       {
         ...settings.values,
+        apiEndpoint: apiEndpoint.trim(),
+        siteUrl: siteUrl.trim(),
         token: token.trim(),
         workspaceIds: workspaceIds.trim(),
         autoRefreshSeconds: parseAutoRefresh(),
@@ -98,12 +109,15 @@ function SettingsEditor({ settings, theme }: { settings: ReadySettings; theme: W
   }
 
   async function testConnection() {
+    if (!validAddresses()) return;
     setTesting(true);
     setCheckState(null);
     try {
       const result = await check({
-        token: token.trim() || undefined,
-        workspaceIds: workspaceIds.trim() || undefined,
+        apiEndpoint: apiEndpoint.trim(),
+        siteUrl: siteUrl.trim(),
+        token: token.trim(),
+        workspaceIds: workspaceIds.trim(),
       });
       setCheckState({ ok: result.ok, message: result.message });
     } catch (error) {
@@ -122,6 +136,20 @@ function SettingsEditor({ settings, theme }: { settings: ReadySettings; theme: W
     <View style={{ gap: 16 }}>
       <SettingsSection title="连接">
         <SettingsCard>
+          <SettingsInput
+            label="API 地址"
+            hint="凭证会发送到此地址。留空使用 TAPD_API_ENDPOINT，默认 https://api.tapd.cn"
+            placeholder="https://api.tapd.cn"
+            initialValue={settings.values.apiEndpoint}
+            onChangeText={setApiEndpoint}
+          />
+          <SettingsInput
+            label="网页域名"
+            hint="用于单据链接。留空使用 TAPD_SITE_URL，默认 https://www.tapd.cn；请包含 https://"
+            placeholder="https://www.tapd.cn"
+            initialValue={settings.values.siteUrl}
+            onChangeText={setSiteUrl}
+          />
           <SettingsInput
             label="API Token"
             hint="留空则使用 daemon 环境变量 TAPD_TOKEN；填写后以明文 JSON 保存在 daemon，可被本机设置页读取"
@@ -281,7 +309,7 @@ function SyncSettingsSection({ settings, theme }: { settings: ReadySettings; the
           onPress={() => void runSync("pull")}
         />
         <Text style={hintStyle}>
-          同步内容：视图、收藏、看板列、关联记录、Agent 自动回评开关等设置。不推送的隐私字段：TAPD Token、项目 ID、Git 令牌、派活仓库路径，均只保留在本机。
+          同步内容：视图、收藏、看板列、关联记录、Agent 自动回评开关等设置。不推送的隐私字段：TAPD Token、API 地址、网页域名、项目 ID、Git 令牌、派活仓库路径，均只保留在本机。
         </Text>
       </SettingsCard>
     </SettingsSection>

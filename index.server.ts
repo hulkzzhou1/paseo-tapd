@@ -2,7 +2,7 @@ import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, searchRpc, syncPullRpc, syncPushRpc, tapdSettings, updateCheckRpc, updateStatusRpc } from "./shared/contracts";
 import { createHandlers } from "./server/handlers";
 import { recordTurnEnd } from "./server/agent-state";
-import { clearTapdCache } from "./server/tapd";
+import { clearTapdCache, resolveConfig, type TapdConfigInput } from "./server/tapd";
 import { pullSettings, pushSettings, type SyncSettingsAccess } from "./server/git-sync";
 
 export default function contribute(server: PluginServerContext) {
@@ -55,19 +55,17 @@ export default function contribute(server: PluginServerContext) {
 
   // 给每个 agent 会话注入 TAPD 环境变量（不覆盖已有同名变量），便于 agent 直接调用 TAPD OpenAPI
   server.before("agent.session_open", async ({ request }) => {
-    let values: { token: string; workspaceIds: string } | null = null;
+    let values: TapdConfigInput | null = null;
     try {
       const state = await settings.read();
       if (state.status === "ready") values = state.values;
     } catch {
       values = null;
     }
-    const token = (values?.token ?? "").trim() || (process.env.TAPD_TOKEN ?? "").trim();
-    const endpoint = (process.env.TAPD_API_ENDPOINT ?? "").trim();
-    const site = (process.env.TAPD_SITE_URL ?? "").trim();
-    const workspaces =
-      ((values?.workspaceIds ?? "").trim() || (process.env.TAPD_WORKSPACE_IDS ?? "").trim());
-    if (!token && !endpoint && !site && !workspaces) return request;
+    const config = resolveConfig(values ?? { token: "", workspaceIds: "" });
+    const { token, endpoint, site } = config;
+    const workspaces = config.workspaceIds.join(",");
+    if (!token && !workspaces) return request;
     const env: Record<string, string> = { ...(request.env ?? {}) };
     if (token && !env.TAPD_TOKEN) env.TAPD_TOKEN = token;
     if (endpoint && !env.TAPD_API_ENDPOINT) env.TAPD_API_ENDPOINT = endpoint;

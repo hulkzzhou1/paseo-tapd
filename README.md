@@ -35,6 +35,7 @@ paseo plugin add git:<repo-url>
 After installing, enable the plugin under Settings → Plugins and configure it:
 
 - API Token: TAPD OpenAPI token (falls back to the daemon env var `TAPD_TOKEN`)
+- API address and web domain: set them in Settings → Connection; blank fields use `TAPD_API_ENDPOINT` / `TAPD_SITE_URL`, then the public defaults. Test connection uses the draft API address.
 - Project IDs: TAPD `workspace_id` list (falls back to `TAPD_WORKSPACE_IDS`)
 
 Use "Test connection" in the plugin settings to verify.
@@ -47,7 +48,7 @@ Pick an agent from the item detail window to link the item to that conversation.
 
 - No credentials are stored in this repository. The token is used only by the daemon-side plugin, as the TAPD `Authorization` header.
 - Prefer environment variables (`TAPD_TOKEN`, `TAPD_WORKSPACE_IDS`). A token saved in the plugin settings is stored as plain JSON on the daemon host and is readable by the connected settings interface.
-- The plugin calls only the TAPD OpenAPI. The API base URL and web link base can be overridden per daemon with `TAPD_API_ENDPOINT` and `TAPD_SITE_URL`.
+- The plugin calls only the TAPD OpenAPI. The API base URL and web link base can be set in the plugin settings, falling back to `TAPD_API_ENDPOINT` and `TAPD_SITE_URL`. API credentials go only to the configured API address; redirects are rejected. Addresses stay local and are excluded from Git settings sync.
 - Reads cover every configured project. Write operations (comments, status changes, item creation) target the item's actual project when known, falling back to the first configured TAPD project.
 - Agent dispatch sends the item snapshot (used as the prompt) to the selected agent provider through the Paseo SDK.
 - Update checks fetch the public registry record and this repository's manifest at the pinned commit from GitHub (`raw.githubusercontent.com`, falling back to `api.github.com`). No credentials are attached and no user data is sent; the result is cached for an hour.
@@ -146,3 +147,5 @@ paseo plugin reload tapd-workbench                 # 修改后重新加载
 ## 许可证
 
 MIT
+
+连接设置支持「API 地址」和「网页域名」：填写完整 HTTP(S) 地址，留空沿用 TAPD_API_ENDPOINT / TAPD_SITE_URL，再回退公共域名。测试连接使用尚未保存的 API 地址；保存后单据链接和新 Agent 会话使用新配置（不覆盖 Agent 已有变量）。两个地址仅保留本机，不随 Git 备份同步。

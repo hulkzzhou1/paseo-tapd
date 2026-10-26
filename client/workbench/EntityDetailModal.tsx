@@ -7,6 +7,7 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, useWi
 import { agentStatusRpc, entityRpc, type EntityKind, type TapdLink } from "../../shared/contracts";
 import { Chip, agentStatusColor, formatTime, formatIsoTime, type WorkbenchTheme } from "./bits";
 import { priorityTone, statusTone, toneColor } from "./status-tones";
+import { StatusDropdown } from "./EntityWriteBack";
 
 export interface DetailTarget {
   kind: EntityKind;
@@ -26,7 +27,7 @@ export interface DetailExtras {
   onRemoveLink?: (link: TapdLink) => void;
   onDispatch?: (data: EntityDetailData) => void;
   onComment?: (data: EntityDetailData) => void;
-  onStatus?: (data: EntityDetailData) => void;
+  onStatusDone?: () => void;
   /** 需求详情：一键创建挂在该需求下的任务/缺陷 */
   onCreateChild?: (data: EntityDetailData, childKind: "task" | "bug") => void;
   /** 在详情面板中打开另一个单据（点击需求下的任务/缺陷行） */
@@ -315,10 +316,19 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
           <Icon name="MessageSquarePlus" size={14} color={theme.colors.foreground} />
           <Text style={styles.actionLabel}>写回评论</Text>
         </Pressable>
-        <Pressable accessibilityRole="button" style={styles.action} onPress={() => extras.onStatus?.(data)}>
-          <Icon name="CircleDot" size={14} color={theme.colors.foreground} />
-          <Text style={styles.actionLabel}>改状态</Text>
-        </Pressable>
+        <StatusDropdown
+          key={`${data.workspaceId}-${data.kind}-${data.id}`}
+          theme={theme}
+          kind={data.kind}
+          id={data.id}
+          workspaceId={data.workspaceId}
+          current={data.status}
+          currentLabel={data.statusLabel}
+          onDone={() => {
+            void detail.refetch();
+            extras.onStatusDone?.();
+          }}
+        />
         <Pressable accessibilityRole="button" style={styles.action} onPress={() => void openExternalUrl(data.url)}>
           <Icon name="ExternalLink" size={14} color={theme.colors.foreground} />
           <Text style={styles.actionLabel}>在 TAPD 打开</Text>

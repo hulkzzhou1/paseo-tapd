@@ -31,7 +31,8 @@ Paseo plugin requirements we must follow when developing, reviewing, and releasi
 - Credentials come from plugin settings or daemon environment variables and go only to the
   configured TAPD endpoints (`TAPD_API_ENDPOINT`, default `https://api.tapd.cn`).
 - All write operations (comments, status changes, item creation) require an explicit user
-  action, and target the first configured TAPD project.
+  action, and target the item's actual TAPD project when known, falling back to the first
+  configured project.
 - No hidden network calls, no telemetry, no `eval` of dynamic or remote code, no shell
   built from external data. Document every network destination and data flow in `OVERVIEW.md`.
 - The plugin runs trusted and unsandboxed; keep it that way on purpose.

@@ -147,6 +147,14 @@ paseo plugin install /本仓库的绝对路径               # 从本地目录�
 paseo plugin reload tapd-workbench                 # 修改后重新加载
 ```
 
+下拉菜单的浏览器交互检查复用已有 Paseo app 工作区中的 React Native Web、esbuild 和 Playwright，不新增插件依赖：
+
+```bash
+PASEO_APP_DIR=/path/to/paseo/packages/app npm run test:ui
+```
+
+检查使用模拟 RPC，不读取真实 TAPD 数据或执行真实写入。需先准备 Playwright Chromium 及运行所需的系统库。
+
 ## 许可证
 
 MIT

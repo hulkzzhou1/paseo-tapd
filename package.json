@@ -1,7 +1,7 @@
 {
   "name": "tapd-workbench",
   "private": true,
-  "version": "0.4.21",
+  "version": "0.4.22",
   "files": [
     "LICENSE",
     "README.md",
@@ -17,7 +17,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "eslint client index.client.tsx",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "test:ui": "node tests/dropdown-interaction.check.cjs && node tests/filter-dropdown-interaction.check.cjs && node tests/status-dropdown-interaction.check.cjs"
   },
   "devDependencies": {
     "@getpaseo/plugin": "0.11.2",

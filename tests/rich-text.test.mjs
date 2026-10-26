@@ -15,7 +15,7 @@ test("reading structure retains headings, lists, code, tables and links without 
   assert.equal(nodes.at(-1).href, "https://example.com/help");
 });
 
-test("scripts, styles, embedded content and unsafe links are inert; images are links only", () => {
+test("scripts, styles, embedded content and unsafe links are inert; image sources are safe URLs", () => {
   const nodes = parseRichText('<script>private-script-text</script><style>private-style-text</style><iframe>private-frame-text</iframe><p onclick="attack()">保留正文</p><a href="java&#115;cript:alert(1)">危险链接</a><img src="/image.png" alt="示例图片" onerror="attack()">', base);
   assert.equal(text(nodes), "保留正文危险链接示例图片");
   assert.equal(nodes[1].href, undefined);

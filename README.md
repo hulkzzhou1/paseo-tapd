@@ -166,6 +166,6 @@ MIT
 
 标签采用有色边框、浅色底与圆点，文字保留主题前景色。状态按标签含义区分进行中、测试、完成和拒绝；优先级中紧急 / P0 / P1 为危险色，高 / P2 为警告色，中 / P3 为强调色，其余为中性色。完成卡片不再整体变淡。
 
-详情描述和已读取评论保留完整文字及标题、段落、列表、引用、链接、代码、表格结构，不再静默截成 4000 / 800 字；表格可横向滚动，图片只保留说明与点击查看原图入口，不自动加载。新建表单按基本信息、处理安排与扩展字段分区，保持个人字段顺序与隐藏设置，桌面分列、窄屏单列。
+详情描述和已读取评论保留完整文字及标题、段落、列表、引用、链接、代码、表格结构，不再静默截成 4000 / 800 字；表格可横向滚动，正文及评论中的图片直接显示，按阅读宽度等比缩放，保留说明和「查看原图」；加载中显示提示，失败后可重试。新建表单按基本信息、处理安排与扩展字段分区，保持个人字段顺序与隐藏设置，桌面分列、窄屏单列。
 
-Dialogs share one theme-aware shell with bounded widths and keyboard focus. Detail actions replace the reading page and return to its prior scroll position. New-item/comment drafts require confirmation before discarding. Creation fields stay visible in sections and preserve personal layout choices. Rich content is rendered as safe text structures; scripts/styles are ignored and images are never fetched automatically.
+Dialogs share one theme-aware shell with bounded widths and keyboard focus. Detail actions replace the reading page and return to its prior scroll position. New-item/comment drafts require confirmation before discarding. Creation fields stay visible in sections and preserve personal layout choices. Rich content is rendered as safe text structures; scripts/styles are ignored. Description and comment images load inline at their natural aspect ratio within the reading width, with loading feedback, retry and a view-original link. Image requests use validated HTTP(S) URLs directly from the client without the configured TAPD credentials.

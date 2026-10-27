@@ -212,13 +212,13 @@ Tool inputs are bounded by UTF-8 byte length. Result `warnings` flag tolerated r
 
 The root client contribution registers a `TAPD · N` composer pill independently of the sidebar, so hidden sidebars and focus mode retain it without opening the workbench. No references hides it; one opens full detail directly; several open a recent-first list. Remove a reference in the list or detail without deleting the TAPD item or historical cards. Opening an old card can collect the item again. Agents without a workspace retain card access but cannot have a composer pill under the current SDK.
 
-会话入口按主机和 Agent 隔离，同一连接、项目、类型及单号去重。没有单据时隐藏，一张点击直达详情，多张打开最近优先列表；列表和详情都可移除入口，不影响 TAPD 单据、收藏、Agent 关联和历史卡片。单张工具查询在客户端未打开时也可收录。快捷入口由插件根贡献登记，隐藏侧栏或专注模式不影响；通过本机 RPC 每两秒刷新，不会因此读取 TAPD。
+会话入口按主机和 Agent 隔离，同一连接、项目、类型及单号去重。没有单据时隐藏，一张点击直达详情，多张打开最近优先列表；列表和详情都可移除入口；单据加载失败或旧连接已不可用时仍可移除，移除最后一项后列表显示空态，关闭后隐藏入口。不影响 TAPD 单据、收藏、Agent 关联和历史卡片。单张工具查询在客户端未打开时也可收录。快捷入口由插件根贡献登记，隐藏侧栏或专注模式不影响；通过本机 RPC 每两秒刷新，不会因此读取 TAPD。
 
 Minimal references, short card summaries and replay/removal progress are saved atomically under `PASEO_HOME/plugin-data/tapd-workbench/` (default `~/.paseo/plugin-data/tapd-workbench/`), separately from settings and Git sync. Descriptions, comment bodies, image data and credentials are not saved there. Reopen, reload and restart restore presentation only; archives retain data. Only a successful exact agent lookup proving deletion clears its records. The server contribution has no startup Paseo API: after a worker restart, the root client’s initial local RPC (or the first tool/hook context while offline) starts reconciliation, which completes before shortcuts are presented.
 
 最小引用、短卡片摘要及移除/重放进度独立保存在上述本机插件目录，原子更新、不参与配置同步；不保存正文、评论全文、图片和凭据。关闭、重开、插件重载和 daemon 重启后恢复展示，归档保留，精确确认会话删除后清理。服务端贡献没有启动时的公开 Paseo API，客户端根贡献会通过首次本机 RPC 启动对账；离线时由首个工具或钩子上下文启动，均在展示入口前完成；恢复不会重放 TAPD 操作。
 
-用户和 Agent 普通消息中的明确单据链接也会收录：仅接受当前网页域名和已配置项目，支持 `https://example.com/tapd_fe/12345678/story/detail/11111111` 及 TAPD 旧版详情路径。未知单据先显示编号，点击才读取详情；已知工具摘要直接复用。扫描不调用 TAPD、不修改消息或拦截普通链接；原始工具结果和推理内容不参与扫描。完整历史分页补取、流式更新和重连保留来源进度，旧消息不会恢复已移除入口，新消息可重新收录。
+用户和 Agent 普通消息中的明确单据链接也会收录：仅接受当前网页域名和已配置项目，支持 `https://example.com/tapd_fe/12345678/story/detail/11111111` 及 TAPD 旧版详情路径。未知单据先显示编号，点击才读取详情；已知工具摘要直接复用。扫描不调用 TAPD、不修改消息或拦截普通链接；原始工具结果和推理内容不参与扫描。完整历史分页补取、流式更新和重连保留来源进度，旧消息不会恢复已移除入口，切换 API 地址也不会把旧来源映射到新连接；新消息可按当前配置重新收录。
 
 
 搜索与看板工具返回可恢复的批量结果卡片，默认显示前五条；「展开更多已返回单据」从本机记录分页读取其余结果，不重新查询 TAPD，也不会把整个批次加入会话入口。点击某张才收录并打开完整详情。卡片明确显示已返回数量、已知总数、部分失败、缓存及截断提示；搜索总数未知，空结果与未取得数据分别提示。

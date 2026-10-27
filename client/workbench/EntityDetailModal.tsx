@@ -222,10 +222,15 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
     }
   }
 
+  const removeAction = extras.onRemoveFromConversation ? <Pressable accessibilityRole="button" style={styles.action} onPress={extras.onRemoveFromConversation}>
+    <Text style={styles.actionLabel}>从会话移除</Text>
+  </Pressable> : null;
+
   if (detail.isPending) {
     return (
       <View style={styles.center}>
         <ActivityIndicator color={theme.colors.foreground} />
+        {removeAction}
       </View>
     );
   }
@@ -233,6 +238,7 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
     return (
       <View style={{ gap: 12 }}>
         <Text style={styles.error}>单据 #{id} 加载失败，请检查 TAPD 连接及访问权限后重试。</Text>
+        {removeAction}
         <Pressable accessibilityRole="button" accessibilityLabel="重试加载单据" onPress={() => void detail.refetch()} style={styles.action}>
           <Text style={styles.actionLabel}>重试</Text>
         </Pressable>
@@ -306,9 +312,7 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
           <Icon name="RefreshCw" size={14} color={theme.colors.foreground} />
           <Text style={styles.actionLabel}>刷新</Text>
         </Pressable>
-        {extras.onRemoveFromConversation ? <Pressable accessibilityRole="button" style={styles.action} onPress={extras.onRemoveFromConversation}>
-          <Text style={styles.actionLabel}>从会话移除</Text>
-        </Pressable> : null}
+        {removeAction}
       </View>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, padding: 16, backgroundColor: theme.colors.surface1, borderRadius: 10 }}>
       <View style={styles.metaRow}>

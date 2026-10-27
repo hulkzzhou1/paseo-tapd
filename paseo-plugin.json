@@ -1,7 +1,7 @@
 {
   "id": "tapd-workbench",
   "name": "TAPD Workbench",
-  "description": "TAPD 工作台：筛选、详情与图片阅读、Agent 派活、工具、独立会话入口、可恢复查询/操作卡片与批量结果分页 / TAPD workbench with agent tools, sidebar-independent conversation shortcuts, recoverable query/write cards and paged batch results",
+  "description": "TAPD 工作台：筛选、详情与图片阅读、Agent 派活、工具、可整理的独立会话入口、可恢复查询/操作卡片与批量结果分页 / TAPD workbench with agent tools, removable sidebar-independent conversation shortcuts, recoverable query/write cards and paged batch results",
   "media": [
     "assets/screenshots/workbench-v2.png"
   ],

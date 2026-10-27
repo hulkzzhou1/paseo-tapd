@@ -79,3 +79,18 @@ test('replacement can change sequence positions without resurrecting removed ano
  h.messages.push({type:'user_message',text:'新的讨论'},{type:'assistant_message',text:link('11111111')});h.emit({type:'timeline',item:h.messages.at(-1)});
  assert.deepEqual(ids(await list()),['11111111']);
 }));
+
+test('endpoint changes do not reinterpret removed historical links, but new messages use the new connection',async t=>fixture(t,async(api)=>{
+ const {h,p,list}=api, original=settings.apiEndpoint;
+ try{
+  h.messages.push({type:'user_message',messageId:'example-old-connection',text:link('11111111')});
+  const old=(await list()).conversations[0].entities[0];
+  await p.rpcs.get('tapd.conversation.remove')({agentId:'example-agent',entity:old},ctx(h));
+  settings.apiEndpoint='https://api-other.example.com';h.emit({type:'subscription_restored'});
+  assert.deepEqual(ids(await list()),[],'replay must retain the source interpretation before the connection change');
+  api.restart();assert.deepEqual(ids(await list()),[]);
+  h.messages.push({type:'user_message',messageId:'example-new-connection',text:link('11111111')});h.emit({type:'timeline',item:h.messages.at(-1)});
+  const fresh=(await list()).conversations[0].entities[0];assert.equal(fresh.apiEndpoint,'https://api-other.example.com');
+  assert.equal(api.requests(),0);
+ }finally{settings.apiEndpoint=original;}
+}));

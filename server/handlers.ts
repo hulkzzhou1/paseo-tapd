@@ -30,10 +30,10 @@ import { checkForUpdate } from "./update-check";
 
 type GetValues = () => Promise<TapdSettingsValues>;
 
-export function createHandlers(getValues: GetValues) {
+export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig, "writeSignal" | "readWarnings"> = {}) {
   async function requireConfig(): Promise<{ config: TapdConfig; values: TapdSettingsValues }> {
     const values = await getValues();
-    const config = resolveConfig(values);
+    const config = { ...resolveConfig(values), ...execution };
     if (config.token.length === 0) {
       throw new Error("未配置 TAPD Token：请在「TAPD 工作台设置」中填写，或为 daemon 配置环境变量 TAPD_TOKEN。");
     }
@@ -48,8 +48,12 @@ export function createHandlers(getValues: GetValues) {
       const key = JSON.stringify(input.filters ?? null);
       return boardWithCache(key, async () => {
         const { config } = await requireConfig();
+        const warnings = config.readWarnings ??= [];
         const filters = input.filters ?? DEFAULT_FILTERS;
         const me = await fetchMe(config).catch(() => null);
+        if (filters.ownerMode === "mine" && !me?.nick) {
+          throw new Error("无法识别当前用户，请重试或检查 TAPD 连接；未执行「我处理的」查询。");
+        }
         const owner =
           filters.ownerMode === "mine"
             ? me?.nick ?? ""
@@ -100,6 +104,7 @@ export function createHandlers(getValues: GetValues) {
           }),
         ]);
         return {
+          warnings: [...new Set(warnings)],
           workspaceCount: config.workspaceIds.length,
           tokenSource: config.tokenSource,
           fetchedAt: new Date().toISOString(),

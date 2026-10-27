@@ -9,6 +9,8 @@ export interface TapdConfig {
   token: string;
   tokenSource: "env" | "settings" | "none";
   workspaceIds: string[];
+  writeSignal?: AbortSignal;
+  readWarnings?: string[];
 }
 
 export interface TapdConfigInput {
@@ -265,7 +267,12 @@ async function requestJson(
   const cached = responseCache.get(url);
   if (cached && Date.now() - cached.at < ttlMs) return cached.value;
   const pending = inflightRequests.get(url);
-  if (pending) return pending;
+  if (pending) {
+    try { return await pending; } catch (error) {
+      config.readWarnings?.push("部分 TAPD 读取失败，结果可能不完整。");
+      throw error;
+    }
+  }
 
   const request = (async () => {
     const controller = new AbortController();
@@ -302,6 +309,9 @@ async function requestJson(
   inflightRequests.set(url, request);
   try {
     return await request;
+  } catch (error) {
+    config.readWarnings?.push("部分 TAPD 读取失败，结果可能不完整。");
+    throw error;
   } finally {
     inflightRequests.delete(url);
   }
@@ -594,7 +604,9 @@ export async function fetchIterations(config: TapdConfig): Promise<IterationInfo
         { workspace_id: workspaceId, limit: 200, fields: "id,name,status,startdate,enddate" },
         10 * 60_000,
       );
-      for (const row of unwrapRows(data, ["Iteration"])) {
+      const rows = unwrapRows(data, ["Iteration"]);
+      if (rows.length >= 200) config.readWarnings?.push("迭代候选达到每项目 200 条上限，可能截断。");
+      for (const row of rows) {
         if (row?.id) {
           seen.set(String(row.id), {
             id: String(row.id),
@@ -622,7 +634,9 @@ export async function fetchIterationMap(config: TapdConfig): Promise<Map<string,
         { workspace_id: workspaceId, limit: 200, fields: "id,name" },
         10 * 60_000,
       );
-      for (const row of unwrapRows(data, ["Iteration"])) {
+      const rows = unwrapRows(data, ["Iteration"]);
+      if (rows.length >= 200) config.readWarnings?.push("迭代候选达到每项目 200 条上限，可能截断。");
+      for (const row of rows) {
         if (row?.id) map.set(String(row.id), String(row.name ?? ""));
       }
     } catch {
@@ -845,6 +859,7 @@ async function requestPost(
   path: string,
   params: Record<string, QueryValue>,
 ): Promise<any> {
+  if (config.writeSignal?.aborted) throw new TapdApiError("TAPD 操作已取消");
   const body = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined) continue;
@@ -1473,7 +1488,9 @@ export async function searchEntities(config: TapdConfig, query: string): Promise
       else base[kind === "bug" ? "title" : "name"] = trimmed;
       try {
         const data = await requestJson(config, LIST_PATH[kind], base);
-        for (const row of unwrapRows(data, [KIND_WRAPPER[kind]])) {
+        const rows = unwrapRows(data, [KIND_WRAPPER[kind]]);
+        if (rows.length >= 5) config.readWarnings?.push("搜索结果达到每项目每类型 5 条上限，可能截断。");
+        for (const row of rows) {
           const summary = toSummary(config, workspaceId, kind, row, labels, iterationMap, new Set(TERMINAL_STATUSES[kind]));
           const lines = [
             `TAPD ${KIND_LABELS[kind]}单据快照（#${summary.id}）`,
@@ -1498,6 +1515,7 @@ export async function searchEntities(config: TapdConfig, query: string): Promise
       }
     }
   }
+  if (items.length > 15) config.readWarnings?.push("搜索结果已截断为前 15 条。");
   return items.slice(0, 15);
 }
 

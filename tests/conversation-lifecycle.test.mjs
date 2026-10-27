@@ -176,3 +176,32 @@ test('empty batch presentation never persists or appends configured credentials,
   const saved=await readFile(join(directory,'plugin-data/tapd-workbench/conversations.json'),'utf8').catch(e=>{if(e.code==='ENOENT')return '';throw e;});assert.equal(saved.includes(values.token),false);
  }finally{p.close();values.siteUrl=oldSite;if(prior===undefined)delete process.env.PASEO_HOME;else process.env.PASEO_HOME=prior;await rm(directory,{recursive:true,force:true});}
 });
+
+test('an unavailable unrelated conversation history cannot block current tool cards or list recovery', async t => {
+ const directory=await mkdtemp(join(tmpdir(),'tapd-conversation-unavailable-'));const prior=process.env.PASEO_HOME;process.env.PASEO_HOME=directory;mockTapd(t);const h=host();const p=plugin();
+ h.agents.set('unavailable-agent',{id:'unavailable-agent',workspaceId:'unavailable-workspace',archivedAt:null});
+ const original=h.paseo.agents.ref;let unavailable=true;let attempts=0;
+ h.paseo.agents.ref=id=>{const value=original(id);if(id==='unavailable-agent'){const refetch=value.timeline.refetch;value.timeline.refetch=async(...args)=>{attempts++;if(unavailable)throw new Error('Working directory does not exist: /example/deleted-workspace');return refetch(...args);};}return value;};
+ try {
+  const result=await read(p,h);assert.equal(result.structuredContent.presentationWarning,undefined);
+  assert.equal(h.rows.get('example-agent').length,1);
+  assert.equal((await p.rpcs.get('tapd.conversations')({},ctx(h))).conversations[0].entities.length,1);
+  const before=attempts;unavailable=false;
+  await p.rpcs.get('tapd.conversations')({},ctx(h));assert.ok(attempts>before,'failed history is retried without dropping other conversations');
+  assert.equal(h.rows.get('example-agent').length,1,'retry does not duplicate existing cards');
+ } finally {p.close();if(prior===undefined)delete process.env.PASEO_HOME;else process.env.PASEO_HOME=prior;await rm(directory,{recursive:true,force:true});}
+});
+
+
+test('a slow unrelated history does not hold current tool results until the host RPC deadline', async t => {
+ const directory=await mkdtemp(join(tmpdir(),'tapd-conversation-slow-'));const prior=process.env.PASEO_HOME;process.env.PASEO_HOME=directory;mockTapd(t);const h=host();const p=plugin();
+ h.agents.set('slow-agent',{id:'slow-agent',workspaceId:'slow-workspace',archivedAt:null});
+ const original=h.paseo.agents.ref;let release;const slow=new Promise(resolve=>{release=resolve;});
+ h.paseo.agents.ref=id=>{const value=original(id);if(id==='slow-agent'){const refetch=value.timeline.refetch;value.timeline.refetch=async(...args)=>{await slow;return refetch(...args);};}return value;};
+ let timeout;
+ try {
+  const result=await Promise.race([read(p,h),new Promise((_,reject)=>{timeout=setTimeout(()=>reject(new Error('current read blocked by unrelated history')),1500);})]);
+  assert.equal(result.structuredContent.presentationWarning,undefined);
+  const list=await p.rpcs.get('tapd.conversations')({},ctx(h));assert.equal(list.conversations[0].entities.length,1);
+ } finally {clearTimeout(timeout);release();await new Promise(resolve=>setTimeout(resolve,20));p.close();if(prior===undefined)delete process.env.PASEO_HOME;else process.env.PASEO_HOME=prior;await rm(directory,{recursive:true,force:true});}
+});

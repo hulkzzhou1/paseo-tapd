@@ -1,7 +1,7 @@
 {
   "id": "tapd-workbench",
   "name": "TAPD Workbench",
-  "description": "TAPD 工作台：筛选、图片阅读、Agent 工具、会话侧栏列表与独立详情 tab、可恢复结果卡片 / TAPD workbench with agent tools, conversation Explorer lists, individual detail tabs and recoverable result cards",
+  "description": "TAPD 工作台：筛选、图片阅读、Agent 工具、会话侧栏列表与独立详情 tab、故障隔离与可恢复结果卡片 / TAPD workbench with agent tools, conversation Explorer lists, individual detail tabs and failure-isolated recoverable result cards",
   "media": [
     "assets/screenshots/workbench-v2.png"
   ],

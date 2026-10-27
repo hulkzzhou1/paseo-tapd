@@ -61,13 +61,13 @@ Iteration options and the selected summary mark current iterations using the cli
 
 ## Agent tool data flow / Agent 工具数据流
 
-The mainline session-open hook attaches the 13 `tapd_*` tools listed in README to each live agent session, preserving earlier tools and existing connection environment variables; history-only sessions are skipped. This requires mainline agent-tool API support, verified at commit `6b7d49f0d8d21d01565f9517a8c2a30e2a587e2a`; npm SDK 0.13.2 alone is insufficient. Development uses `npm run sdk:main -- /path/to/paseo-main` to copy a trusted built SDK distribution into local node_modules; no build/lifecycle script runs automatically and this does not modify plugin settings.
+The mainline session-open hook attaches the 16 `tapd_*` tools listed in README to each live agent session, preserving earlier tools and existing connection environment variables; history-only sessions are skipped. This requires mainline agent-tool API support, verified at commit `6b7d49f0d8d21d01565f9517a8c2a30e2a587e2a`; npm SDK 0.13.2 alone is insufficient. Development uses `npm run sdk:main -- /path/to/paseo-main` to copy a trusted built SDK distribution into local node_modules; no build/lifecycle script runs automatically and this does not modify plugin settings.
 
 Agent tool inputs/results travel through Paseo's provider-supported MCP/native transport to the plugin process. TAPD item text, comments, member nicknames, configured project IDs and metadata returned by a tool become visible to the calling agent/provider. Calls use the latest local settings and the existing configured TAPD API only, with its existing Authorization header and redirect rejection; no new remote destination is added. Tools cannot set tokens or endpoints, return no settings/secrets, bound input JSON to 64 KB, suppress raw upstream errors and redact configured credentials in results. Partial failures retain an error marker; existing result limits/truncation and caches remain. Full item text is untrusted data and cannot authorize writes.
 
 Write tools require the explicit configured project and `confirmed: true` after the agent presents the precise target/payload for user approval. This is a caller assertion, not a new human approval service or a bypass of provider/Paseo permission policy. Status/comment writes additionally read the item and reject a project mismatch; child creation checks the parent requirement. Status writes verify the project's options and skip the current value. No write is automatically retried. Cancellation is checked before execution and immediately before writes; an already-dispatched HTTP write may still complete, with the existing 20-second request timeout. Check state before retrying an ambiguous result. Configuration sync, plugin updates, image bytes and agent dispatch are not exposed as these tools. Existing UI and explicitly enabled auto-report behavior are unchanged. No additional files/media are written by tools.
 
-主线 session-open 钩子向实际 Agent 会话注册 README 中的 13 个 `tapd_*` 工具，保留此前工具及已有连接变量，跳过 history。需要包含工具 API 的主线构建；npm 同号 SDK 不够。开发通过 `sdk:main` 显式复制可信的主线 SDK 构建产物到本地 node_modules，不自动执行构建/安装脚本，不改插件配置。
+主线 session-open 钩子向实际 Agent 会话注册 README 中的 16 个 `tapd_*` 工具，保留此前工具及已有连接变量，跳过 history。需要包含工具 API 的主线构建；npm 同号 SDK 不够。开发通过 `sdk:main` 显式复制可信的主线 SDK 构建产物到本地 node_modules，不自动执行构建/安装脚本，不改插件配置。
 
 输入和结果经 Paseo 的 MCP/native 传输到插件进程；返回的项目 ID、单据完整正文、评论、成员昵称及元数据会提供给调用 Agent 及其 provider。每次调用读取当前插件配置，只访问原配置 TAPD API，沿用认证与禁止 API 重定向，不新增远程目的地。工具不能覆写 Token 或地址，不返回设置/秘密；输入 JSON 限 64 KB，错误不回显原始响应，结果中的已配置凭据被抹去。部分失败保留错误标记，现有截断与缓存不变。TAPD 正文属于不可信业务数据，不能充当指令或写入授权。
 
@@ -114,3 +114,8 @@ A completed TAPD write remains successful even when a later cancellation, serial
 会话入口使用 Progress 相同的公开 composer action → openPanel 导航：网页端在 Explorer 侧栏打开按 Agent 隔离的列表；原生手机端使用工作区 tab。单张和多张均先打开列表，选中后打开该单据独立详情 tab，重复打开复用。详情面板复用工作台详情与操作组件，按面板宽度排版；操作表单仍使用带未提交确认的弹窗。列表与详情由宿主面板持有，不挂在输入框图标或临时 popover 内。每张已收录单据按完整连接/项目/类型/单号注册稳定的 panel ID，以支持宿主恢复 tab；移除引用不强制关闭正在阅读的 tab，面板注册在插件卸载时释放。此变更不新增存储文件、配置迁移、网络目的地或 TAPD 写入权限。单张与批量结果卡片统一打开可复用的详情 tab，详情内的关联单据仍沿用当前详情内切换；没有工作区的 Agent 保留详情弹窗。
 
 会话历史读取按 Agent 隔离故障：旧工作目录失效或单个历史不可读时保留重试，不阻塞其他会话的卡片和引用。首次历史扫描及列表等待补扫各最多等待 250ms，超出后继续后台扫描，已保存引用先返回，后续轮询补齐；不把不可访问的历史视为会话删除，不重复执行 TAPD 写入。
+
+
+随插件提供 `paseo-tapd` skill，指导查询、接手绑定、阶段推进与验收；需要由目标 Agent provider 的技能发现机制加载，不由插件自动注入现有会话。工具新增 Agent/仓库/模型候选读取、静默绑定和派发：明确授权后可绑定当前或指定 Agent，或新建 worktree 与 Agent、保存关联后发送获批提示词。绑定不修改 TAPD 处理人和状态；派发会将提示词发送给选定 provider，并可能产生费用。部分失败返回已有资源 ID 和阶段，不自动重试或删除资源。
+
+工具关联以原子文件保存在 daemon 本机 `plugin-data/tapd-workbench/agent-links.json`（相对 PASEO_HOME），包含单据类型/编号、实际 TAPD 项目、API 地址及 Paseo 工作区/Agent 引用，不保存凭据或任务提示词，不参与 Git 设置同步。界面每两秒通过本机 RPC 读取并合并旧关联，支持移除工具关联；旧设置记录保留。工具候选读取只访问 Paseo 本机 API，目标单据验证与自动回评仅访问已配置 TAPD API；自动回评先解析单据实际项目，仍需启用原有开关。不新增网络目的地。

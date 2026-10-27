@@ -1,3 +1,4 @@
+import { useAgentLinks } from "./useAgentLinks";
 import { WorkbenchDialog as Modal, dialogFormStyles } from "./WorkbenchDialog";
 import { usePaseo, useRpc, useSettings } from "@getpaseo/plugin/client";
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
@@ -57,7 +58,7 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
   // 关联 Agent 的实时状态（卡片圆点 + 详情面板共用数据源）
   const paseo = usePaseo();
   const statusRpc = useRpc(agentStatusRpc);
-  const linksReady = settings.status === "ready" ? settings.values.links : EMPTY_LINKS;
+  const linksReady = useAgentLinks(settings.status === "ready" ? settings.values.links : EMPTY_LINKS);
   const agentIds = useMemo(
     () => [...new Set(linksReady.map((link) => link.agentId).filter(Boolean))],
     [linksReady],
@@ -229,7 +230,7 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
   const readySettings = settings;
   const favorites = readySettings.values.favorites;
   const groupByStatus = readySettings.values.groupByStatus;
-  const links = readySettings.values.links;
+  const links = linksReady;
   const linkedKeys = links.map((link) => link.key);
   const views = effectiveViews(readySettings.values);
   const activeView = resolveView(readySettings.values, activeViewId ?? "");

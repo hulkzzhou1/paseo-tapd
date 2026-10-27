@@ -6,7 +6,7 @@ A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo works
 
 ## Features
 
-- 13 schema-validated Agent tools for TAPD reads and user-approved item writes, using the Paseo mainline SDK
+- 16 schema-validated Agent tools for TAPD reads and user-approved item writes, using the Paseo mainline SDK
 - Single-item Agent reads, successful writes and explicit configured TAPD links join a conversation-scoped shortcut. Clickable result cards open the shared full detail/actions; batches start with five results and collect only selected items. References and compact cards survive reload/restart, remain through archive and are cleared on conversation deletion. Cards label their historical summary and completeness.
 - Aggregate tab (stories / tasks / bugs side by side, flat by default, with optional collapsible status groups) plus one tab per type with a status-column kanban; empty columns hidden by default with explicit column selection preserved, theme-aware status, type, and priority badges, and starred pinning
 - Six permanent dropdown filters: status scope (all / unfinished / done), iteration, updated-within, owner, creator, and priority. People are searchable single-selects with exact-nickname fallback; priority supports multiple selections. Selections apply immediately and remain compatible with saved views. Severity, keyword, labels, and applied advanced conditions are also visible in the toolbar; Add Condition opens the field picker and value editor for workflow states and other dynamic fields.
@@ -84,7 +84,7 @@ MIT
 
 ## 功能
 
-- 通过 Paseo 主线 SDK 注册 13 个 schema 校验的 Agent 工具，支持 TAPD 查询及用户确认后的单据写入
+- 通过 Paseo 主线 SDK 注册 16 个 schema 校验的 Agent 工具，支持 TAPD 查询及用户确认后的单据写入
 - 单张查询及成功建单、评论、状态操作收录到输入框上方的会话 TAPD 入口（点击在侧栏打开会话列表，选择单据新开详情 tab），并在对话显示紧凑结果卡片，点击直达与工作台共用的完整详情和操作页，关闭后继续对话；卡片标注操作结果和当时摘要，未知字段不补猜。
 - 聚合页签（需求 / 任务 / 缺陷三栏并排，默认平铺，可通过「分组」按钮开启状态分组折叠）+ 每个类型一个独立页签的状态列看板；列可自选、状态、类型和优先级标签用主题色区分，卡片直接显示状态、卡片可加星置顶
 - 单类型看板默认隐藏空状态列；「列」中仍可查看全部状态和数量、显式选择空列，或恢复默认。已保存的列选择继续保留。
@@ -245,3 +245,16 @@ The daemon check launches separate real daemon processes with a fake provider an
 真实 daemon 验收与日常 Node/浏览器回归分开运行，依赖已构建的匹配主线源码（仅测试驱动使用主线测试帮助函数，插件仍只用公开 SDK）。验收执行明确确认的模拟建单、评论和状态修改，恢复阶段不重复写入，不读取真实连接配置，不调用真实 TAPD 或模型服务，不触碰当前 daemon，也不生成截图。插件本机交付只重载，保留已有连接和全部用户设置。
 
 会话历史读取按 Agent 隔离故障：旧工作目录失效或单个历史不可读时保留重试，不阻塞其他会话的卡片和引用。首次历史扫描及列表等待补扫各最多等待 250ms，超出后继续后台扫描，已保存引用先返回，后续轮询补齐；不把不可访问的历史视为会话删除，不重复执行 TAPD 写入。
+
+
+## TAPD workflow skill and Agent assignment
+
+The bundled [paseo-tapd skill](skills/paseo-tapd/SKILL.md) guides reads, taking responsibility, phase updates and acceptance using the registered tools. Copy `skills/paseo-tapd` into your Codex skills directory (`${CODEX_HOME:-$HOME/.codex}/skills/`), then refresh the provider session's skill discovery. Invoke `$paseo-tapd` or let the provider select it for TAPD work. Installing the plugin alone does not register a skill with every provider; Paseo's current public plugin SDK has no `registerSkill` interface.
+
+技能区分查询与接手：明确接手时绑定当前 Agent；阶段完成根据真实项目工作流提出变更，已有明确授权就执行；验收通过后才建议完成或关闭。技能不会自动授予写入权限。
+
+- `tapd_agent_options`: read active Agents (up to 200, with truncation indication), Git repositories, selectable provider/models, legacy associations and tool-created bindings.
+- `tapd_bind_agent`: silently bind an item to the calling Agent or an explicit `agentId`. Requires actual TAPD `workspaceId` and `confirmed: true`; does not change TAPD owner/status or send a prompt.
+- `tapd_dispatch_agent`: after approval of item, repository, branch, provider/model and exact prompt, create a worktree and Agent, persist the binding, then send the prompt. Partial failure returns the created resource IDs and stage; inspect those resources before recovery, never blindly dispatch again. Creating a workspace or Agent may have completed even if its response was lost.
+
+工具产生的关联保存在本机 `${PASEO_HOME:-~/.paseo}/plugin-data/tapd-workbench/agent-links.json`，按 API 地址和实际 TAPD 项目隔离；详情与看板每两秒合并读取旧设置关联和这些记录，详情可移除，自动回评仍由原有开关控制。旧关联不迁移、不删除，新工具关联不参与 Git 配置同步。派发会将用户批准的提示词发送给选定模型服务，可能产生费用；不会自动清理部分创建的工作区或 Agent。

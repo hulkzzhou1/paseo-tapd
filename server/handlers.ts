@@ -298,7 +298,8 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
               : "Agent 结果反馈：已完成";
         const text = [header, input.record.error || input.record.summary].filter(Boolean).join("\n");
         const me = await fetchMe(config).catch(() => null);
-        await addComment(config, link.workspaceId, link.kind, link.id, text, me?.nick ?? "");
+        const entity = await fetchEntity(config, link.kind, link.id);
+        await addComment(config, entity.workspaceId, link.kind, link.id, text, me?.nick ?? "");
       } catch {
         // 自动回评失败不打扰用户（无 UI 处），静默
       }

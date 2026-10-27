@@ -49,6 +49,7 @@ export function contributeConversationAccess(client: PluginClientContext) {
   function ConversationPanel({ params: { agentId }, workspaceId, theme }: PluginAgentPanelProps) {
     const conversations = useSyncExternalStore(subscribe, snapshot);
     const entities = conversations.find(c => c.agentId === agentId && c.workspaceId === workspaceId)?.entities ?? [];
+    const hasEntities = entities.length > 0;
     const [pending, setPending] = useState(false);
     const [loading, setLoading] = useState(false);
     const [failed, setFailed] = useState(0);
@@ -69,7 +70,7 @@ export function contributeConversationAccess(client: PluginClientContext) {
         if (!cancelled) setLoading(false);
       })();
       return () => { cancelled = true; };
-    }, [agentId, workspaceId, retry, requested]);
+    }, [agentId, workspaceId, retry, requested, hasEntities]);
     const toast = useToast();
     async function selectEntity(entity: ConversationEntity) {
       try {

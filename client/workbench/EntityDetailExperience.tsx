@@ -12,7 +12,7 @@ import { EntityDetailModal, type DetailExtras, type DetailTarget, type EntityDet
 import { CommentModal } from "./EntityWriteBack";
 import type { WorkbenchTheme } from "./bits";
 
-export function EntityDetailExperience({ target: detail, onTargetChange: setDetail, theme, navigation, createOpen: controlledCreateOpen, onCreateOpenChange, onChanged, onDismiss }: {
+export function EntityDetailExperience({ target: detail, onTargetChange: setDetail, theme, navigation, createOpen: controlledCreateOpen, onCreateOpenChange, onChanged, onDismiss, onRemoveFromConversation }: {
   target: DetailTarget | null;
   onTargetChange: (target: DetailTarget | null) => void;
   theme: WorkbenchTheme;
@@ -21,6 +21,7 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
   onCreateOpenChange?: (open: boolean) => void;
   onChanged?: () => void;
   onDismiss?: () => void;
+  onRemoveFromConversation?: () => void;
 }) {
   const settings = useSettings(tapdSettings);
   const queryClient = useQueryClient();
@@ -76,6 +77,7 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
   }
 
   const detailExtras: DetailExtras = {
+    onRemoveFromConversation,
     links,
     navigation,
     refreshToken: detailVersion,

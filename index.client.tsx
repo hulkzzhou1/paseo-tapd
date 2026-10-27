@@ -1,5 +1,6 @@
 import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
+import { ConversationAccess } from "./client/conversation/ConversationAccess";
 import { EntityResultCard } from "./client/conversation/EntityResultCard";
 import { entityResultSchema } from "./shared/conversation";
 import { tapdAttachmentSource } from "./shared/contracts";
@@ -24,7 +25,10 @@ export default function contribute(client: PluginClientContext) {
     icon: "ClipboardList",
     Component: TapdSettingsScreen,
   });
-  client.addSidebarHeaderItem({ id: "tapd-board", title: "TAPD 工作台", Component: TapdSidebarItem });
+  client.addSidebarHeaderItem({ id: "tapd-board", title: "TAPD 工作台", Component: props => <>
+    <TapdSidebarItem {...props} />
+    <ConversationAccess {...props} client={client} />
+  </> });
   client.addCommandCenterItem({
     id: "tapd-open-board",
     title: "打开 TAPD 工作台",

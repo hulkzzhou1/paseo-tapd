@@ -24,6 +24,7 @@ export type EntityDetailData = RpcOutput<typeof entityRpc>;
 export type AgentStatusItem = NonNullable<RpcOutput<typeof agentStatusRpc>["items"]>[number];
 
 export interface DetailExtras {
+  onRemoveFromConversation?: () => void;
   links: readonly TapdLink[];
   navigation?: PluginScreenProps["navigation"];
   refreshToken: number;
@@ -305,6 +306,9 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
           <Icon name="RefreshCw" size={14} color={theme.colors.foreground} />
           <Text style={styles.actionLabel}>刷新</Text>
         </Pressable>
+        {extras.onRemoveFromConversation ? <Pressable accessibilityRole="button" style={styles.action} onPress={extras.onRemoveFromConversation}>
+          <Text style={styles.actionLabel}>从会话移除</Text>
+        </Pressable> : null}
       </View>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, padding: 16, backgroundColor: theme.colors.surface1, borderRadius: 10 }}>
       <View style={styles.metaRow}>

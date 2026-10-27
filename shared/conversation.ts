@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { defineRpc } from "@getpaseo/plugin";
 import { entityKindSchema } from "./contracts";
 
 const endpoint = z.url().max(4096).refine(value => {
@@ -22,3 +23,27 @@ export const entityResultSchema = z.object({
   warnings: z.array(z.string().max(300)).max(10).default([]),
 });
 export type ConversationEntity = z.infer<typeof conversationEntitySchema>;
+
+export const conversationOwnerSchema = z.object({ agentId: z.string().min(1).max(200) });
+export const conversationSummarySchema = z.object({
+  agentId: z.string().min(1).max(200),
+  workspaceId: z.string().nullable(),
+  entities: z.array(conversationEntitySchema),
+});
+export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
+
+export const conversationListRpc = defineRpc({
+  name: "tapd.conversations", input: z.object({}),
+  output: z.object({ conversations: z.array(conversationSummarySchema) }),
+});
+export const conversationFocusRpc = defineRpc({
+  name: "tapd.conversation.focus", input: conversationOwnerSchema.extend({ entity: conversationEntitySchema }),
+  output: z.object({ ok: z.literal(true) }),
+});
+export const conversationRemoveRpc = defineRpc({
+  name: "tapd.conversation.remove", input: conversationOwnerSchema.extend({ entity: conversationEntitySchema }),
+  output: z.object({ ok: z.literal(true) }),
+});
+export function conversationEntityKey(entity: ConversationEntity): string {
+  return JSON.stringify([entity.siteUrl, entity.apiEndpoint, entity.workspaceId, entity.kind, entity.id]);
+}

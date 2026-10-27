@@ -7,7 +7,7 @@ A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo works
 ## Features
 
 - 13 schema-validated Agent tools for TAPD reads and user-approved item writes, using the Paseo mainline SDK
-- Single-item Agent queries show a compact, clickable result card in the conversation. Open the shared full detail and action pages without leaving the conversation; the card marks its summary as historical and displays partial-read warnings.
+- Single-item Agent queries add a conversation-scoped TAPD shortcut and show a compact, clickable result card in the conversation. Open the shared full detail and action pages without leaving the conversation; the card marks its summary as historical and displays partial-read warnings.
 - Aggregate tab (stories / tasks / bugs side by side, flat by default, with optional collapsible status groups) plus one tab per type with a status-column kanban; empty columns hidden by default with explicit column selection preserved, theme-aware status, type, and priority badges, and starred pinning
 - Six permanent dropdown filters: status scope (all / unfinished / done), iteration, updated-within, owner, creator, and priority. People are searchable single-selects with exact-nickname fallback; priority supports multiple selections. Selections apply immediately and remain compatible with saved views. Severity, keyword, labels, and applied advanced conditions are also visible in the toolbar; Add Condition opens the field picker and value editor for workflow states and other dynamic fields.
 - Status scope follows each project’s workflow end states, including custom completed statuses; advanced status conditions intersect with the selected scope.
@@ -85,7 +85,7 @@ MIT
 ## 功能
 
 - 通过 Paseo 主线 SDK 注册 13 个 schema 校验的 Agent 工具，支持 TAPD 查询及用户确认后的单据写入
-- 单张查询在对话显示紧凑结果卡片，点击直达与工作台共用的完整详情和操作页，关闭后继续对话；卡片明确标注查询时摘要与部分读取失败。
+- 单张查询收录到输入框上方的会话 TAPD 入口，并在对话显示紧凑结果卡片，点击直达与工作台共用的完整详情和操作页，关闭后继续对话；卡片明确标注查询时摘要与部分读取失败。
 - 聚合页签（需求 / 任务 / 缺陷三栏并排，默认平铺，可通过「分组」按钮开启状态分组折叠）+ 每个类型一个独立页签的状态列看板；列可自选、状态、类型和优先级标签用主题色区分，卡片直接显示状态、卡片可加星置顶
 - 单类型看板默认隐藏空状态列；「列」中仍可查看全部状态和数量、显式选择空列，或恢复默认。已保存的列选择继续保留。
 - 顶部常驻六项下拉筛选：状态范围（全部 / 未结束 / 已结束）、迭代、更新时间、处理人、创建人、优先级；人员支持搜索单选及准确昵称输入，优先级支持多选。选择即时生效，旧视图中的选择继续保留；严重程度、关键词、标签和已添加的高级条件也直接显示在顶部，不再提供「更多筛选」入口。具体工作流状态及其他动态字段通过「添加条件」选择。
@@ -207,3 +207,13 @@ Reload `tapd-workbench`, then send the agent its next prompt while idle to refre
 Tool inputs are bounded by UTF-8 byte length. Result `warnings` flag tolerated read failures and capped search/iteration results; absent candidates or empty searches do not establish an exhaustive project result. Cancellation is also checked at the HTTP write boundary, after comment-author lookup.
 
 看板的读取警告随快照缓存（包括界面先加载及后台刷新），缓存命中不会丢失完整性提示。「我处理的」无法识别当前用户时直接报错，不扩大为全员查询。Board read warnings travel with cached snapshots, including UI-warmed results and background refreshes. If the current user cannot be resolved, a mine query fails rather than broadening to everyone.
+
+### Conversation TAPD shortcuts / 会话 TAPD 入口
+
+The sidebar host registers a `TAPD · N` composer pill without requiring the workbench to be opened. No references hides it; one opens full detail directly; several open a recent-first list. Remove a reference in the list or detail without deleting the TAPD item or historical cards. Opening an old card can collect the item again. Agents without a workspace retain card access but cannot have a composer pill under the current SDK.
+
+会话入口按主机和 Agent 隔离，同一连接、项目、类型及单号去重。没有单据时隐藏，一张点击直达详情，多张打开最近优先列表；列表和详情都可移除入口，不影响 TAPD 单据、收藏、Agent 关联和历史卡片。单张工具查询在客户端未打开时也可收录。快捷入口通过本机 RPC 每两秒刷新，不会因此读取 TAPD。
+
+Minimal references, short card summaries and replay/removal progress are saved atomically under `PASEO_HOME/plugin-data/tapd-workbench/` (default `~/.paseo/plugin-data/tapd-workbench/`), separately from settings and Git sync. Descriptions, comment bodies, image data and credentials are not saved there. Reopen, reload and restart restore presentation only; archives retain data. Only a successful exact agent lookup proving deletion clears its records. Mainline provides no startup Paseo API: after a worker restart, reconciliation begins at the first public hook/tool/RPC context and completes before shortcuts are presented.
+
+最小引用、短卡片摘要及移除/重放进度独立保存在上述本机插件目录，原子更新、不参与配置同步；不保存正文、评论全文、图片和凭据。关闭、重开、插件重载和 daemon 重启后恢复展示，归档保留，精确确认会话删除后清理。当前主线没有启动时的公开 Paseo API，因此进程重启后会在第一个钩子、工具或 RPC 上下文可用时开始对账，并在展示入口前完成；恢复不会重放 TAPD 操作。

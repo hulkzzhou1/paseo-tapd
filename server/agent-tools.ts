@@ -69,6 +69,8 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
                 fetchedAt: structuredContent.fetchedAt ?? new Date().toISOString(), cachedAt: structuredContent.cachedAt ?? "",
                 warnings: [...new Set<string>(warnings.map((warning: string) => warning.slice(0, 300)))].slice(0, 10),
               });
+              if ([config.token, values.syncGitToken, process.env.TAPD_TOKEN].filter(Boolean)
+                .some(secret => JSON.stringify(data).includes(JSON.stringify(secret).slice(1, -1)))) throw new Error();
               if (conversations) await conversations.recordBatch({ paseo, agentId: agent.id }, data, entities);
               else await paseo.agents.ref(agent.id).timeline.append({ type: "plugin", id: data.batchId, kind: "tapd-batch-result", version: 1, data });
             } catch { structuredContent.presentationWarning = "查询已完成，批量快捷卡片未能显示；可以重新查询。"; }

@@ -100,14 +100,14 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
     if (!result) { result = { hostId: host, agentId: agent, workspaceId: context.paseo.agents.ref(agent).workspaceId, entities: [], cards: [], sources: {} }; next.records.push(result); }
     return result;
   }
-  async function validate(entities: ConversationEntity[], warnings: string[] = []) {
+  async function validate(entities: ConversationEntity[], presentation: unknown = []) {
     const values = await getValues();
     const config = resolveConfig(values);
+    const serialized = JSON.stringify([entities, presentation]);
+    if ([config.token, values.syncGitToken, process.env.TAPD_TOKEN].filter(Boolean).some(secret => serialized.includes(JSON.stringify(secret).slice(1, -1)))) throw new Error(storageError);
     return entities.map(raw => {
       const entity = conversationEntitySchema.parse(raw);
       if (entity.siteUrl !== config.site || entity.apiEndpoint !== config.endpoint || !config.workspaceIds.includes(entity.workspaceId)) throw new Error("单据引用与当前 TAPD 连接或项目不匹配，请重新查询。");
-      const serialized = JSON.stringify([entity, warnings]);
-      if ([config.token, values.syncGitToken, process.env.TAPD_TOKEN].filter(Boolean).some(secret => serialized.includes(secret!))) throw new Error(storageError);
       return entity;
     });
   }
@@ -115,7 +115,15 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
     const seen = sourceId && Object.hasOwn(target.sources, sourceId) ? target.sources[sourceId] : [];
     for (const entity of entities) {
       const key = conversationEntityKey(entity);
-      if (seen.includes(key)) continue;
+      if (seen.some(previous => {
+        if (previous === key) return true;
+        if (!sourceId?.startsWith("message:")) return false;
+        // A historical URL keeps its first connection interpretation, including older saved progress.
+        try {
+          const [siteUrl, , workspaceId, kind, id] = JSON.parse(previous);
+          return siteUrl === entity.siteUrl && workspaceId === entity.workspaceId && kind === entity.kind && id === entity.id;
+        } catch { return false; }
+      })) continue;
       const previous = target.entities.find(item => conversationEntityKey(item) === key) ?? target.cards.toReversed().flatMap(cardEntities).find(item => conversationEntityKey(item) === key);
       target.entities = target.entities.filter(item => conversationEntityKey(item) !== key);
       target.entities.unshift({ ...entity, title: entity.title || previous?.title || "", status: entity.status || previous?.status || "", statusLabel: entity.statusLabel || previous?.statusLabel || "", owner: entity.owner || previous?.owner || "" });
@@ -233,7 +241,7 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
   async function recordBatch(context: ConversationContext, raw: z.input<typeof batchResultSchema>, entities: ConversationEntity[]) {
     await bootstrap(context);
     const data = batchResultSchema.parse(raw);
-    const parsed = await validate(entities, data.warnings);
+    const parsed = await validate(entities, data);
     if (data.returned !== parsed.length || parsed.some(entity => entity.siteUrl !== data.siteUrl || entity.apiEndpoint !== data.apiEndpoint)) throw new Error(storageError);
     if (Buffer.byteLength(JSON.stringify(data), "utf8") > 64000) throw new Error(storageError);
     if (!await reconcile(context.paseo, context.agentId)) throw new Error(storageError);
@@ -250,7 +258,7 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
     const card = stored?.cards.find(item => item.id === input.batchId);
     if (!card || !("entities" in card) || card.data.siteUrl !== input.siteUrl || card.data.apiEndpoint !== input.apiEndpoint || !Number.isSafeInteger(input.offset) || input.offset < 0 || input.offset > card.entities.length) throw new Error("批量结果不可用，请重新查询。");
     const refs = card.entities.map(entity => ({ siteUrl: card.data.siteUrl, apiEndpoint: card.data.apiEndpoint, ...entity }));
-    await validate(refs, card.data.warnings);
+    await validate(refs, card.data);
     const end = Math.min(input.offset + 5, refs.length);
     return { items: card.entities.slice(input.offset, end), nextOffset: end < refs.length ? end : null };
   }

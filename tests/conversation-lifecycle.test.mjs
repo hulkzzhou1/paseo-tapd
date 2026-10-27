@@ -153,3 +153,26 @@ test('empty successful search and failed empty search produce visibly different 
   failed=true;clearTapdCache();await search.execute({query:'failed'},{...ctx(h),agent:{id:'example-agent'}});const card=h.rows.get('example-agent')[1];assert.equal(card.data.partial,true);assert.equal(card.data.returned,0);assert.ok(card.data.warnings.length);assert.equal(JSON.stringify(card).includes('private failure'),false);
  }finally{p.close();if(prior===undefined)delete process.env.PASEO_HOME;else process.env.PASEO_HOME=prior;await rm(directory,{recursive:true,force:true});}
 });
+
+test('empty batch presentation never persists or appends configured credentials, including direct tool fallback',async t=>{
+ const {readFile}=await import('node:fs/promises');const {createTapdTools}=await import('../server/agent-tools.ts');
+ const directory=await mkdtemp(join(tmpdir(),'tapd-batch-credential-'));const prior=process.env.PASEO_HOME;process.env.PASEO_HOME=directory;clearTapdCache();
+ const oldSite=values.siteUrl;values.siteUrl=`https://example.com/${values.token}`;
+ t.mock.method(globalThis,'fetch',async()=>Response.json({status:1,data:[]}));const h=host(),p=plugin();
+ try{
+  const registered=(await p.before.get('agent.session_open')({request:{purpose:'interactive',tools:[],env:{}}},ctx(h))).tools;
+  for(const tools of [registered,createTapdTools(async()=>values)]){
+   const result=await tools.find(x=>x.name==='tapd_search').execute({query:'empty'},{...ctx(h),agent:{id:'example-agent'}});
+   assert.equal(result.isError,undefined);assert.ok(result.structuredContent.presentationWarning);assert.equal(JSON.stringify(result).includes(values.token),false);
+  }
+  const {createConversationRuntime}=await import('../server/conversation.ts');
+  const runtime=createConversationRuntime(async()=>values);
+  try{
+   const metadata={batchId:'example-guarded-batch',operation:'search',siteUrl:values.siteUrl,apiEndpoint:values.apiEndpoint,items:[],returned:0,total:null,partial:false,truncated:false,stale:false,fetchedAt:'',cachedAt:'',warnings:[]};
+   await assert.rejects(runtime.recordBatch({paseo:h.paseo,agentId:'example-agent'},metadata,[]),/本机记录暂不可用/);
+   await assert.rejects(runtime.recordBatch({paseo:h.paseo,agentId:'example-agent'},{...metadata,siteUrl:oldSite,warnings:[values.token]},[]),/本机记录暂不可用/);
+  }finally{runtime.close();}
+  assert.equal(h.rows.size,0);
+  const saved=await readFile(join(directory,'plugin-data/tapd-workbench/conversations.json'),'utf8').catch(e=>{if(e.code==='ENOENT')return '';throw e;});assert.equal(saved.includes(values.token),false);
+ }finally{p.close();values.siteUrl=oldSite;if(prior===undefined)delete process.env.PASEO_HOME;else process.env.PASEO_HOME=prior;await rm(directory,{recursive:true,force:true});}
+});

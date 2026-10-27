@@ -26,7 +26,7 @@ function ConversationAccess({ agentId, theme, access }: PluginButtonIconProps & 
       setListOpen(false);
       setTarget(entity);
       access.refresh();
-    } catch { access.closed(); toast.error("单据引用暂不可用，请重试或重新查询。"); }
+    } catch { setListOpen(true); toast.error("单据引用暂不可用，可重试、重新查询或从会话移除。"); }
   }, [focus, agentId, access, toast]);
   useEffect(() => {
     if (!active.request || handled.current === active.request) return;
@@ -82,7 +82,7 @@ export function contributeConversationAccess(client: PluginClientContext) {
     if (stopped) return;
     const present = new Set<string>();
     for (const conversation of summaries) {
-      if (!conversation.workspaceId || !conversation.entities.length) continue;
+      if (!conversation.workspaceId || (!conversation.entities.length && !owned.has(conversation.agentId))) continue;
       const id = conversation.agentId;
       present.add(id);
       let entry = owned.get(id);
@@ -122,14 +122,20 @@ export function contributeConversationAccess(client: PluginClientContext) {
       for (const listener of entry.listeners) listener();
     }
     // Keep an open dialog owner through failed polls/removal until it closes safely.
-    for (const [id, entry] of owned) if (!present.has(id) && !entry.active) { entry.pill.remove(); owned.delete(id); }
+    for (const [id, entry] of owned) {
+      if (!present.has(id) && entry.active) {
+        entry.state = { ...entry.state, entities: [] };
+        for (const listener of entry.listeners) listener();
+      }
+      if ((!present.has(id) || !entry.state.entities.length) && !entry.active) { entry.pill.remove(); owned.delete(id); }
+    }
   };
   async function refresh() {
     if (stopped) return;
     if (pending) { again = true; return; }
     pending = true;
     try { const result = await client.rpc(conversationListRpc, {}); if (!stopped) { summaries = result.conversations; publish(); } }
-    catch { if (!stopped) { summaries = []; publish(); } }
+    catch { /* A failed poll cannot replace the last known references or dismiss a draft. */ }
     finally { pending = false; if (again && !stopped) { again = false; void refresh(); } }
   }
   const unsubscribe = client.paseo.agents.subscribe(() => void refresh());

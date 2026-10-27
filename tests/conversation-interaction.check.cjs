@@ -14,7 +14,7 @@ async function main(){
  export const useSettings=()=>({status:'ready',values:window.settings,revision:1,save:async()=>true});
  export const usePaseo=()=>({agents:{subscribe:()=>()=>{},list:async()=>({entries:[]})},projects:{list:async()=>({projects:[]})},providers:{snapshot:async()=>({entries:[]})}});
  export const useRpc=rpc=>input=>window.rpc(rpc,input);window.rpc=async(rpc,input)=>{window.calls.push({name:rpc.name,input});
- if(rpc.name==='tapd.conversations')return {conversations:window.refs.length?[{agentId:'example-agent',workspaceId:window.workspaceId,entities:window.refs}]:[]};
+ if(rpc.name==='tapd.conversations')return {conversations:window.refs.length||window.includeEmpty?[{agentId:'example-agent',workspaceId:window.workspaceId,entities:window.refs}]:[]};
  if(rpc.name==='tapd.conversation.focus')return {ok:true};
  if(rpc.name==='tapd.conversation.remove'){window.refs=window.refs.filter(x=>x.id!==input.entity.id);return {ok:true};}
  if(rpc.name==='tapd.entity')return {...input,title:'示例需求',url:'https://example.com/item',status:'open',statusLabel:'待处理',owner:'',creator:'',description:'完整正文',descriptionHtml:'<p>完整正文</p>',comments:[],childTasks:[],childBugs:[],childTasksTotal:0,childBugsTotal:0,parentStory:null};
@@ -66,6 +66,34 @@ async function main(){
 
  const focused=await page.evaluate(()=>window.calls.filter(x=>x.name==='tapd.conversation.focus').length);assert.equal(focused,5);assert.equal(await page.evaluate(()=>window.calls.some(x=>['tapd.create','tapd.add_comment','tapd.update_status'].includes(x.name))),false);
  await page.keyboard.press('Escape');await page.getByRole('dialog').waitFor({state:'hidden'});
+ // Removing the final list row must publish the empty state without unmounting its owner.
+ for(const includeEmpty of [false,true]){
+ await page.evaluate(value=>{window.includeEmpty=value;},includeEmpty);
+ await page.evaluate(()=>{window.refs=[window.refs[0],{...window.refs[0],id:'22222222'}];window.refresh();});
+ await page.getByRole('button',{name:'会话 TAPD 单据（2）'}).click();
+ const emptiedList=page.getByRole('dialog',{name:'会话 TAPD 单据',exact:true});
+ await emptiedList.getByRole('button',{name:'从会话移除 #22222222',exact:true}).click();
+ await emptiedList.getByRole('button',{name:'从会话移除 #11111111',exact:true}).click();
+ await emptiedList.getByText('当前会话没有 TAPD 单据。',{exact:true}).waitFor();
+ assert.equal(await emptiedList.getByRole('button',{name:/打开 TAPD|从会话移除/}).count(),0);
+ await page.keyboard.press('Escape');await emptiedList.waitFor({state:'hidden'});await page.getByRole('button',{name:/会话 TAPD 单据/}).waitFor({state:'hidden'});
+ await page.evaluate(()=>{window.refs=[{siteUrl:'https://example.com',apiEndpoint:'https://api.example.com',workspaceId:'12345678',kind:'story',id:'11111111',title:'',status:'',statusLabel:'',owner:''}];window.refresh();});
+ }
+ // Local removal remains available when detail reads or connection guards reject the sole reference.
+ for(const failure of ['detail','focus']){
+  await page.evaluate(mode=>{window.failureRpc=window.rpc;window.rpc=(contract,input)=>contract.name===(mode==='detail'?'tapd.entity':'tapd.conversation.focus')?Promise.reject(new Error('Example inaccessible reference')):window.failureRpc(contract,input);window.refs=[{siteUrl:'https://example.com',apiEndpoint:'https://api.example.com',workspaceId:'12345678',kind:'story',id:'11111111',title:'',status:'',statusLabel:'',owner:''}];window.refresh();},failure);
+  await page.getByRole('button',{name:'会话 TAPD 单据（1）'}).click();
+  const failedDialog=page.getByRole('dialog',{name:failure==='detail'?'#11111111 · 单据详情':'会话 TAPD 单据',exact:true});
+  if(failure==='detail')await failedDialog.getByRole('button',{name:'重试加载单据',exact:true}).waitFor();
+  const beforeRemove=await page.evaluate(()=>window.calls.filter(x=>x.name==='tapd.entity').length);
+  await failedDialog.getByRole('button',{name:failure==='detail'?'从会话移除':'从会话移除 #11111111',exact:true}).click();
+  await page.waitForFunction(()=>window.refs.length===0);
+  if(failure==='focus')await failedDialog.getByText('当前会话没有 TAPD 单据。',{exact:true}).waitFor();
+  assert.equal(await page.evaluate(()=>window.calls.filter(x=>x.name==='tapd.entity').length),beforeRemove,'removing an inaccessible shortcut never reads TAPD');
+  await page.keyboard.press('Escape');await failedDialog.waitFor({state:'hidden'});await page.getByRole('button',{name:/会话 TAPD 单据/}).waitFor({state:'hidden'});
+  await page.evaluate(()=>{window.rpc=window.failureRpc;});
+ }
+ await page.evaluate(()=>{window.refs=[{siteUrl:'https://example.com',apiEndpoint:'https://api.example.com',workspaceId:'12345678',kind:'story',id:'11111111',title:'',status:'',statusLabel:'',owner:''}];window.refresh();});
  // Hiding/rebuilding composer surfaces never controls registration or reopens an old action.
  await page.evaluate(()=>window.mountComposer(false));await page.getByRole('button',{name:/会话 TAPD 单据/}).waitFor({state:'hidden'});
  await page.evaluate(()=>window.mountComposer(true));await page.getByRole('button',{name:'会话 TAPD 单据（1）'}).waitFor();assert.equal(await page.getByRole('dialog').count(),0);

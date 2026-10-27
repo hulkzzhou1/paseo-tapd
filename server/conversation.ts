@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { batchResultSchema, batchEntitySchema, conversationEntityKey, conversationEntitySchema, entityResultSchema, type ConversationEntity, type ConversationSummary } from "../shared/conversation";
 import type { TapdSettingsValues } from "../shared/contracts";
-import { resolveConfig } from "./tapd";
+import { fetchEntitySummary, resolveConfig } from "./tapd";
 import { createMessageObserver } from "./conversation-messages";
 
 type Paseo = AgentToolContext["paseo"];
@@ -301,6 +301,24 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
       if (agent.archivedAt) return;
       await messages.observe(context.paseo, context.agentId, agent.status !== "closed");
       await messages.refresh(context.paseo, context.agentId, true, false, finalized);
+    },
+    refreshEntity: async (context: ConversationContext, entity: ConversationEntity) => {
+      await bootstrap(context);
+      const [target] = await validate([entity]);
+      const host = hostId(context.paseo, context.agentId);
+      const key = conversationEntityKey(target);
+      const stored = (await load()).records.find(item => item.hostId === host && item.agentId === context.agentId);
+      if (!stored?.entities.some(item => conversationEntityKey(item) === key)) throw new Error("单据已从会话移除。");
+      const detail = await fetchEntitySummary(resolveConfig(await getValues()), target.kind, target.id, target.workspaceId);
+      if (detail.id !== target.id || detail.workspaceId !== target.workspaceId) throw new Error("单据项目不匹配。");
+      const [summary] = await validate([{ ...target, title: detail.title.slice(0, 500), status: detail.status.slice(0, 200), statusLabel: detail.statusLabel.slice(0, 200), owner: detail.owner.slice(0, 200) }]);
+      await change(next => {
+        const current = next.records.find(item => item.hostId === host && item.agentId === context.agentId);
+        const index = current?.entities.findIndex(item => conversationEntityKey(item) === key) ?? -1;
+        // A read finishing after removal must never recreate the reference or reorder it.
+        if (current && index >= 0) current.entities[index] = summary;
+      });
+      return { ok: true as const };
     },
     focus: async (context: ConversationContext, entity: ConversationEntity) => {
       await bootstrap(context);

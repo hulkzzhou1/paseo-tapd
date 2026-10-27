@@ -205,3 +205,26 @@ test('a slow unrelated history does not hold current tool results until the host
   const list=await p.rpcs.get('tapd.conversations')({},ctx(h));assert.equal(list.conversations[0].entities.length,1);
  } finally {clearTimeout(timeout);release();await new Promise(resolve=>setTimeout(resolve,20));p.close();if(prior===undefined)delete process.env.PASEO_HOME;else process.env.PASEO_HOME=prior;await rm(directory,{recursive:true,force:true});}
 });
+
+test('summary refresh updates current metadata without reordering, changing historical cards or resurrecting removals',{timeout:5000},async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'tapd-summary-'));const prior=process.env.PASEO_HOME;process.env.PASEO_HOME=directory;mockTapd(t);const h=host();let p=plugin();
+ try {
+  await read(p,h,'11111111');await read(p,h,'22222222');
+  const list=async()=> (await p.rpcs.get('tapd.conversations')({},ctx(h))).conversations[0].entities;
+  const entity=(await list())[1];
+  let release; let entered; const started=new Promise(r=>entered=r); const gate=new Promise(r=>release=r);
+  t.mock.method(globalThis,'fetch',async(source,init)=>{assert.notEqual(init?.method,'POST');const u=new URL(source);if(u.pathname==='/stories'){entered();await gate;}return Response.json({status:1,data:u.pathname==='/stories'?[{Story:{id:entity.id,name:'最新标题',status:'open'}}]:[]});});
+  const refreshing=p.rpcs.get('tapd.conversation.refresh')({agentId:'example-agent',entity},ctx(h));
+  await started;release();await refreshing;
+  assert.deepEqual((await list()).map(e=>e.id),['22222222','11111111']);assert.equal((await list())[1].title,'最新标题');
+  assert.equal(h.rows.get('example-agent')[0].data.entity.title,'示例需求');
+  await assert.rejects(p.rpcs.get('tapd.conversation.refresh')({agentId:'different-agent',entity},ctx(h)));
+  await assert.rejects(p.rpcs.get('tapd.conversation.refresh')({agentId:'example-agent',entity:{...entity,workspaceId:'87654321'}},ctx(h)));
+  const gate2=new Promise(r=>release=r); let entered2;const started2=new Promise(r=>entered2=r);
+  t.mock.method(globalThis,'fetch',async source=>{const u=new URL(source);if(u.pathname==='/stories'){entered2();await gate2;}return Response.json({status:1,data:u.pathname==='/stories'?[{Story:{id:entity.id,name:'不应恢复',status:'open'}}]:[]});});
+  const second=p.rpcs.get('tapd.conversation.refresh')({agentId:'example-agent',entity},ctx(h));await started2;
+  await p.rpcs.get('tapd.conversation.remove')({agentId:'example-agent',entity},ctx(h));release();await second;
+  assert.deepEqual((await list()).map(e=>e.id),['22222222']);
+  p.close();p=plugin();assert.deepEqual((await list()).map(e=>e.id),['22222222']);
+ } finally {p.close();if(prior===undefined)delete process.env.PASEO_HOME;else process.env.PASEO_HOME=prior;await rm(directory,{recursive:true,force:true});}
+});

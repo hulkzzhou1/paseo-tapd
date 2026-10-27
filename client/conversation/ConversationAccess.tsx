@@ -1,11 +1,11 @@
 import { type PluginClientContext, type PluginButtonRegistration, type PluginAgentPanelProps } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
-import { useState, useSyncExternalStore } from "react";
-import { Platform, Pressable, ScrollView, Text, View } from "react-native";
-import { conversationEntityKey, conversationFocusRpc, conversationListRpc, conversationRemoveRpc, type ConversationEntity, type ConversationSummary } from "../../shared/conversation";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { Platform } from "react-native";
+import { conversationRefreshRpc, conversationEntityKey, conversationFocusRpc, conversationListRpc, conversationRemoveRpc, type ConversationEntity, type ConversationSummary } from "../../shared/conversation";
 import { EntityDetailExperience } from "../workbench/EntityDetailExperience";
 import type { DetailTarget } from "../workbench/EntityDetailContent";
-import { EntitySummary } from "./EntitySummary";
+import { ConversationList } from "./ConversationList";
 
 const labels = { story: "需求", task: "任务", bug: "缺陷" };
 
@@ -16,6 +16,7 @@ export function contributeConversationAccess(client: PluginClientContext) {
   const panels = new Map<string, () => void>();
   const listeners = new Set<() => void>();
   let summaries: ConversationSummary[] = [];
+  const refreshRequests = new Map<string, number>();
   let stopped = false;
   let pending = false;
   let again = false;
@@ -48,8 +49,27 @@ export function contributeConversationAccess(client: PluginClientContext) {
   function ConversationPanel({ params: { agentId }, workspaceId, theme }: PluginAgentPanelProps) {
     const conversations = useSyncExternalStore(subscribe, snapshot);
     const entities = conversations.find(c => c.agentId === agentId && c.workspaceId === workspaceId)?.entities ?? [];
-    const [focusedKey, setFocusedKey] = useState("");
     const [pending, setPending] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [failed, setFailed] = useState(0);
+    const [retry, setRetry] = useState(0);
+    const requested = useSyncExternalStore(subscribe, () => refreshRequests.get(agentId) ?? 0);
+    useEffect(() => {
+      let cancelled = false;
+      const candidates = snapshot().find(c => c.agentId === agentId && c.workspaceId === workspaceId)?.entities ?? [];
+      setFailed(0);
+      setLoading(false);
+      if (!candidates.length) return;
+      setLoading(true);
+      void (async () => {
+        for (let offset = 0; offset < candidates.length && !cancelled; offset += 2) {
+          const results = await Promise.allSettled(candidates.slice(offset, offset + 2).map(entity => client.rpc(conversationRefreshRpc, { agentId, entity })));
+          if (!cancelled) { setFailed(count => count + results.filter(result => result.status === "rejected").length); await refresh(); }
+        }
+        if (!cancelled) setLoading(false);
+      })();
+      return () => { cancelled = true; };
+    }, [agentId, workspaceId, retry, requested]);
     const toast = useToast();
     async function selectEntity(entity: ConversationEntity) {
       try {
@@ -63,21 +83,7 @@ export function contributeConversationAccess(client: PluginClientContext) {
       catch { toast.error("移除失败，请重试；TAPD 单据未被修改。"); }
       finally { setPending(false); }
     }
-    const colors = theme.colors;
-    return <ScrollView style={{ flex: 1, backgroundColor: colors.surface0 }} contentContainerStyle={{ padding: 16, gap: 12 }}>
-      <Text accessibilityRole="header" style={{ color: colors.foreground, fontWeight: "600", fontSize: 18 }}>本次会话的 TAPD 单据</Text>
-        {entities.map(entity => <View key={conversationEntityKey(entity)} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Pressable onFocus={() => setFocusedKey(conversationEntityKey(entity))} onBlur={() => setFocusedKey("")} accessibilityRole="button" accessibilityLabel={`打开 TAPD ${labels[entity.kind]} #${entity.id}：${entity.title}`} onPress={() => void selectEntity(entity)}
-            style={{ flex: 1, padding: 12, gap: 6, borderWidth: 1, borderColor: focusedKey === conversationEntityKey(entity) ? colors.accent : colors.border, borderRadius: 10, backgroundColor: colors.surface1 }}>
-            <EntitySummary entity={entity} theme={theme} />
-          </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel={`从会话移除 #${entity.id}`} disabled={pending} onPress={() => void removeEntity(entity)} style={{ padding: 12, minHeight: 44 }}>
-            <Text style={{ color: colors.foregroundMuted }}>移除</Text>
-          </Pressable>
-        </View>)}
-        {!entities.length ? <Text style={{ color: colors.foregroundMuted }}>当前会话没有 TAPD 单据。</Text> : null}
-
-    </ScrollView>;
+    return <ConversationList entities={entities} theme={theme} pending={pending} loading={loading} failed={failed} onRefresh={() => { setRetry(value => value + 1); }} onOpen={entity => void selectEntity(entity)} onRemove={entity => void removeEntity(entity)} />;
   }
   const stopList = client.addAgentPanel({ id: listId, title: "会话 TAPD", icon: "ClipboardList", locations: [location], Component: ConversationPanel });
   function publish() {
@@ -90,7 +96,7 @@ export function contributeConversationAccess(client: PluginClientContext) {
       const old = pills.get(agentId);
       if (old && old.workspaceId !== workspaceId) { old.pill.remove(); pills.delete(agentId); }
       const button = { title: `会话 TAPD 单据（${entities.length}）`, label: `TAPD · ${entities.length}`, icon: "ClipboardList",
-        behavior: { kind: "action" as const, onPress: () => client.openPanel(listId, { workspaceId, agentId, location }) } };
+        behavior: { kind: "action" as const, onPress: () => { refreshRequests.set(agentId, (refreshRequests.get(agentId) ?? 0) + 1); client.openPanel(listId, { workspaceId, agentId, location }); for (const listener of listeners) listener(); } } };
       const entry = pills.get(agentId);
       if (entry) entry.pill.update(button);
       else pills.set(agentId, { workspaceId, pill: client.addComposerPill({ id: "tapd-conversation", workspaceId, agentId, button }) });

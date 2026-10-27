@@ -2,26 +2,17 @@ import { WorkbenchDialog as Modal, dialogFormStyles } from "./WorkbenchDialog";
 import { usePaseo, useRpc, useSettings } from "@getpaseo/plugin/client";
 import type { PluginScreenProps } from "@getpaseo/plugin/client";
 import { TextInput, useToast } from "@getpaseo/plugin/client/react-native";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View, type TextStyle, type ViewStyle } from "react-native";
 import { agentStatusRpc, boardRpc, effectiveViews, filterOptionsRpc, resolveView, tapdSettings, updateCheckRpc, type EntityKind, type TapdFilters, type TapdLink, type TapdView } from "../../shared/contracts";
 import { Chip, ToolbarButton } from "./bits";
 import { kindColor } from "./status-tones";
-import { BindAgentModal } from "./BindAgentModal";
 import { buildStatusColumns } from "./status-columns";
 import { ColumnPickerModal } from "./ColumnPickerModal";
 import { KindColumn, StatusColumn } from "./ColumnView";
-import { CreateEntityModal, type CreateChildPreset, type CreatedEntity } from "./CreateEntityModal";
-import { DispatchModal } from "./DispatchModal";
-import {
-  EntityDetailModal,
-  type AgentStatusItem,
-  type DetailExtras,
-  type DetailTarget,
-  type EntityDetailData,
-} from "./EntityDetailModal";
-import { CommentModal } from "./EntityWriteBack";
+import type { AgentStatusItem, DetailTarget } from "./EntityDetailModal";
+import { EntityDetailExperience } from "./EntityDetailExperience";
 import { FilterBar } from "./FilterBar";
 import { SettingsModal } from "./SettingsForm";
 
@@ -51,7 +42,6 @@ function filtersEqual(a: TapdFilters, b: TapdFilters): boolean {
 export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps) {
   const rpc = useRpc(boardRpc);
   const settings = useSettings(tapdSettings);
-  const queryClient = useQueryClient();
   const toast = useToast();
   const [detail, setDetail] = useState<DetailTarget | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -60,13 +50,7 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [newViewName, setNewViewName] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
-  const [createPreset, setCreatePreset] = useState<CreateChildPreset | null>(null);
   const [activeTab, setActiveTab] = useState<ActiveTab>("all");
-  const [detailVersion, setDetailVersion] = useState(0);
-  const [dispatchTarget, setDispatchTarget] = useState<EntityDetailData | null>(null);
-  type CommentTarget = { kind: EntityKind; id: string; workspaceId?: string };
-  const [commentTarget, setCommentTarget] = useState<CommentTarget | null>(null);
-  const [bindTarget, setBindTarget] = useState<EntityDetailData | null>(null);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [boardHeight, setBoardHeight] = useState(0);
 
@@ -332,68 +316,6 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
     }
   }
 
-  function handleCreated(created: CreatedEntity) {
-    if (createPreset) {
-      queryClient.invalidateQueries({ queryKey: ["tapd-entity", "story", createPreset.storyId] });
-      setCreatePreset(null);
-    }
-    setCreateOpen(false);
-    setDetail({ kind: created.kind, id: created.id, title: created.title });
-    void board.refetch();
-  }
-
-  async function handleLinkCreated(input: { link: TapdLink; repoPath?: string; provider?: string }) {
-    const values = readySettings.values;
-    const ok = await readySettings.save(
-      {
-        ...values,
-        links: [...values.links, input.link],
-        lastRepoPath: input.repoPath ?? values.lastRepoPath,
-        lastProvider: input.provider ?? values.lastProvider,
-      },
-      readySettings.revision,
-    );
-    if (!ok) toast.error(readySettings.saveError ?? "保存关联失败，请重试");
-    setDispatchTarget(null);
-  }
-
-  async function handleRemoveLink(link: TapdLink) {
-    const values = readySettings.values;
-    const next = values.links.filter(
-      (item) => !(item.key === link.key && item.workspaceId === link.workspaceId),
-    );
-    const ok = await readySettings.save({ ...values, links: next }, readySettings.revision);
-    if (!ok) toast.error(readySettings.saveError ?? "保存失败，请重试");
-  }
-
-  function handleWriteDone() {
-    setDetailVersion((version) => version + 1);
-    void board.refetch();
-  }
-
-  const detailExtras: DetailExtras = {
-    links,
-    navigation,
-    refreshToken: detailVersion,
-    onLinkCreated: (input) => void handleLinkCreated(input),
-    onRemoveLink: (link) => void handleRemoveLink(link),
-    onDispatch: (data) => setDispatchTarget(data),
-    onBindAgent: (data) => setBindTarget(data),
-    onComment: (data) => setCommentTarget({ kind: data.kind, id: data.id, workspaceId: data.workspaceId }),
-    onCreateChild: (data, childKind) => {
-      setCreatePreset({
-        kind: childKind,
-        storyId: data.id,
-        workspaceId: data.workspaceId ?? "",
-        storyTitle: data.title,
-        storyUrl: data.url,
-      });
-      setCreateOpen(true);
-    },
-    onStatusDone: () => void board.refetch(),
-    onOpenEntity: (target) => setDetail(target),
-  };
-
 
   return (
     <View style={styles.screen}>
@@ -584,54 +506,9 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
           onSave={(keys) => void saveColumns(keys)}
         />
       ) : null}
-      <EntityDetailModal hidden={createOpen || !!dispatchTarget || !!commentTarget || !!bindTarget} target={detail} onClose={() => setDetail(null)} theme={theme} extras={detailExtras} />
+      <EntityDetailExperience target={detail} onTargetChange={setDetail} theme={theme} navigation={navigation}
+        createOpen={createOpen} onCreateOpenChange={setCreateOpen} onChanged={() => void board.refetch()} />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} theme={theme} />
-        <CreateEntityModal
-          backToDetail={!!detail}
-          open={createOpen}
-          initial={createPreset}
-          onClose={() => {
-            setCreateOpen(false);
-            setCreatePreset(null);
-          }}
-          theme={theme}
-          onCreated={handleCreated}
-        />
-      {dispatchTarget ? (
-        <DispatchModal
-          backToDetail={!!detail}
-          open
-          onClose={() => setDispatchTarget(null)}
-          theme={theme}
-          data={dispatchTarget}
-          defaultRepoPath={readySettings.values.lastRepoPath}
-          defaultProvider={readySettings.values.lastProvider}
-          onCreated={(input) => void handleLinkCreated(input)}
-        />
-      ) : null}
-      {commentTarget ? (
-        <CommentModal
-          backToDetail={!!detail}
-          open
-          onClose={() => setCommentTarget(null)}
-          theme={theme}
-          kind={commentTarget.kind}
-          id={commentTarget.id}
-          workspaceId={commentTarget.workspaceId}
-          onDone={handleWriteDone}
-        />
-      ) : null}
-      {bindTarget ? (
-        <BindAgentModal
-          backToDetail={!!detail}
-          open
-          onClose={() => setBindTarget(null)}
-          theme={theme}
-          data={bindTarget}
-          links={links}
-          onBound={(link) => void handleLinkCreated({ link })}
-        />
-      ) : null}
       <Modal theme={theme} size="small" title="保存为新视图" open={saveViewOpen} onOpenChange={(next) => { if (!next) setSaveViewOpen(false); }}>
         <Modal.Content>
           <View style={{ gap: 12 }}>

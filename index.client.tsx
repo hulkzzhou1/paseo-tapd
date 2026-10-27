@@ -1,5 +1,9 @@
 import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
+import { contributeConversationAccess } from "./client/conversation/ConversationAccess";
+import { BatchResultCard } from "./client/conversation/BatchResultCard";
+import { EntityResultCard } from "./client/conversation/EntityResultCard";
+import { batchResultSchema, entityResultSchema } from "./shared/conversation";
 import { tapdAttachmentSource } from "./shared/contracts";
 import { WorkbenchScreen } from "./client/workbench/WorkbenchScreen";
 import { TapdSettingsScreen } from "./client/workbench/SettingsForm";
@@ -23,6 +27,7 @@ export default function contribute(client: PluginClientContext) {
     Component: TapdSettingsScreen,
   });
   client.addSidebarHeaderItem({ id: "tapd-board", title: "TAPD 工作台", Component: TapdSidebarItem });
+  const stopConversationAccess = contributeConversationAccess(client);
   client.addCommandCenterItem({
     id: "tapd-open-board",
     title: "打开 TAPD 工作台",
@@ -44,5 +49,7 @@ export default function contribute(client: PluginClientContext) {
     },
   });
   client.addAttachmentSource(tapdAttachmentSource);
-  return () => {};
+  client.addTimelineRenderer({ kind: "tapd-batch-result", version: 1, schema: batchResultSchema, Component: BatchResultCard });
+  client.addTimelineRenderer({ kind: "tapd-entity-result", version: 1, schema: entityResultSchema, Component: EntityResultCard });
+  return stopConversationAccess;
 }

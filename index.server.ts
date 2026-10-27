@@ -1,6 +1,8 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { imageRpc, addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, syncPullRpc, syncPushRpc, tapdSettings, updateCheckRpc, updateStatusRpc } from "./shared/contracts";
 import { createHandlers } from "./server/handlers";
+import { createConversationRuntime } from "./server/conversation";
+import { conversationBatchPageRpc, conversationListRpc, conversationFocusRpc, conversationRemoveRpc } from "./shared/conversation";
 import { createTapdTools } from "./server/agent-tools";
 import { recordTurnEnd } from "./server/agent-state";
 import { clearTapdCache, resolveConfig, type TapdConfigInput } from "./server/tapd";
@@ -19,7 +21,15 @@ export default function contribute(server: PluginServerContext) {
   const syncAccess: SyncSettingsAccess = { read: getValues };
 
   const handlers = createHandlers(getValues);
-  const tools = createTapdTools(getValues);
+  const conversations = createConversationRuntime(getValues);
+  const tools = createTapdTools(getValues, conversations);
+  server.handle(conversationBatchPageRpc, (input, context) => conversations.batchPage({ paseo: context.paseo, agentId: input.agentId }, input));
+  server.handle(conversationListRpc, (_input, context) => conversations.list(context));
+  server.handle(conversationFocusRpc, ({ agentId, entity }, context) => conversations.focus({ paseo: context.paseo, agentId }, entity));
+  server.handle(conversationRemoveRpc, ({ agentId, entity }, context) => conversations.remove({ paseo: context.paseo, agentId }, entity));
+  for (const event of ["agent.created", "agent.archived", "agent.closed"] as const) server.on(event, async ({ agent }, context) => {
+    try { await conversations.bootstrap(context); await conversations.reconcile(agent.id); if (event === "agent.created") await conversations.observeMessages({ paseo: context.paseo, agentId: agent.id }); } catch { /* Retry through the next public context. */ }
+  });
   server.handle(boardRpc, handlers.board);
   server.handle(createRpc, handlers.create);
   server.handle(createFieldsRpc, handlers.createFields);
@@ -59,8 +69,10 @@ export default function contribute(server: PluginServerContext) {
   });
 
   // 给每个 agent 会话注册 TAPD 工具并注入 TAPD 环境变量（不覆盖已有同名变量），便于 agent 直接调用 TAPD OpenAPI
-  server.before("agent.session_open", async ({ request }) => {
+  server.before("agent.session_open", async ({ request }, context) => {
+    if (context?.paseo) void conversations.bootstrap(context).catch(() => {});
     if (request.purpose === "history") return request;
+    if (context?.paseo) void conversations.observeMessages({ paseo: context.paseo, agentId: request.agentId }).catch(() => {});
     const withTools = { ...request, tools: [...request.tools, ...tools] };
     let values: TapdConfigInput | null = null;
     try {
@@ -82,8 +94,9 @@ export default function contribute(server: PluginServerContext) {
   });
 
   // Agent turn 结束：记台账；开关打开且该 agent 关联了 TAPD 单据时自动回写评论
-  server.on("agent.turn_ended", async (event) => {
+  server.on("agent.turn_ended", async (event, context) => {
     if (!event.agent.id) return;
+    if (context?.paseo) { try { await conversations.observeMessages({ paseo: context.paseo, agentId: event.agent.id }, true); } catch { /* Retry message catch-up on reconnect. */ } }
     const record = recordTurnEnd({
       agentId: event.agent.id,
       outcome: event.outcome,
@@ -96,5 +109,6 @@ export default function contribute(server: PluginServerContext) {
   console.log("[tapd-workbench] server ready");
   return () => {
     unsubscribe();
+    conversations.close();
   };
 }

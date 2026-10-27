@@ -113,8 +113,8 @@ test("detail and metadata tools reuse configured authenticated reads and preserv
 test("confirmed writes verify the actual project and preserve field denylist and plain-text escaping", async (t) => {
   const { call, requests } = setup(t, entityApi);
   const item = { kind: "story", id: "11111111", workspaceId: "87654321", confirmed: true };
-  assert.deepEqual((await call("tapd_update_status", { ...item, status: "done" })).structuredContent, { ok: true });
-  assert.deepEqual((await call("tapd_add_comment", { ...item, text: "<script>example</script>" })).structuredContent, { ok: true });
+  assert.equal((await call("tapd_update_status", { ...item, status: "done" })).structuredContent.ok, true);
+  assert.equal((await call("tapd_add_comment", { ...item, text: "<script>example</script>" })).structuredContent.ok, true);
   const created = await call("tapd_create", { kind: "task", title: "示例任务", workspaceId: item.workspaceId, storyId: item.id, confirmed: true,
     extraFields: { workspace_id: "12345678", story_id: "99999999", custom_text: "示例字段" } });
   assert.equal(created.structuredContent.kind, "task");
@@ -273,4 +273,68 @@ test("main SDK setup rejects a checkout without tool support before replacing an
     assert.equal(await realpath(new URL("../node_modules/@getpaseo/plugin", import.meta.url)), installed);
     assert.ok((await readFile(join(installed, "dist/server/index.d.ts"), "utf8")).includes("defineAgentTool"));
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("single entity tool appends a bounded actual-project card without copying content or extra reads", async (t) => {
+  const { call, requests } = setup(t, entityApi);
+  const rows = [];
+  const result = await call("tapd_entity", { kind: "story", id: "11111111" }, {
+    ...context(), agent: { id: "example-agent" }, paseo: { agents: { ref: agentId => ({ timeline: { append: async row => { assert.equal(agentId, "example-agent"); rows.push(row); } } }) } },
+  });
+  assert.ok(result.structuredContent);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].kind, "tapd-entity-result");
+  assert.equal(rows[0].data.entity.workspaceId, "87654321");
+  assert.equal(rows[0].data.entity.title, "示例需求");
+  assert.equal(rows[0].data.operation, "read");
+  assert.equal(JSON.stringify(rows).includes("完整正文"), false);
+  assert.equal(JSON.stringify(rows).includes(initial.token), false);
+  assert.equal(requests.filter(({ url }) => url.pathname === "/stories").length, 2);
+});
+
+test("single entity keeps read success when presentation fails, and a failed read never appends success", async (t) => {
+  const { call } = setup(t, entityApi);
+  let appends = 0;
+  const ctx = { ...context(), agent: { id: "example-agent" }, paseo: { agents: { ref: () => ({ timeline: { append: async () => { appends++; throw new Error("untrusted host error"); } } }) } } };
+  const result = await call("tapd_entity", { kind: "story", id: "11111111" }, ctx);
+  assert.equal(result.structuredContent.title, "示例需求");
+  assert.ok(result.structuredContent.presentationWarning);
+  assert.equal(JSON.stringify(result).includes("untrusted host error"), false);
+  const failed = await call("tapd_entity", { kind: "task", id: "22222222" }, ctx);
+  assert.equal(failed.isError, true);
+  assert.equal(appends, 1);
+});
+
+test("registered detail RPC rejects changed connection and restricts guarded reads to the recorded project", async (t) => {
+  const { requests } = setup(t, entityApi);
+  const handlers = new Map();
+  const cleanup = contribute({ registerSettings: () => ({ read: async () => ({ status: "ready", values: initial }), subscribe: () => () => {} }),
+    handle: (rpc, handler) => handlers.set(rpc.name, handler), on() {}, before() {} });
+  try {
+    const read = handlers.get("tapd.entity");
+    for (const guard of [{ workspaceId: "99999999" }, { siteUrl: "https://other.example.com" }, { apiEndpoint: "https://other.example.com" }]) {
+      await assert.rejects(read({ kind: "story", id: "11111111", ...guard }), /不匹配/);
+    }
+    assert.equal(requests.length, 0);
+    const item = await read({ kind: "story", id: "11111111", workspaceId: "87654321", siteUrl: initial.siteUrl, apiEndpoint: initial.apiEndpoint });
+    assert.equal(item.workspaceId, "87654321");
+    assert.ok(requests.every(({ url }) => !url.searchParams.has("workspace_id") || url.searchParams.get("workspace_id") === "87654321"));
+  } finally { cleanup(); }
+});
+
+test("single card keeps partial-read warnings, bounds untrusted summaries and excludes credentials", async (t) => {
+  const { call } = setup(t, request => {
+    if (request.url.pathname === "/tasks" && request.url.searchParams.has("story_id")) throw new Error("untrusted failure");
+    const result = entityApi(request);
+    if (Array.isArray(result) && result[0]?.Story) result[0].Story.name = initial.token + "x".repeat(1000);
+    return result;
+  });
+  const rows = [];
+  const result = await call("tapd_entity", { kind: "story", id: "11111111" }, { ...context(), agent: { id: "example-agent" },
+    paseo: { agents: { ref: () => ({ timeline: { append: async row => rows.push(row) } }) } } });
+  assert.equal(result.isError, undefined);
+  assert.equal(rows[0].data.entity.title.length, 500);
+  assert.equal(rows[0].data.warnings[0], "部分数据读取失败，请在详情中重试。");
+  assert.equal(JSON.stringify(rows).includes(initial.token), false);
+  assert.equal(JSON.stringify(rows).includes("untrusted failure"), false);
 });

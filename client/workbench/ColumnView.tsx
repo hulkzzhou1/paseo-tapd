@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { ScrollView, Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
 import { boardRpc } from "../../shared/contracts";
 import { Chip, agentStatusColor, formatTime, type WorkbenchTheme } from "./bits";
-import type { AgentStatusItem } from "./EntityDetailModal";
+import type { AgentStatusItem } from "./EntityDetailContent";
 import { kindColor, priorityTone, statusTone, toneColor } from "./status-tones";
 
 type BoardData = RpcOutput<typeof boardRpc>;

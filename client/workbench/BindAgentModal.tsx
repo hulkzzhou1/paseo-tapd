@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
 import { type TapdLink } from "../../shared/contracts";
 import { Chip, type WorkbenchTheme } from "./bits";
-import { type EntityDetailData } from "./EntityDetailModal";
+import { type EntityDetailData } from "./EntityDetailContent";
 import { defaultBindNotice, makeLink, notifyAgent } from "./link-utils";
 
 interface AgentRow {

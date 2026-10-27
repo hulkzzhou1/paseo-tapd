@@ -11,7 +11,7 @@ import { kindColor } from "./status-tones";
 import { buildStatusColumns } from "./status-columns";
 import { ColumnPickerModal } from "./ColumnPickerModal";
 import { KindColumn, StatusColumn } from "./ColumnView";
-import type { AgentStatusItem, DetailTarget } from "./EntityDetailModal";
+import type { AgentStatusItem, DetailTarget } from "./EntityDetailContent";
 import { EntityDetailExperience } from "./EntityDetailExperience";
 import { FilterBar } from "./FilterBar";
 import { SettingsModal } from "./SettingsForm";

@@ -1,3 +1,4 @@
+import { useAgent } from "@getpaseo/plugin/client";
 import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
 import { contributeConversationAccess } from "./client/conversation/ConversationAccess";
@@ -27,7 +28,7 @@ export default function contribute(client: PluginClientContext) {
     Component: TapdSettingsScreen,
   });
   client.addSidebarHeaderItem({ id: "tapd-board", title: "TAPD 工作台", Component: TapdSidebarItem });
-  const stopConversationAccess = contributeConversationAccess(client);
+  const conversation = contributeConversationAccess(client);
   client.addCommandCenterItem({
     id: "tapd-open-board",
     title: "打开 TAPD 工作台",
@@ -49,7 +50,13 @@ export default function contribute(client: PluginClientContext) {
     },
   });
   client.addAttachmentSource(tapdAttachmentSource);
-  client.addTimelineRenderer({ kind: "tapd-batch-result", version: 1, schema: batchResultSchema, Component: BatchResultCard });
-  client.addTimelineRenderer({ kind: "tapd-entity-result", version: 1, schema: entityResultSchema, Component: EntityResultCard });
-  return stopConversationAccess;
+  client.addTimelineRenderer({ kind: "tapd-batch-result", version: 1, schema: batchResultSchema, Component: (props) => {
+    const workspaceId = useAgent(props.agentId, agent => agent.workspaceId);
+    return <BatchResultCard {...props} openPanel={entity => conversation.openEntity(props.agentId, workspaceId, entity)} />;
+  } });
+  client.addTimelineRenderer({ kind: "tapd-entity-result", version: 1, schema: entityResultSchema, Component: (props) => {
+    const workspaceId = useAgent(props.agentId, agent => agent.workspaceId);
+    return <EntityResultCard {...props} openPanel={entity => conversation.openEntity(props.agentId, workspaceId, entity)} />;
+  } });
+  return conversation.dispose;
 }

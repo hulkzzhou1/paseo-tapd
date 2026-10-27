@@ -65,3 +65,8 @@ export const conversationBatchPageRpc = defineRpc({
   input: conversationOwnerSchema.extend({ batchId: z.string().min(1).max(200), siteUrl: endpoint, apiEndpoint: endpoint, offset: z.number().int().nonnegative() }),
   output: z.object({ items: z.array(batchEntitySchema).max(5), nextOffset: z.number().int().nonnegative().nullable() }),
 });
+
+export const conversationRefreshRpc = defineRpc({
+  name: "tapd.conversation.refresh", input: conversationOwnerSchema.extend({ entity: conversationEntitySchema }),
+  output: z.object({ ok: z.literal(true) }),
+});

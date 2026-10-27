@@ -18,6 +18,7 @@ async function main(){
  if(rpc.name==='tapd.agent-links')return {links:window.toolLinks??[]};
  if(rpc.name==='tapd.remove-agent-link'){window.toolLinks=[];return {ok:true};}
  if(rpc.name==='tapd.conversations')return {conversations:window.refs.length||window.includeEmpty?[{agentId:'example-agent',workspaceId:window.workspaceId,entities:window.refs}]:[]};
+ if(rpc.name==='tapd.conversation.refresh'){if(window.failSummary)throw new Error('offline');window.refs=window.refs.map(e=>e.id===input.entity.id&&!e.title?{...e,title:'自动读取的标题',status:'open',statusLabel:'待处理',owner:'示例处理人'}:e);return {ok:true};}
  if(rpc.name==='tapd.conversation.focus')return {ok:true};
  if(rpc.name==='tapd.conversation.remove'){window.refs=window.refs.filter(x=>x.id!==input.entity.id);return {ok:true};}
  if(rpc.name==='tapd.entity')return {...input,title:'示例需求',url:'https://example.com/item',status:'open',statusLabel:'待处理',owner:'',creator:'',description:'完整正文',descriptionHtml:'<p>完整正文</p>',comments:[],childTasks:[],childBugs:[],childTasksTotal:0,childBugsTotal:0,parentStory:null};
@@ -53,8 +54,17 @@ async function main(){
  await page.evaluate(ref=>{window.refs=[ref];window.refresh();},ref);
  await page.getByRole('button',{name:'会话 TAPD 单据（1）'}).click();
  await page.getByText('本次会话的 TAPD 单据',{exact:true}).waitFor();
+ await page.getByRole('textbox',{name:'搜索会话单据'}).fill('不存在的标题');await page.getByText('没有匹配的单据',{exact:true}).waitFor();
+ await page.getByRole('textbox',{name:'搜索会话单据'}).fill('');
+ await page.getByRole('button',{name:'筛选缺陷',exact:true}).click();await page.getByText('没有匹配的单据',{exact:true}).waitFor();
+ await page.getByRole('button',{name:'筛选全部',exact:true}).click();
+
  assert.equal(await page.getByRole('dialog').count(),0,'entry opens a panel, never an icon-owned modal');
  assert.equal(await page.evaluate(()=>window.panelCalls.at(-1).location),'explorer');
+ await page.evaluate(()=>window.failSummary=true);await page.getByRole('button',{name:'刷新摘要',exact:true}).click();await page.getByText('1 张单据读取失败，可刷新重试',{exact:true}).waitFor();
+ await page.evaluate(()=>{window.failSummary=false;window.refs[0].title='';});await page.getByRole('button',{name:'刷新摘要',exact:true}).click();await page.getByText('自动读取的标题',{exact:true}).waitFor();
+ await page.evaluate(()=>{window.refs[0].title='第一张单据';window.refresh();});
+
  await page.getByRole('button',{name:'打开 TAPD 需求 #11111111：第一张单据',exact:true}).click();
  await page.getByText('完整正文',{exact:true}).waitFor();assert.equal(await page.getByRole('dialog').count(),0,'detail is inline in its own tab');
  assert.equal(await page.evaluate(()=>window.panelCalls.length),2);

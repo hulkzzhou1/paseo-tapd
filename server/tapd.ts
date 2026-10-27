@@ -1322,6 +1322,21 @@ export async function fetchColumn(
   return { kind, total, items: items.slice(0, 300), truncated, error: null };
 }
 
+/** Conversation summaries read only list fields; descriptions, comments and related items stay lazy. */
+export async function fetchEntitySummary(config: TapdConfig, kind: EntityKind, id: string, workspaceId: string) {
+  if (!config.workspaceIds.includes(workspaceId)) throw new TapdApiError("项目未配置");
+  const data = await requestJson(config, LIST_PATH[kind], {
+    workspace_id: workspaceId, id, limit: 1,
+    fields: kind === "bug" ? "id,title,status,current_owner" : "id,name,status,owner",
+  }, 0);
+  const row = unwrapRows(data, [KIND_WRAPPER[kind]])[0];
+  if (!row || String(row.id) !== id) throw new TapdApiError("单据摘要不可用");
+  const labels = await fetchStatusLabels({ ...config, workspaceIds: [workspaceId] }, kind);
+  const status = String(row.status ?? "");
+  return { kind, id, workspaceId, title: String((kind === "bug" ? row.title : row.name) ?? ""),
+    status, statusLabel: labels[status] ?? status, owner: String((kind === "bug" ? row.current_owner : row.owner) ?? "").trim() };
+}
+
 export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: string): Promise<EntityDetailResult> {
   let row: any = null;
   let workspaceId = config.workspaceIds[0] ?? "";

@@ -5,7 +5,7 @@ import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { imageRpc, addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, syncPullRpc, syncPushRpc, tapdSettings, updateCheckRpc, updateStatusRpc } from "./shared/contracts";
 import { createHandlers } from "./server/handlers";
 import { createConversationRuntime } from "./server/conversation";
-import { conversationBatchPageRpc, conversationListRpc, conversationFocusRpc, conversationRemoveRpc } from "./shared/conversation";
+import { conversationRefreshRpc, conversationBatchPageRpc, conversationListRpc, conversationFocusRpc, conversationRemoveRpc } from "./shared/conversation";
 import { createTapdTools } from "./server/agent-tools";
 import { recordTurnEnd } from "./server/agent-state";
 import { clearTapdCache, resolveConfig, type TapdConfigInput } from "./server/tapd";
@@ -38,6 +38,7 @@ export default function contribute(server: PluginServerContext) {
   const conversations = createConversationRuntime(getValues);
   const tools = [...createTapdTools(getValues, conversations), ...createAssignmentTools(getValues, agentLinks)];
   server.handle(conversationBatchPageRpc, (input, context) => conversations.batchPage({ paseo: context.paseo, agentId: input.agentId }, input));
+  server.handle(conversationRefreshRpc, ({ agentId, entity }, context) => conversations.refreshEntity({ paseo: context.paseo, agentId }, entity).catch(() => { throw new Error("单据摘要读取失败，请刷新重试。"); }));
   server.handle(conversationListRpc, (_input, context) => conversations.list(context));
   server.handle(conversationFocusRpc, ({ agentId, entity }, context) => conversations.focus({ paseo: context.paseo, agentId }, entity));
   server.handle(conversationRemoveRpc, ({ agentId, entity }, context) => conversations.remove({ paseo: context.paseo, agentId }, entity));

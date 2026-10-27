@@ -9,7 +9,8 @@ import { kindColor, statusTone, toneColor } from "../workbench/status-tones";
 
 const kindLabels = { story: "需求", task: "任务", bug: "缺陷" };
 export function EntityResultCard({ item, theme, agentId }: PluginTimelineItemProps<z.infer<typeof entityResultSchema>>) {
-  const { entity, warnings } = item.data;
+  const { entity, warnings, operation } = item.data;
+  const caption = { read: "查询时的摘要", create: "单据已创建 · 创建时的摘要", comment: "评论已发表 · 操作时的摘要", status: "状态已修改 · 操作时的摘要" }[operation];
   const focus = useRpc(conversationFocusRpc);
   const [target, setTarget] = useState<DetailTarget | null>(null);
   const button = useRef<View>(null);
@@ -27,7 +28,7 @@ export function EntityResultCard({ item, theme, agentId }: PluginTimelineItemPro
       </View>
       <Text numberOfLines={2} style={{ color: colors.foreground, fontSize: 15, lineHeight: 22, fontWeight: "600" }}>{entity.title || `#${entity.id}`}</Text>
       {entity.owner ? <Text style={{ color: colors.foregroundMuted }}>{entity.owner}</Text> : null}
-      <Text style={{ color: colors.foregroundMuted, fontSize: 12 }}>查询时的摘要 · 打开查看最新详情</Text>
+      <Text style={{ color: colors.foregroundMuted, fontSize: 12 }}>{caption} · 打开查看最新详情</Text>
     </Pressable>
     {warnings.map((warning, index) => <Text key={index} accessibilityRole="alert" style={{ color: colors.statusWarning, fontSize: 12 }}>{warning}</Text>)}
     <EntityDetailExperience target={target} onTargetChange={setTarget} onDismiss={() => button.current?.focus()} theme={theme} />

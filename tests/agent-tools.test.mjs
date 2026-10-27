@@ -219,6 +219,31 @@ test("search exposes per-project and total truncation instead of implying an exh
   assert.ok(result.structuredContent.warnings.some(warning => warning.includes("15")));
 });
 
+test("board completeness warnings survive cache hits, including a board warmed through the UI handler", async (t) => {
+  const { call } = setup(t, request => {
+    if (request.url.pathname.endsWith("last_steps")) throw new Error("untrusted workflow failure");
+    return entityApi(request);
+  });
+  const { createHandlers } = await import("../server/handlers.ts");
+  const input = { filters: { ...(await import("../shared/contracts.ts")).DEFAULT_FILTERS, ownerMode: "all" } };
+  const ui = await createHandlers(async () => initial).board(input);
+  assert.ok(ui.warnings.length);
+  for (let index = 0; index < 2; index++) {
+    const result = await call("tapd_board", input);
+    assert.ok(result.structuredContent.warnings.length);
+    assert.equal(result.structuredContent.stale, false);
+  }
+});
+
+test("mine lookup failure cannot silently broaden the board to everyone", async (t) => {
+  const { call, requests } = setup(t, request => {
+    if (request.url.pathname === "/users/info") throw new Error("untrusted user failure");
+    return entityApi(request);
+  });
+  assert.equal((await call("tapd_board")).isError, true);
+  assert.equal(requests.filter(({ url }) => ["/stories", "/tasks", "/bugs"].includes(url.pathname)).length, 0);
+});
+
 test("session-open attaches tools alongside existing tools, skips history, and preserves explicit environment", async () => {
   const hooks = new Map();
   const cleanup = contribute({ registerSettings: () => ({ read: async () => ({ status: "ready", values: initial }), subscribe: () => () => {} }),

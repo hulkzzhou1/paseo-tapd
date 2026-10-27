@@ -280,6 +280,7 @@ export const boardRpc = defineRpc({
     force: z.boolean().optional(),
   }),
   output: z.object({
+    warnings: z.array(z.string()).default([]),
     workspaceCount: z.number(),
     tokenSource: z.enum(["env", "settings", "none"]),
     fetchedAt: z.string(),

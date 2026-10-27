@@ -203,3 +203,5 @@ Reload `tapd-workbench`, then send the agent its next prompt while idle to refre
 工具输入上限按 UTF-8 字节计算。工具结果的 `warnings` 标注被现有容错读取吞掉的部分失败或搜索/迭代候选截断；不要把缺失候选或搜索空结果当作完整项目结论。评论在用户信息读取之后、HTTP 写入实际发出之前再次检查取消。
 
 Tool inputs are bounded by UTF-8 byte length. Result `warnings` flag tolerated read failures and capped search/iteration results; absent candidates or empty searches do not establish an exhaustive project result. Cancellation is also checked at the HTTP write boundary, after comment-author lookup.
+
+看板的读取警告随快照缓存（包括界面先加载及后台刷新），缓存命中不会丢失完整性提示。「我处理的」无法识别当前用户时直接报错，不扩大为全员查询。Board read warnings travel with cached snapshots, including UI-warmed results and background refreshes. If the current user cannot be resolved, a mine query fails rather than broadening to everyone.

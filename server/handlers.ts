@@ -48,8 +48,12 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
       const key = JSON.stringify(input.filters ?? null);
       return boardWithCache(key, async () => {
         const { config } = await requireConfig();
+        const warnings = config.readWarnings ??= [];
         const filters = input.filters ?? DEFAULT_FILTERS;
         const me = await fetchMe(config).catch(() => null);
+        if (filters.ownerMode === "mine" && !me?.nick) {
+          throw new Error("无法识别当前用户，请重试或检查 TAPD 连接；未执行「我处理的」查询。");
+        }
         const owner =
           filters.ownerMode === "mine"
             ? me?.nick ?? ""
@@ -100,6 +104,7 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
           }),
         ]);
         return {
+          warnings: [...new Set(warnings)],
           workspaceCount: config.workspaceIds.length,
           tokenSource: config.tokenSource,
           fetchedAt: new Date().toISOString(),

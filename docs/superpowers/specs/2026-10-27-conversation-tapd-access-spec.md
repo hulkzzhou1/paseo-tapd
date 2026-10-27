@@ -1,5 +1,8 @@
 # 对话中的 TAPD 快捷触达 — 实施规格
 
+> 2026-10-28 navigation revision: the confirmed composer entry now always opens an Agent-scoped Explorer list (including one item). Selecting an item opens its independent reusable detail tab, using Progress-style public panel navigation. Native mobile uses workspace tabs. This supersedes the single-item direct-modal and multi-item modal-list navigation below; collection, lifecycle, data boundaries and existing operation confirmations remain unchanged.
+
+
 ## Problem Statement
 
 Agent 已能通过工具查询、创建和操作 TAPD 单据，但用户仍需要寻找结果中的链接、切换工作台或向上翻阅对话才能再次打开单据。对话中的普通 TAPD 链接也缺少与工作台一致的快捷访问路径。

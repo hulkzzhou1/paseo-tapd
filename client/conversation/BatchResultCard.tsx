@@ -2,21 +2,20 @@ import { useRpc, type PluginTimelineItemProps } from "@getpaseo/plugin/client";
 import { useRef, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 import type { z } from "zod";
-import { batchResultSchema, conversationBatchPageRpc, conversationFocusRpc } from "../../shared/conversation";
+import { batchResultSchema, conversationBatchPageRpc } from "../../shared/conversation";
 import { EntityDetailExperience } from "../workbench/EntityDetailExperience";
-import type { DetailTarget } from "../workbench/EntityDetailModal";
+import { useEntityNavigation, type OpenConversationEntity } from "./useEntityNavigation";
 import { kindColor, statusTone, toneColor } from "../workbench/status-tones";
 
 const kindLabels = { story: "需求", task: "任务", bug: "缺陷" };
-export function BatchResultCard({ item, theme, agentId }: PluginTimelineItemProps<z.infer<typeof batchResultSchema>>) {
+export function BatchResultCard({ item, theme, agentId, openPanel }: PluginTimelineItemProps<z.infer<typeof batchResultSchema>> & { openPanel?: OpenConversationEntity }) {
   const data = item.data;
   const loadPage = useRpc(conversationBatchPageRpc);
-  const focus = useRpc(conversationFocusRpc);
   const [items, setItems] = useState(data.items);
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
-  const [target, setTarget] = useState<DetailTarget | null>(null);
+  const { target, setTarget, open } = useEntityNavigation(agentId, openPanel);
   const opener = useRef<View | null>(null);
   const buttons = useRef(new Map<number, View>());
   const busy = useRef(false);
@@ -46,7 +45,7 @@ export function BatchResultCard({ item, theme, agentId }: PluginTimelineItemProp
       onPress={() => {
         opener.current = buttons.current.get(index) ?? null;
         const entity = { siteUrl: data.siteUrl, apiEndpoint: data.apiEndpoint, ...row };
-        setTarget(entity); void focus({ agentId, entity }).catch(() => {});
+        void open(entity);
       }} style={({ pressed }) => ({ padding: 10, gap: 5, borderRadius: 8, backgroundColor: pressed ? colors.surface2 : colors.surface0, borderWidth: 1, borderColor: focusedIndex === index ? colors.accent : colors.border })}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         <Text style={{ color: kindColor(row.kind, theme), fontWeight: "600" }}>{kindLabels[row.kind]}</Text>

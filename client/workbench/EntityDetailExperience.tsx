@@ -8,11 +8,13 @@ import { Text } from "react-native";
 import { BindAgentModal } from "./BindAgentModal";
 import { CreateEntityModal, type CreateChildPreset, type CreatedEntity } from "./CreateEntityModal";
 import { DispatchModal } from "./DispatchModal";
-import { EntityDetailModal, type DetailExtras, type DetailTarget, type EntityDetailData } from "./EntityDetailModal";
+import { EntityDetailModal } from "./EntityDetailModal";
+import { EntityDetailContent, type DetailExtras, type DetailTarget, type EntityDetailData } from "./EntityDetailContent";
 import { CommentModal } from "./EntityWriteBack";
 import type { WorkbenchTheme } from "./bits";
 
-export function EntityDetailExperience({ target: detail, onTargetChange: setDetail, theme, navigation, createOpen: controlledCreateOpen, onCreateOpenChange, onChanged, onDismiss, onRemoveFromConversation }: {
+export function EntityDetailExperience({ target: detail, onTargetChange: setDetail, theme, navigation, createOpen: controlledCreateOpen, onCreateOpenChange, onChanged, onDismiss, onRemoveFromConversation, presentation = "dialog" }: {
+  presentation?: "dialog" | "panel";
   target: DetailTarget | null;
   onTargetChange: (target: DetailTarget | null) => void;
   theme: WorkbenchTheme;
@@ -34,6 +36,7 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
   const [dispatchTarget, setDispatchTarget] = useState<EntityDetailData | null>(null);
   const [commentTarget, setCommentTarget] = useState<{ kind: EntityKind; id: string; workspaceId?: string } | null>(null);
   const [bindTarget, setBindTarget] = useState<EntityDetailData | null>(null);
+  if (settings.status !== "ready" && presentation === "panel") return <Text style={{ color: theme.colors.foreground, padding: 24 }}>TAPD 配置暂不可用，请检查插件设置后重试。</Text>;
   if (settings.status !== "ready") return <WorkbenchDialog onDismiss={onDismiss} title="单据详情" theme={theme} open={!!detail} onOpenChange={() => setDetail(null)}><Text style={{ color: theme.colors.foreground, padding: 24 }}>TAPD 配置暂不可用，请检查插件设置后重试。</Text></WorkbenchDialog>;
   const readySettings = settings;
   const links = readySettings.values.links;
@@ -100,7 +103,7 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
     onOpenEntity: (target) => setDetail({ ...detail, ...target }),
   };
   return <>
-      <EntityDetailModal onDismiss={() => { if (!detail) onDismiss?.(); }} hidden={createOpen || !!dispatchTarget || !!commentTarget || !!bindTarget} target={detail} onClose={() => setDetail(null)} theme={theme} extras={detailExtras} />
+      {presentation === "panel" ? <EntityDetailContent target={detail} theme={theme} extras={detailExtras} hidden={createOpen || !!dispatchTarget || !!commentTarget || !!bindTarget} /> : <EntityDetailModal onDismiss={() => { if (!detail) onDismiss?.(); }} hidden={createOpen || !!dispatchTarget || !!commentTarget || !!bindTarget} target={detail} onClose={() => setDetail(null)} theme={theme} extras={detailExtras} />}
         <CreateEntityModal
           backToDetail={!!detail}
           open={createOpen}

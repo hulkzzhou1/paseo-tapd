@@ -113,7 +113,7 @@ export function createMessageObserver(getValues: () => Promise<TapdSettingsValue
       }
       await refresh(paseo, agentId);
       if (!live) release(paseo, agentId);
-    } catch (error) { release(paseo, agentId); throw error; }
+    } catch (error) { release(paseo, agentId); retry.set(id, { paseo, agentId }); throw error; }
   }
   function release(paseo: Paseo, agentId: string) {
     const id = key(paseo, agentId);
@@ -127,11 +127,13 @@ export function createMessageObserver(getValues: () => Promise<TapdSettingsValue
   return { observe, refresh, release, settle: async () => {
     for (const [id, context] of [...retry]) {
       release(context.paseo, context.agentId);
-      const agent = await context.paseo.agents.ref(context.agentId).refresh();
-      if (!agent || agent.agent.archivedAt || agent.agent.status === "closed") continue;
-      try { await observe(context.paseo, context.agentId); }
-      catch (error) { retry.set(id, context); throw error; }
+      try {
+        const agent = await context.paseo.agents.ref(context.agentId).refresh();
+        if (!agent || agent.agent.archivedAt || agent.agent.status === "closed") continue;
+        await observe(context.paseo, context.agentId);
+      } catch { retry.set(id, context); }
     }
-    await Promise.all([...observations.values()].map(item => item.work));
+    // One inaccessible history must not block other conversations; failed scans remain queued.
+    await Promise.allSettled([...observations.values()].map(item => item.work));
   }, close() { for (const observation of observations.values()) { observation.released = true; void observation.subscription?.release().catch(() => {}); } observations.clear(); retry.clear(); } };
 }

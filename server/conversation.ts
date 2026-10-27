@@ -189,13 +189,18 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
         void (async () => {
           await reconcileKnown(paseo);
           for (const entry of snapshot.entries) if (!entry.agent.archivedAt) {
-            await messages.observe(paseo, entry.agent.id, entry.agent.status !== "closed");
-            await messages.refresh(paseo, entry.agent.id, true, true);
+            try {
+              await messages.observe(paseo, entry.agent.id, entry.agent.status !== "closed");
+              await messages.refresh(paseo, entry.agent.id, true, true);
+            } catch { /* The observer retains this history for retry; continue with other agents. */ }
           }
         })().catch(() => {});
       }, error() {} });
       releases.push(() => { void directory.subscription.release(); });
-      for (const entry of directory.entries) if (!entry.agent.archivedAt) await messages.observe(paseo, entry.agent.id, entry.agent.status !== "closed");
+      for (const entry of directory.entries) if (!entry.agent.archivedAt) {
+        try { await messages.observe(paseo, entry.agent.id, entry.agent.status !== "closed"); }
+        catch { /* A removed workspace cannot disable unrelated conversation cards. */ }
+      }
       if (!directory.pageInfo.hasMore) break;
       if (!directory.pageInfo.nextCursor || cursor === directory.pageInfo.nextCursor) throw new Error(storageError);
       cursor = directory.pageInfo.nextCursor;
@@ -208,13 +213,19 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
       try { if (await reconcile(paseo, item.agentId)) await restoreSerial(paseo, item.agentId); } catch { /* Reconcile again before presentation; a failed read never proves deletion. */ }
     }
   }
+  async function waitForHistory(work: Promise<unknown>) {
+    // Return saved references promptly while large histories keep scanning in the background.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try { await Promise.race([work, new Promise<void>(resolve => { timer = setTimeout(resolve, 250); })]); }
+    finally { if (timer) clearTimeout(timer); }
+  }
   function bootstrap(context: { paseo: Paseo }) {
     if (!bootstrapPromise) bootstrapPromise = Promise.resolve().then(() => initialize(context.paseo)).catch(error => {
       messages.close();
       for (const release of releases.splice(0)) release();
       bootstrapPromise = undefined; throw error;
     });
-    return bootstrapPromise;
+    return waitForHistory(bootstrapPromise);
   }
   async function collect(context: ConversationContext, entities: ConversationEntity[], sourceId?: string) {
     await bootstrap(context);
@@ -264,7 +275,7 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
   }
   async function list(context: { paseo: Paseo }): Promise<{ conversations: ConversationSummary[] }> {
     await bootstrap(context);
-    await messages.settle();
+    await waitForHistory(messages.settle());
     const conversations: ConversationSummary[] = [];
     const own = (await load()).records.filter(item => item.hostId === hostId(context.paseo));
     for (const item of own) {

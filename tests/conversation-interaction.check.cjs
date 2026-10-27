@@ -39,15 +39,18 @@ async function main(){
  }
  await page.evaluate(()=>window.showWriteCard(null));
 
- await page.evaluate(()=>{window.refs=[{siteUrl:'https://example.com',apiEndpoint:'https://api.example.com',workspaceId:'12345678',kind:'story',id:'11111111',title:'示例需求',status:'open',statusLabel:'待处理',owner:''}];return window.refresh();});
+ const beforeUnknown=await page.evaluate(()=>window.calls.filter(x=>x.name==='tapd.entity').length);
+ await page.evaluate(()=>{window.refs=[{siteUrl:'https://example.com',apiEndpoint:'https://api.example.com',workspaceId:'12345678',kind:'story',id:'11111111',title:'',status:'',statusLabel:'',owner:''}];return window.refresh();});
+ await page.getByRole('button',{name:'会话 TAPD 单据（1）'}).waitFor();assert.equal(await page.evaluate(()=>window.calls.filter(x=>x.name==='tapd.entity').length),beforeUnknown,'unknown link placeholders never load detail before a click');
  await page.getByRole('button',{name:'会话 TAPD 单据（1）'}).focus();await page.keyboard.press('Enter');await page.getByRole('dialog',{name:'#11111111 · 单据详情',exact:true}).waitFor();
  assert.equal(await page.getByRole('dialog',{name:'会话 TAPD 单据',exact:true}).count(),0,'one item opens detail directly');await page.getByText('完整正文',{exact:true}).waitFor();
  await page.getByRole('button',{name:'关闭#11111111 · 单据详情',exact:true}).last().click();
  await page.evaluate(()=>{window.refs=[{...window.refs[0],id:'22222222',title:'第二张单据'},...window.refs];return window.refresh();});
  await page.setViewportSize({width:360,height:740});await page.getByRole('button',{name:'会话 TAPD 单据（2）'}).click();const list=page.getByRole('dialog',{name:'会话 TAPD 单据',exact:true});await list.waitFor();assert.ok((await list.boundingBox()).width<=360);assert.equal(await list.getByRole('button',{name:/打开 TAPD/}).count(),2);
- await list.getByRole('button',{name:'从会话移除 #22222222',exact:true}).click();await page.getByRole('button',{name:'会话 TAPD 单据（1）'}).waitFor();await list.getByRole('button',{name:'打开 TAPD 需求 #11111111：示例需求',exact:true}).click();await page.getByRole('dialog',{name:'#11111111 · 单据详情',exact:true}).waitFor();assert.equal(await list.count(),0);
+ await list.getByText('#11111111',{exact:true}).waitFor();
+ await list.getByRole('button',{name:'从会话移除 #22222222',exact:true}).click();await page.getByRole('button',{name:'会话 TAPD 单据（1）'}).waitFor();await list.getByRole('button',{name:'打开 TAPD 需求 #11111111：',exact:true}).click();await page.getByRole('dialog',{name:'#11111111 · 单据详情',exact:true}).waitFor();assert.equal(await list.count(),0);
  const focused=await page.evaluate(()=>window.calls.filter(x=>x.name==='tapd.conversation.focus').length);assert.equal(focused,5);assert.equal(await page.evaluate(()=>window.calls.some(x=>['tapd.create','tapd.add_comment','tapd.update_status'].includes(x.name))),false);
- console.log('PASS create/comment/status card outcomes and shared detail, composer zero/one/multiple, remove and focused open');
+ console.log('PASS create/comment/status card outcomes and shared detail, composer zero/one/multiple, unknown-link placeholder, explicit detail load, remove and focused open');
  }finally{await browser?.close();await new Promise(r=>server.close(r));}
  }finally{rmSync(temp,{recursive:true,force:true});}
 }

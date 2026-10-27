@@ -27,7 +27,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(conversationFocusRpc, ({ agentId, entity }, context) => conversations.focus({ paseo: context.paseo, agentId }, entity));
   server.handle(conversationRemoveRpc, ({ agentId, entity }, context) => conversations.remove({ paseo: context.paseo, agentId }, entity));
   for (const event of ["agent.created", "agent.archived", "agent.closed"] as const) server.on(event, async ({ agent }, context) => {
-    try { await conversations.bootstrap(context); await conversations.reconcile(agent.id); } catch { /* Retry through the next public context. */ }
+    try { await conversations.bootstrap(context); await conversations.reconcile(agent.id); if (event === "agent.created") await conversations.observeMessages({ paseo: context.paseo, agentId: agent.id }); } catch { /* Retry through the next public context. */ }
   });
   server.handle(boardRpc, handlers.board);
   server.handle(createRpc, handlers.create);
@@ -71,6 +71,7 @@ export default function contribute(server: PluginServerContext) {
   server.before("agent.session_open", async ({ request }, context) => {
     if (context?.paseo) void conversations.bootstrap(context).catch(() => {});
     if (request.purpose === "history") return request;
+    if (context?.paseo) void conversations.observeMessages({ paseo: context.paseo, agentId: request.agentId }).catch(() => {});
     const withTools = { ...request, tools: [...request.tools, ...tools] };
     let values: TapdConfigInput | null = null;
     try {
@@ -92,8 +93,9 @@ export default function contribute(server: PluginServerContext) {
   });
 
   // Agent turn 结束：记台账；开关打开且该 agent 关联了 TAPD 单据时自动回写评论
-  server.on("agent.turn_ended", async (event) => {
+  server.on("agent.turn_ended", async (event, context) => {
     if (!event.agent.id) return;
+    if (context?.paseo) { try { await conversations.observeMessages({ paseo: context.paseo, agentId: event.agent.id }, true); } catch { /* Retry message catch-up on reconnect. */ } }
     const record = recordTurnEnd({
       agentId: event.agent.id,
       outcome: event.outcome,

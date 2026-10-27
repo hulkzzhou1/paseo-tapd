@@ -29,15 +29,17 @@ async function main(){
  const server=http.createServer((req,res)=>{res.setHeader('content-type',req.url==='/app.js'?'text/javascript':'text/html');res.end(req.url==='/app.js'?code:'<!doctype html><div id="root"></div><script src="/app.js"></script>');});await new Promise(r=>server.listen(0,'127.0.0.1',r));let browser;
  try{browser=await fromApp('@playwright/test').chromium.launch({headless:true,args:['--no-sandbox']});const page=await browser.newPage({viewport:{width:1200,height:850}});page.setDefaultTimeout(8000);await page.goto('http://127.0.0.1:'+server.address().port);
  assert.equal(await page.getByRole('button',{name:/会话 TAPD/}).count(),0);
- await page.evaluate(()=>{window.refs=[{siteUrl:'https://example.com',apiEndpoint:'https://api.example.com',workspaceId:'12345678',kind:'story',id:'11111111',title:'示例需求',status:'open',statusLabel:'待处理',owner:''}];return window.refresh();});
+ await page.evaluate(()=>{window.refs=[{siteUrl:'https://example.com',apiEndpoint:'https://api.example.com',workspaceId:'12345678',kind:'story',id:'11111111',title:'',status:'',statusLabel:'',owner:''}];return window.refresh();});
+ await page.getByRole('button',{name:'会话 TAPD 单据（1）'}).waitFor();assert.equal(await page.evaluate(()=>window.calls.filter(x=>x.name==='tapd.entity').length),0,'unknown link placeholders never load detail before a click');
  await page.getByRole('button',{name:'会话 TAPD 单据（1）'}).focus();await page.keyboard.press('Enter');await page.getByRole('dialog',{name:'#11111111 · 单据详情',exact:true}).waitFor();
  assert.equal(await page.getByRole('dialog',{name:'会话 TAPD 单据',exact:true}).count(),0,'one item opens detail directly');await page.getByText('完整正文',{exact:true}).waitFor();
  await page.getByRole('button',{name:'关闭#11111111 · 单据详情',exact:true}).last().click();
  await page.evaluate(()=>{window.refs=[{...window.refs[0],id:'22222222',title:'第二张单据'},...window.refs];return window.refresh();});
  await page.setViewportSize({width:360,height:740});await page.getByRole('button',{name:'会话 TAPD 单据（2）'}).click();const list=page.getByRole('dialog',{name:'会话 TAPD 单据',exact:true});await list.waitFor();assert.ok((await list.boundingBox()).width<=360);assert.equal(await list.getByRole('button',{name:/打开 TAPD/}).count(),2);
- await list.getByRole('button',{name:'从会话移除 #22222222',exact:true}).click();await page.getByRole('button',{name:'会话 TAPD 单据（1）'}).waitFor();await list.getByRole('button',{name:'打开 TAPD 需求 #11111111：示例需求',exact:true}).click();await page.getByRole('dialog',{name:'#11111111 · 单据详情',exact:true}).waitFor();assert.equal(await list.count(),0);
+ await list.getByText('#11111111',{exact:true}).waitFor();
+ await list.getByRole('button',{name:'从会话移除 #22222222',exact:true}).click();await page.getByRole('button',{name:'会话 TAPD 单据（1）'}).waitFor();await list.getByRole('button',{name:'打开 TAPD 需求 #11111111：',exact:true}).click();await page.getByRole('dialog',{name:'#11111111 · 单据详情',exact:true}).waitFor();assert.equal(await list.count(),0);
  const focused=await page.evaluate(()=>window.calls.filter(x=>x.name==='tapd.conversation.focus').length);assert.equal(focused,2);assert.equal(await page.evaluate(()=>window.calls.some(x=>['tapd.create','tapd.add_comment','tapd.update_status'].includes(x.name))),false);
- console.log('PASS composer zero/one/multiple, remove, focused open and shared detail');
+ console.log('PASS composer zero/one/multiple, unknown-link placeholder, explicit detail load, remove and shared detail');
  }finally{await browser?.close();await new Promise(r=>server.close(r));}
  }finally{rmSync(temp,{recursive:true,force:true});}
 }

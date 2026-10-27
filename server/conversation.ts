@@ -7,6 +7,7 @@ import { dirname, resolve } from "node:path";
 import { conversationEntityKey, conversationEntitySchema, entityResultSchema, type ConversationEntity, type ConversationSummary } from "../shared/conversation";
 import type { TapdSettingsValues } from "../shared/contracts";
 import { resolveConfig } from "./tapd";
+import { createMessageObserver } from "./conversation-messages";
 
 type Paseo = AgentToolContext["paseo"];
 export type ConversationContext = { paseo: Paseo; agentId: string };
@@ -40,6 +41,19 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
   const releases: (() => void)[] = [];
   const recovered = new Map<string, string>();
   let presentationQueue = Promise.resolve();
+  const messages = createMessageObserver(getValues, {
+    collect: async (paseo, agentId, entities, sourceId) => {
+      if (closed) return;
+      const parsed = await validate(entities);
+      if (!await reconcile(paseo, agentId)) return;
+      await change(next => collectInto(record(next, { paseo, agentId }), parsed, sourceId));
+    },
+    restore: async (paseo, agentId) => {
+      if (!await reconcile(paseo, agentId)) return;
+      recovered.delete(JSON.stringify([hostId(paseo, agentId), agentId]));
+      await restoreSerial(paseo, agentId);
+    },
+  });
 
   async function load() {
     if (state) return state;
@@ -108,10 +122,12 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
     const result = await handle.refresh();
     const host = hostId(paseo, agentId);
     if (result === null) {
+      messages.release(paseo, agentId);
       await change(next => { next.records = next.records.filter(item => item.hostId !== host || item.agentId !== agentId); });
       recovered.delete(JSON.stringify([host, agentId]));
       return false;
     }
+    if (result.agent.archivedAt || result.agent.status === "closed") messages.release(paseo, agentId);
     await change(next => { const found = next.records.find(item => item.hostId === host && item.agentId === agentId); if (found) found.workspaceId = handle.workspaceId; });
     return true;
   }
@@ -150,12 +166,22 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
       directory.subscription.subscribe({ update(message) {
         if (message.type !== "agent_update") return;
         const id = message.payload.kind === "remove" ? message.payload.agentId : message.payload.agent.id;
-        void reconcile(paseo, id).catch(() => {});
-      }, snapshot() {
+        void (async () => {
+          if (!await reconcile(paseo, id)) return;
+          if (message.payload.kind === "upsert" && !message.payload.agent.archivedAt && message.payload.agent.status !== "closed") await messages.observe(paseo, id);
+        })().catch(() => {});
+      }, snapshot(snapshot) {
         recovered.clear();
-        void reconcileKnown(paseo).catch(() => {});
+        void (async () => {
+          await reconcileKnown(paseo);
+          for (const entry of snapshot.entries) if (!entry.agent.archivedAt) {
+            await messages.observe(paseo, entry.agent.id, entry.agent.status !== "closed");
+            await messages.refresh(paseo, entry.agent.id, true, true);
+          }
+        })().catch(() => {});
       }, error() {} });
       releases.push(() => { void directory.subscription.release(); });
+      for (const entry of directory.entries) if (!entry.agent.archivedAt) await messages.observe(paseo, entry.agent.id, entry.agent.status !== "closed");
       if (!directory.pageInfo.hasMore) break;
       if (!directory.pageInfo.nextCursor || cursor === directory.pageInfo.nextCursor) throw new Error(storageError);
       cursor = directory.pageInfo.nextCursor;
@@ -170,6 +196,7 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
   }
   function bootstrap(context: { paseo: Paseo }) {
     if (!bootstrapPromise) bootstrapPromise = Promise.resolve().then(() => initialize(context.paseo)).catch(error => {
+      messages.close();
       for (const release of releases.splice(0)) release();
       bootstrapPromise = undefined; throw error;
     });
@@ -199,6 +226,7 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
   }
   async function list(context: { paseo: Paseo }): Promise<{ conversations: ConversationSummary[] }> {
     await bootstrap(context);
+    await messages.settle();
     const conversations: ConversationSummary[] = [];
     const own = (await load()).records.filter(item => item.hostId === hostId(context.paseo));
     for (const item of own) {
@@ -217,6 +245,14 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
     return { ok: true as const };
   }
   return { bootstrap, collect, recordResult, list, remove,
+    observeMessages: async (context: ConversationContext, finalized = false) => {
+      await bootstrap(context);
+      if (!await reconcile(context.paseo, context.agentId)) return;
+      const agent = context.paseo.agents.ref(context.agentId);
+      if (agent.archivedAt) return;
+      await messages.observe(context.paseo, context.agentId, agent.status !== "closed");
+      await messages.refresh(context.paseo, context.agentId, true, false, finalized);
+    },
     focus: async (context: ConversationContext, entity: ConversationEntity) => {
       await bootstrap(context);
       const stored = (await load()).records.find(item => item.hostId === hostId(context.paseo, context.agentId) && item.agentId === context.agentId);
@@ -229,7 +265,7 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
       await restoreSerial(context.paseo, context.agentId);
     },
     reconcile: async (agentId: string) => { if (livePaseo) return reconcile(livePaseo, agentId); },
-    close() { closed = true; for (const release of releases.splice(0)) release(); },
+    close() { closed = true; messages.close(); for (const release of releases.splice(0)) release(); },
   };
 }
 export type ConversationRuntime = ReturnType<typeof createConversationRuntime>;

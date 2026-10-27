@@ -217,3 +217,5 @@ The sidebar host registers a `TAPD · N` composer pill without requiring the wor
 Minimal references, short card summaries and replay/removal progress are saved atomically under `PASEO_HOME/plugin-data/tapd-workbench/` (default `~/.paseo/plugin-data/tapd-workbench/`), separately from settings and Git sync. Descriptions, comment bodies, image data and credentials are not saved there. Reopen, reload and restart restore presentation only; archives retain data. Only a successful exact agent lookup proving deletion clears its records. Mainline provides no startup Paseo API: after a worker restart, reconciliation begins at the first public hook/tool/RPC context and completes before shortcuts are presented.
 
 最小引用、短卡片摘要及移除/重放进度独立保存在上述本机插件目录，原子更新、不参与配置同步；不保存正文、评论全文、图片和凭据。关闭、重开、插件重载和 daemon 重启后恢复展示，归档保留，精确确认会话删除后清理。当前主线没有启动时的公开 Paseo API，因此进程重启后会在第一个钩子、工具或 RPC 上下文可用时开始对账，并在展示入口前完成；恢复不会重放 TAPD 操作。
+
+用户和 Agent 普通消息中的明确单据链接也会收录：仅接受当前网页域名和已配置项目，支持 `https://example.com/tapd_fe/12345678/story/detail/11111111` 及 TAPD 旧版详情路径。未知单据先显示编号，点击才读取详情；已知工具摘要直接复用。扫描不调用 TAPD、不修改消息或拦截普通链接；原始工具结果和推理内容不参与扫描。完整历史分页补取、流式更新和重连保留来源进度，旧消息不会恢复已移除入口，新消息可重新收录。

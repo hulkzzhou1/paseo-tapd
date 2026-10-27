@@ -5,7 +5,7 @@ import type { WorkbenchTheme } from "./bits";
 
 const DialogTheme = createContext<WorkbenchTheme | null>(null);
 
-export function WorkbenchDialog({ title, open, onOpenChange, theme, children, size = "form", onBack, dirty = false, pending = false }: {
+export function WorkbenchDialog({ title, open, onOpenChange, theme, children, size = "form", onBack, dirty = false, pending = false, onDismiss }: {
   title: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -15,6 +15,7 @@ export function WorkbenchDialog({ title, open, onOpenChange, theme, children, si
   onBack?: () => void;
   dirty?: boolean;
   pending?: boolean;
+  onDismiss?: () => void;
 }) {
   const { width, height } = useWindowDimensions();
   const [discard, setDiscard] = useState(false);
@@ -28,7 +29,7 @@ export function WorkbenchDialog({ title, open, onOpenChange, theme, children, si
     if (returning && onBack) onBack(); else onOpenChange(false);
   }
   const targetWidth = { small: 520, form: 800, reading: 1040, settings: 900 }[size];
-  return <Modal accessibilityLabel={title} visible={open} transparent animationType="none" onRequestClose={() => {
+  return <Modal onDismiss={onDismiss} accessibilityLabel={title} visible={open} transparent animationType="none" onRequestClose={() => {
     if (discard) setDiscard(false); else requestClose();
   }}>
     <DialogTheme.Provider value={theme}>

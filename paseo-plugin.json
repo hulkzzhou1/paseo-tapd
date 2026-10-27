@@ -1,7 +1,7 @@
 {
   "id": "tapd-workbench",
   "name": "TAPD Workbench",
-  "description": "TAPD 工作台：筛选、详情与图片阅读、Agent 派活及 schema 校验的 Agent 工具 / TAPD workbench with filters, item reading, agent dispatch and schema-validated agent tools",
+  "description": "TAPD 工作台：筛选、详情与图片阅读、Agent 派活、工具及对话单据卡片 / TAPD workbench with filters, item reading, agent tools and clickable conversation result cards",
   "media": [
     "assets/screenshots/workbench-v2.png"
   ],

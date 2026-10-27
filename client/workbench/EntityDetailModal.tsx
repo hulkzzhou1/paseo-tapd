@@ -15,6 +15,9 @@ export interface DetailTarget {
   kind: EntityKind;
   id: string;
   title: string;
+  workspaceId?: string;
+  siteUrl?: string;
+  apiEndpoint?: string;
 }
 
 export type EntityDetailData = RpcOutput<typeof entityRpc>;
@@ -37,19 +40,20 @@ export interface DetailExtras {
 }
 
 /** One visible dialog page; keep the reading offset when an action temporarily takes focus. */
-export function EntityDetailModal({ target, onClose, theme, extras, hidden = false }: {
+export function EntityDetailModal({ target, onClose, theme, extras, hidden = false, onDismiss }: {
   target: DetailTarget | null;
   onClose: () => void;
   theme: WorkbenchTheme;
   extras: DetailExtras;
   hidden?: boolean;
+  onDismiss?: () => void;
 }) {
   const offset = useRef(0);
   const scroll = useRef<ScrollView>(null);
   const restoring = useRef(true);
   useEffect(() => { offset.current = 0; }, [target?.kind, target?.id]);
   useEffect(() => { restoring.current = true; }, [hidden]);
-  return <Modal theme={theme} size="reading" title={target ? `#${target.id} · 单据详情` : "单据详情"} open={target !== null && !hidden} onOpenChange={next => { if (!next) onClose(); }}>
+  return <Modal onDismiss={onDismiss} theme={theme} size="reading" title={target ? `#${target.id} · 单据详情` : "单据详情"} open={target !== null && !hidden} onOpenChange={next => { if (!next) onClose(); }}>
     <ScrollView ref={scroll} style={{ flexShrink: 1 }} contentContainerStyle={{ padding: 24 }}
       scrollEventThrottle={16} onScroll={event => { if (!restoring.current) offset.current = event.nativeEvent.contentOffset.y; }}
       onContentSizeChange={() => { scroll.current?.scrollTo({ y: offset.current, animated: false }); restoring.current = false; }}>
@@ -67,10 +71,10 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
   const toast = useToast();
 
   const detail = useQuery({
-    queryKey: ["tapd-entity", kind, id, extras.refreshToken],
-    queryFn: () => rpc({ kind, id }),
+    queryKey: ["tapd-entity", kind, id, target?.workspaceId, target?.siteUrl, target?.apiEndpoint, extras.refreshToken],
+    queryFn: () => rpc({ kind, id, workspaceId: target?.workspaceId, siteUrl: target?.siteUrl, apiEndpoint: target?.apiEndpoint }),
     enabled: open && id.length > 0,
-    staleTime: 60_000,
+    staleTime: target?.siteUrl ? 0 : 60_000,
     retry: 1,
   });
 
@@ -226,9 +230,12 @@ function DetailBody({ target, theme, extras }: { target: DetailTarget | null; th
   }
   if (detail.isError) {
     return (
-      <Text style={styles.error}>
-        加载失败：{detail.error instanceof Error ? detail.error.message : String(detail.error)}
-      </Text>
+      <View style={{ gap: 12 }}>
+        <Text style={styles.error}>单据 #{id} 加载失败，请检查 TAPD 连接及访问权限后重试。</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="重试加载单据" onPress={() => void detail.refetch()} style={styles.action}>
+          <Text style={styles.actionLabel}>重试</Text>
+        </Pressable>
+      </View>
     );
   }
   if (!data) return null;

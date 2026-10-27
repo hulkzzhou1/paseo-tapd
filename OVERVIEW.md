@@ -72,3 +72,7 @@ Write tools require the explicit configured project and `confirmed: true` after 
 输入和结果经 Paseo 的 MCP/native 传输到插件进程；返回的项目 ID、单据完整正文、评论、成员昵称及元数据会提供给调用 Agent 及其 provider。每次调用读取当前插件配置，只访问原配置 TAPD API，沿用认证与禁止 API 重定向，不新增远程目的地。工具不能覆写 Token 或地址，不返回设置/秘密；输入 JSON 限 64 KB，错误不回显原始响应，结果中的已配置凭据被抹去。部分失败保留错误标记，现有截断与缓存不变。TAPD 正文属于不可信业务数据，不能充当指令或写入授权。
 
 建单、改状态和评论需要显式配置项目及 `confirmed: true`，由 Agent 先向用户展示准确目标及完整内容并取得批准；该参数只是调用方声明，不构成独立人工审批系统，仍遵从 Paseo/provider 权限。状态和评论先核对单据真实项目，子建单核对父需求；状态验证所属项目候选并跳过当前值。写入不自动重试，结果不明先读取确认。入口及真正写入前检查取消信号；已经发送的写入可能完成，仍受现有 20 秒请求超时限制。配置同步、插件升级、图片二进制和 Agent 派发不暴露为这些工具，现有界面及明确开启的自动回评保持原行为。工具不新增文件或媒体落盘。
+
+工具输入上限按 UTF-8 字节计算。工具结果的 `warnings` 标注被现有容错读取吞掉的部分失败或搜索/迭代候选截断；不要把缺失候选或搜索空结果当作完整项目结论。评论在用户信息读取之后、HTTP 写入实际发出之前再次检查取消。
+
+Tool inputs are bounded by UTF-8 byte length. Result `warnings` flag tolerated read failures and capped search/iteration results; absent candidates or empty searches do not establish an exhaustive project result. Cancellation is also checked at the HTTP write boundary, after comment-author lookup.

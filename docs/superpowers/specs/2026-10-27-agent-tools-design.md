@@ -11,3 +11,7 @@ Issue #25。将现有 TAPD 业务能力注册为 Paseo 主线的 Agent 工具，
 SDK：本机主线构建包含工具 API，但 npm 同号 0.13.2 尚未包含。开发先安装锁文件依赖，再 `npm run sdk:main -- /path/to/paseo-main` 使用已构建、可信的本地主线 SDK。脚本只将主线 SDK 的 package.json 及 dist 构建产物复制到本仓库 node_modules 中的 plugin SDK，避免链接整个 monorepo 后加载重复的 React Native 类型，不改安装配置或锁文件。最低版本声明为 >=0.13.2，并明确要求包含工具 API 的主线构建；未来发布包含该 API 的 SDK 后可移除此开发步骤。
 
 验证：主线 SDK 的真实 helper 和 schema 转换、实际 server 入口挂载、工具读写调用边界、确认声明、项目错配、状态合法性、失败/秘密处理、设置更新与取消。真实环境只读验证工具发现和连接，不新建真实单据、不评论、不改状态、不截图、不改用户配置。同步 README、OVERVIEW、manifest、版本文件和锁文件。
+
+工具输入上限按 UTF-8 字节计算。工具结果的 `warnings` 标注被现有容错读取吞掉的部分失败或搜索/迭代候选截断；不要把缺失候选或搜索空结果当作完整项目结论。评论在用户信息读取之后、HTTP 写入实际发出之前再次检查取消。
+
+Tool inputs are bounded by UTF-8 byte length. Result `warnings` flag tolerated read failures and capped search/iteration results; absent candidates or empty searches do not establish an exhaustive project result. Cancellation is also checked at the HTTP write boundary, after comment-author lookup.

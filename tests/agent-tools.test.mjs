@@ -88,6 +88,7 @@ test("tool validation rejects invalid targets, confirmation, oversized input and
     ["tapd_status_options", { kind: "story", workspaceId: "99999999" }],
     ["tapd_board", { filters: { modifiedWithinDays: -1 } }],
     ["tapd_board", { filters: { keyword: "x".repeat(64_001) } }],
+    ["tapd_board", { filters: { keyword: "示例".repeat(12_000) } }],
     ["tapd_create", { kind: "task", title: "示例", workspaceId: "99999999", confirmed: true }],
   ]) assert.equal((await call(name, input)).isError, true, name);
   assert.equal(requests.length, 0);
@@ -168,6 +169,54 @@ test("cancellation during target verification prevents the subsequent write", as
   const result = await call("tapd_add_comment", { kind: "story", id: "11111111", workspaceId: "87654321", text: "示例评论", confirmed: true }, { signal: controller.signal });
   assert.equal(result.isError, true);
   assert.equal(requests.filter(({ init }) => init.method === "POST").length, 0);
+});
+
+test("cancellation during author lookup prevents a comment POST", async (t) => {
+  const controller = new AbortController();
+  const { call, requests } = setup(t, request => {
+    if (request.url.pathname === "/users/info") controller.abort();
+    return entityApi(request);
+  });
+  const result = await call("tapd_add_comment", { kind: "story", id: "11111111", workspaceId: "87654321", text: "示例评论", confirmed: true }, { signal: controller.signal });
+  assert.equal(result.isError, true);
+  assert.ok(requests.some(({ url }) => url.pathname === "/users/info"));
+  assert.equal(requests.filter(({ init }) => init.method === "POST").length, 0);
+});
+
+test("search and metadata failures, including shared pending requests, carry explicit warnings", async (t) => {
+  const { call } = setup(t);
+  t.mock.method(globalThis, "fetch", async () => Response.json({ status: 0, info: "untrusted response" }));
+  for (const [name, input] of [["tapd_search", { query: "example" }], ["tapd_filter_options", {}], ["tapd_filter_fields", {}], ["tapd_create_fields", { kind: "task", workspaceId: "87654321" }]]) {
+    const results = await Promise.all([call(name, input), call(name, input)]);
+    for (const result of results) {
+      assert.ok(result.structuredContent.warnings.length, name);
+      assert.equal(JSON.stringify(result).includes("untrusted response"), false);
+    }
+  }
+});
+
+test("failed child reads preserve the item with a completeness warning", async (t) => {
+  const { call } = setup(t, request => {
+    if (request.url.pathname === "/tasks" && request.url.searchParams.has("story_id")) throw new Error("untrusted child failure");
+    return entityApi(request);
+  });
+  const result = await call("tapd_entity", { kind: "story", id: "11111111" });
+  assert.equal(result.structuredContent.title, "示例需求");
+  assert.ok(result.structuredContent.warnings.length);
+});
+
+test("search exposes per-project and total truncation instead of implying an exhaustive list", async (t) => {
+  const { call } = setup(t, request => {
+    if (["/stories", "/tasks", "/bugs"].includes(request.url.pathname)) {
+      const wrapper = request.url.pathname === "/bugs" ? "Bug" : request.url.pathname === "/tasks" ? "Task" : "Story";
+      return Array.from({ length: 5 }, (_, index) => ({ [wrapper]: { id: String(11111111 + index), name: "示例", title: "示例", status: "open" } }));
+    }
+    return entityApi(request);
+  });
+  const result = await call("tapd_search", { query: "example" });
+  assert.equal(result.structuredContent.items.length, 15);
+  assert.ok(result.structuredContent.warnings.some(warning => warning.includes("5")));
+  assert.ok(result.structuredContent.warnings.some(warning => warning.includes("15")));
 });
 
 test("session-open attaches tools alongside existing tools, skips history, and preserves explicit environment", async () => {

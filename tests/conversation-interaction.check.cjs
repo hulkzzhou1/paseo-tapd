@@ -8,13 +8,15 @@ async function main(){
  assert.ok(process.env.PASEO_APP_DIR);const fromApp=createRequire(path.join(process.env.PASEO_APP_DIR,'package.json'));const root=path.resolve(__dirname,'..');const temp=mkdtempSync(path.join(tmpdir(),'tapd-conversation-ui-'));
  try{
  const host=path.join(temp,'host.tsx');writeFileSync(host,`
- import React from 'react';import {View,Text} from 'react-native';export {TextInput,ScrollView,FlatList} from 'react-native';
+ import React,{useCallback} from 'react';import {View,Text} from 'react-native';export {TextInput,ScrollView,FlatList} from 'react-native';
  export const defineRpc=x=>x,defineSettings=x=>x,defineAttachmentSource=x=>x;
  export const SettingsAction=()=>null,SettingsCard=()=>null,SettingsInput=()=>null,SettingsRow=()=>null,SettingsSection=()=>null,SettingsSwitch=()=>null;export const SidebarRow=()=>null;export const Icon=()=>null;export const useToast=()=>({error:()=>{},show:()=>{}});export const copyText=async()=>{},openExternalUrl=async()=>{};
  export const useSettings=()=>({status:'ready',values:window.settings,revision:1,save:async()=>true});
  export const useAgent=(id,select)=>select({workspaceId:window.workspaceId});
  export const usePaseo=()=>({agents:{subscribe:()=>()=>{},list:async()=>({entries:[]})},projects:{list:async()=>({projects:[]})},providers:{snapshot:async()=>({entries:[]})}});
- export const useRpc=rpc=>input=>window.rpc(rpc,input);window.rpc=async(rpc,input)=>{window.calls.push({name:rpc.name,input});
+ export const useRpc=rpc=>useCallback(input=>window.rpc(rpc,input),[rpc]);window.rpc=async(rpc,input)=>{window.calls.push({name:rpc.name,input});
+ if(rpc.name==='tapd.agent-links')return {links:window.toolLinks??[]};
+ if(rpc.name==='tapd.remove-agent-link'){window.toolLinks=[];return {ok:true};}
  if(rpc.name==='tapd.conversations')return {conversations:window.refs.length||window.includeEmpty?[{agentId:'example-agent',workspaceId:window.workspaceId,entities:window.refs}]:[]};
  if(rpc.name==='tapd.conversation.focus')return {ok:true};
  if(rpc.name==='tapd.conversation.remove'){window.refs=window.refs.filter(x=>x.id!==input.entity.id);return {ok:true};}
@@ -38,6 +40,13 @@ async function main(){
  for(const action of ['写回评论','派给 Agent','绑定 Agent'])await detail.getByRole('button',{name:action,exact:true}).waitFor();
  await detail.getByRole('button',{name:'关闭#11111111 · 单据详情',exact:true}).last().click();await detail.waitFor({state:'hidden'});
  }
+ await page.evaluate(()=>{window.toolLinks=[{key:'story-11111111',kind:'story',id:'11111111',tapdWorkspaceId:'12345678',apiEndpoint:'https://api.example.com',workspaceId:'example-workspace',agentId:'example-bound-agent',agentTitle:'工具绑定示例',workspaceTitle:'Example',createdAt:'2026-01-01T00:00:00Z'}];window.showWriteCard('read');});
+ await page.getByRole('button',{name:'打开 TAPD 需求 #11111111：示例需求',exact:true}).click();
+ await page.getByText('工具绑定示例',{exact:true}).waitFor();
+ await page.getByText('解除',{exact:true}).click();
+ await page.getByText('工具绑定示例',{exact:true}).waitFor({state:'hidden'});
+ assert.equal(await page.evaluate(()=>window.calls.filter(c=>c.name==='tapd.remove-agent-link').length),1);
+ await page.getByRole('button',{name:'关闭#11111111 · 单据详情',exact:true}).last().click();
  await page.evaluate(()=>window.showWriteCard(null));
 
  const ref={siteUrl:'https://example.com',apiEndpoint:'https://api.example.com',workspaceId:'12345678',kind:'story',id:'11111111',title:'第一张单据',status:'open',statusLabel:'待处理',owner:''};

@@ -252,7 +252,8 @@ test("session-open attaches tools alongside existing tools, skips history, and p
     const hook = hooks.get("agent.session_open");
     const request = { purpose: "launch", tools: [{ name: "example_existing" }], env: { TAPD_TOKEN: "example-existing", EXAMPLE: "keep" } };
     const updated = await hook({ request });
-    assert.equal(updated.tools.length, 14);
+    assert.equal(updated.tools.length, 17);
+    for (const name of ["tapd_agent_options", "tapd_bind_agent", "tapd_dispatch_agent"]) assert.ok(updated.tools.some(tool => tool.name === name));
     assert.equal(updated.tools[0].name, "example_existing");
     assert.equal(updated.env.TAPD_TOKEN, "example-existing");
     assert.equal(updated.env.EXAMPLE, "keep");

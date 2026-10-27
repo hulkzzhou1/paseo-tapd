@@ -34,7 +34,7 @@ export function defaultBindNotice(input: {
   return [
     `【TAPD 关联】本会话已与 TAPD ${KIND_LABELS[input.kind]} #${input.id}「${input.title}」建立关联${status}。`,
     `链接：${input.url}`,
-    "后续请围绕这张单据跟进；每轮工作结束后，请在回复最后给出一段结果摘要（改动内容、验证结果），插件会把摘要自动回写到这张单据的评论。",
+    "后续请围绕这张单据跟进；每轮工作结束后，请在回复最后给出一段结果摘要（改动内容、验证结果），仅开启自动回评后插件才会写回；否则需要用户授权后使用 TAPD 工具回写。",
   ].join("\n");
 }
 

@@ -1,4 +1,6 @@
-import { useSettings, type PluginScreenProps } from "@getpaseo/plugin/client";
+import { useAgentLinks } from "./useAgentLinks";
+import { removeAgentLinkRpc, toolLinkSchema } from "../../shared/agent-links";
+import { useRpc, useSettings, type PluginScreenProps } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -26,6 +28,8 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
   onRemoveFromConversation?: () => void;
 }) {
   const settings = useSettings(tapdSettings);
+  const links = useAgentLinks(settings.status === "ready" ? settings.values.links : [], !!detail);
+  const removeToolLink = useRpc(removeAgentLinkRpc);
   const queryClient = useQueryClient();
   const toast = useToast();
   const [localCreateOpen, setLocalCreateOpen] = useState(false);
@@ -39,7 +43,6 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
   if (settings.status !== "ready" && presentation === "panel") return <Text style={{ color: theme.colors.foreground, padding: 24 }}>TAPD 配置暂不可用，请检查插件设置后重试。</Text>;
   if (settings.status !== "ready") return <WorkbenchDialog onDismiss={onDismiss} title="单据详情" theme={theme} open={!!detail} onOpenChange={() => setDetail(null)}><Text style={{ color: theme.colors.foreground, padding: 24 }}>TAPD 配置暂不可用，请检查插件设置后重试。</Text></WorkbenchDialog>;
   const readySettings = settings;
-  const links = readySettings.values.links;
   function handleCreated(created: CreatedEntity) {
     if (createPreset) {
       queryClient.invalidateQueries({ queryKey: ["tapd-entity", "story", createPreset.storyId] });
@@ -66,9 +69,14 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
   }
 
   async function handleRemoveLink(link: TapdLink) {
+    const toolLink = toolLinkSchema.safeParse(link);
+    if (toolLink.success) {
+      try { await removeToolLink(toolLink.data); await queryClient.invalidateQueries({ queryKey: ["tapd-agent-links"] }); }
+      catch { toast.error("移除关联失败，请重试"); return; }
+    }
     const values = readySettings.values;
     const next = values.links.filter(
-      (item) => !(item.key === link.key && item.workspaceId === link.workspaceId),
+      (item) => !(item.key === link.key && item.agentId === link.agentId && item.workspaceId === link.workspaceId),
     );
     const ok = await readySettings.save({ ...values, links: next }, readySettings.revision);
     if (!ok) toast.error(readySettings.saveError ?? "保存失败，请重试");

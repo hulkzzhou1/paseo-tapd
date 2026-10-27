@@ -1,3 +1,6 @@
+import { createAgentLinks } from "./server/agent-links";
+import { createAssignmentTools } from "./server/agent-assignment";
+import { agentLinksRpc, removeAgentLinkRpc } from "./shared/agent-links";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { imageRpc, addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, syncPullRpc, syncPushRpc, tapdSettings, updateCheckRpc, updateStatusRpc } from "./shared/contracts";
 import { createHandlers } from "./server/handlers";
@@ -20,9 +23,20 @@ export default function contribute(server: PluginServerContext) {
   // Git 配置同步：推送读当前设置；拉取返回非密字段，由客户端写回设置
   const syncAccess: SyncSettingsAccess = { read: getValues };
 
+  const agentLinks = createAgentLinks();
+  const visibleLinks = async () => {
+    const config = resolveConfig(await getValues());
+    return (await agentLinks.list()).filter(link => link.apiEndpoint === config.endpoint && config.workspaceIds.includes(link.tapdWorkspaceId));
+  };
+  server.handle(agentLinksRpc, async () => ({ links: await visibleLinks() }));
+  server.handle(removeAgentLinkRpc, async link => { await agentLinks.remove(link); return { ok: true as const }; });
   const handlers = createHandlers(getValues);
+  const reportingHandlers = createHandlers(async () => {
+    const values = await getValues();
+    return { ...values, links: [...values.links, ...await visibleLinks()] };
+  });
   const conversations = createConversationRuntime(getValues);
-  const tools = createTapdTools(getValues, conversations);
+  const tools = [...createTapdTools(getValues, conversations), ...createAssignmentTools(getValues, agentLinks)];
   server.handle(conversationBatchPageRpc, (input, context) => conversations.batchPage({ paseo: context.paseo, agentId: input.agentId }, input));
   server.handle(conversationListRpc, (_input, context) => conversations.list(context));
   server.handle(conversationFocusRpc, ({ agentId, entity }, context) => conversations.focus({ paseo: context.paseo, agentId }, entity));
@@ -103,7 +117,7 @@ export default function contribute(server: PluginServerContext) {
       endedAt: new Date().toISOString(),
       timeline: event.timeline,
     });
-    void handlers.autoReportAfterTurn({ agentId: event.agent.id, record });
+    void reportingHandlers.autoReportAfterTurn({ agentId: event.agent.id, record });
   });
 
   console.log("[tapd-workbench] server ready");

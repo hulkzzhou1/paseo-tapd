@@ -1,13 +1,13 @@
 # Paseo TAPD Workbench
 
-A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo workspace: a three-column board, reusable views, agent dispatch, and comment/status write-back.
+A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo workspace: a three-column board, reusable views, agent dispatch, comment/status write-back, and conversation-scoped shortcuts with recoverable tool cards.
 
 ![TAPD workbench](assets/screenshots/workbench-v2.png)
 
 ## Features
 
 - 13 schema-validated Agent tools for TAPD reads and user-approved item writes, using the Paseo mainline SDK
-- Single-item Agent queries add a conversation-scoped TAPD shortcut and show a compact, clickable result card in the conversation. Open the shared full detail and action pages without leaving the conversation; the card marks its summary as historical and displays partial-read warnings.
+- Single-item Agent reads, successful writes and explicit configured TAPD links join a conversation-scoped shortcut. Clickable result cards open the shared full detail/actions; batches start with five results and collect only selected items. References and compact cards survive reload/restart, remain through archive and are cleared on conversation deletion. Cards label their historical summary and completeness.
 - Aggregate tab (stories / tasks / bugs side by side, flat by default, with optional collapsible status groups) plus one tab per type with a status-column kanban; empty columns hidden by default with explicit column selection preserved, theme-aware status, type, and priority badges, and starred pinning
 - Six permanent dropdown filters: status scope (all / unfinished / done), iteration, updated-within, owner, creator, and priority. People are searchable single-selects with exact-nickname fallback; priority supports multiple selections. Selections apply immediately and remain compatible with saved views. Severity, keyword, labels, and applied advanced conditions are also visible in the toolbar; Add Condition opens the field picker and value editor for workflow states and other dynamic fields.
 - Status scope follows each project’s workflow end states, including custom completed statuses; advanced status conditions intersect with the selected scope.
@@ -210,13 +210,13 @@ Tool inputs are bounded by UTF-8 byte length. Result `warnings` flag tolerated r
 
 ### Conversation TAPD shortcuts / 会话 TAPD 入口
 
-The sidebar host registers a `TAPD · N` composer pill without requiring the workbench to be opened. No references hides it; one opens full detail directly; several open a recent-first list. Remove a reference in the list or detail without deleting the TAPD item or historical cards. Opening an old card can collect the item again. Agents without a workspace retain card access but cannot have a composer pill under the current SDK.
+The root client contribution registers a `TAPD · N` composer pill independently of the sidebar, so hidden sidebars and focus mode retain it without opening the workbench. No references hides it; one opens full detail directly; several open a recent-first list. Remove a reference in the list or detail without deleting the TAPD item or historical cards. Opening an old card can collect the item again. Agents without a workspace retain card access but cannot have a composer pill under the current SDK.
 
-会话入口按主机和 Agent 隔离，同一连接、项目、类型及单号去重。没有单据时隐藏，一张点击直达详情，多张打开最近优先列表；列表和详情都可移除入口，不影响 TAPD 单据、收藏、Agent 关联和历史卡片。单张工具查询在客户端未打开时也可收录。快捷入口通过本机 RPC 每两秒刷新，不会因此读取 TAPD。
+会话入口按主机和 Agent 隔离，同一连接、项目、类型及单号去重。没有单据时隐藏，一张点击直达详情，多张打开最近优先列表；列表和详情都可移除入口，不影响 TAPD 单据、收藏、Agent 关联和历史卡片。单张工具查询在客户端未打开时也可收录。快捷入口由插件根贡献登记，隐藏侧栏或专注模式不影响；通过本机 RPC 每两秒刷新，不会因此读取 TAPD。
 
-Minimal references, short card summaries and replay/removal progress are saved atomically under `PASEO_HOME/plugin-data/tapd-workbench/` (default `~/.paseo/plugin-data/tapd-workbench/`), separately from settings and Git sync. Descriptions, comment bodies, image data and credentials are not saved there. Reopen, reload and restart restore presentation only; archives retain data. Only a successful exact agent lookup proving deletion clears its records. Mainline provides no startup Paseo API: after a worker restart, reconciliation begins at the first public hook/tool/RPC context and completes before shortcuts are presented.
+Minimal references, short card summaries and replay/removal progress are saved atomically under `PASEO_HOME/plugin-data/tapd-workbench/` (default `~/.paseo/plugin-data/tapd-workbench/`), separately from settings and Git sync. Descriptions, comment bodies, image data and credentials are not saved there. Reopen, reload and restart restore presentation only; archives retain data. Only a successful exact agent lookup proving deletion clears its records. The server contribution has no startup Paseo API: after a worker restart, the root client’s initial local RPC (or the first tool/hook context while offline) starts reconciliation, which completes before shortcuts are presented.
 
-最小引用、短卡片摘要及移除/重放进度独立保存在上述本机插件目录，原子更新、不参与配置同步；不保存正文、评论全文、图片和凭据。关闭、重开、插件重载和 daemon 重启后恢复展示，归档保留，精确确认会话删除后清理。当前主线没有启动时的公开 Paseo API，因此进程重启后会在第一个钩子、工具或 RPC 上下文可用时开始对账，并在展示入口前完成；恢复不会重放 TAPD 操作。
+最小引用、短卡片摘要及移除/重放进度独立保存在上述本机插件目录，原子更新、不参与配置同步；不保存正文、评论全文、图片和凭据。关闭、重开、插件重载和 daemon 重启后恢复展示，归档保留，精确确认会话删除后清理。服务端贡献没有启动时的公开 Paseo API，客户端根贡献会通过首次本机 RPC 启动对账；离线时由首个工具或钩子上下文启动，均在展示入口前完成；恢复不会重放 TAPD 操作。
 
 用户和 Agent 普通消息中的明确单据链接也会收录：仅接受当前网页域名和已配置项目，支持 `https://example.com/tapd_fe/12345678/story/detail/11111111` 及 TAPD 旧版详情路径。未知单据先显示编号，点击才读取详情；已知工具摘要直接复用。扫描不调用 TAPD、不修改消息或拦截普通链接；原始工具结果和推理内容不参与扫描。完整历史分页补取、流式更新和重连保留来源进度，旧消息不会恢复已移除入口，新消息可重新收录。
 
@@ -226,3 +226,20 @@ Minimal references, short card summaries and replay/removal progress are saved a
 Successful `tapd_create`, `tapd_add_comment` and `tapd_update_status` calls record compact result cards and collect their actual target into the current conversation. Cards label the operation and its snapshot; opening reads current detail. Failed, ambiguous, cancelled-before-write and unchanged-status calls do not claim a successful mutation. Once TAPD confirms success, later cancellation, local storage, redaction or timeline failure cannot turn it into a failed write; a safe warning asks you to query rather than resubmit. Restoring cards never repeats writes.
 
 成功的建单、评论和状态工具结果会显示操作卡片并重新收录目标（包括曾移除的目标），沿用原有确认及实际项目核对。卡片只保存有限摘要，不保存评论或创建正文；未知状态和人员保持空白。持久化或展示失败不改变已成功的 TAPD 写入，不自动重试；提示查询确认，避免重复提交。
+
+
+### Reproducible lifecycle acceptance / 生命周期验收
+
+Use the built mainline checkout matching the SDK used for type checking (`npm run sdk:main -- /path/to/paseo-main`), then run:
+
+```sh
+PASEO_MAIN_DIR=/path/to/paseo-main npm run test:daemon
+PASEO_APP_DIR=/path/to/paseo-main/packages/app npm run test:ui
+npm test
+npm run typecheck
+npm run lint
+```
+
+The daemon check launches separate real daemon processes with a fake provider and one loopback mock TAPD server. It creates its own temporary `PASEO_HOME`, passes an allowlisted environment with synthetic credentials, disables relay/model downloads, and removes only its own files/processes. It checks client-offline read collection, ordinary user/streamed agent links, batch paging and explicit selection, three confirmed mock writes, plugin reload, removal/replay, true process restart, host/agent/project isolation, archive/user-prompt restore and actual conversation deletion. Restoration must issue zero TAPD reads and zero repeated writes. Runtime logs and credentials are suppressed; output is an aggregate report. It never restarts the installed daemon or uses real TAPD/provider credentials. Browser checks exercise actual components with fake public host RPCs, including complete detail/actions, keyboard return, compact dark layouts, sidebar-independent contribution registration, composer teardown/remount and no-workspace card access; no screenshots are captured.
+
+真实 daemon 验收与日常 Node/浏览器回归分开运行，依赖已构建的匹配主线源码（仅测试驱动使用主线测试帮助函数，插件仍只用公开 SDK）。验收执行明确确认的模拟建单、评论和状态修改，恢复阶段不重复写入，不读取真实连接配置，不调用真实 TAPD 或模型服务，不触碰当前 daemon，也不生成截图。插件本机交付只重载，保留已有连接和全部用户设置。

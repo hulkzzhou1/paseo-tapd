@@ -85,7 +85,7 @@ MIT
 ## 功能
 
 - 通过 Paseo 主线 SDK 注册 13 个 schema 校验的 Agent 工具，支持 TAPD 查询及用户确认后的单据写入
-- 单张查询收录到输入框上方的会话 TAPD 入口，并在对话显示紧凑结果卡片，点击直达与工作台共用的完整详情和操作页，关闭后继续对话；卡片明确标注查询时摘要与部分读取失败。
+- 单张查询及成功建单、评论、状态操作收录到输入框上方的会话 TAPD 入口，并在对话显示紧凑结果卡片，点击直达与工作台共用的完整详情和操作页，关闭后继续对话；卡片标注操作结果和当时摘要，未知字段不补猜。
 - 聚合页签（需求 / 任务 / 缺陷三栏并排，默认平铺，可通过「分组」按钮开启状态分组折叠）+ 每个类型一个独立页签的状态列看板；列可自选、状态、类型和优先级标签用主题色区分，卡片直接显示状态、卡片可加星置顶
 - 单类型看板默认隐藏空状态列；「列」中仍可查看全部状态和数量、显式选择空列，或恢复默认。已保存的列选择继续保留。
 - 顶部常驻六项下拉筛选：状态范围（全部 / 未结束 / 已结束）、迭代、更新时间、处理人、创建人、优先级；人员支持搜索单选及准确昵称输入，优先级支持多选。选择即时生效，旧视图中的选择继续保留；严重程度、关键词、标签和已添加的高级条件也直接显示在顶部，不再提供「更多筛选」入口。具体工作流状态及其他动态字段通过「添加条件」选择。
@@ -217,3 +217,7 @@ The sidebar host registers a `TAPD · N` composer pill without requiring the wor
 Minimal references, short card summaries and replay/removal progress are saved atomically under `PASEO_HOME/plugin-data/tapd-workbench/` (default `~/.paseo/plugin-data/tapd-workbench/`), separately from settings and Git sync. Descriptions, comment bodies, image data and credentials are not saved there. Reopen, reload and restart restore presentation only; archives retain data. Only a successful exact agent lookup proving deletion clears its records. Mainline provides no startup Paseo API: after a worker restart, reconciliation begins at the first public hook/tool/RPC context and completes before shortcuts are presented.
 
 最小引用、短卡片摘要及移除/重放进度独立保存在上述本机插件目录，原子更新、不参与配置同步；不保存正文、评论全文、图片和凭据。关闭、重开、插件重载和 daemon 重启后恢复展示，归档保留，精确确认会话删除后清理。当前主线没有启动时的公开 Paseo API，因此进程重启后会在第一个钩子、工具或 RPC 上下文可用时开始对账，并在展示入口前完成；恢复不会重放 TAPD 操作。
+
+Successful `tapd_create`, `tapd_add_comment` and `tapd_update_status` calls record compact result cards and collect their actual target into the current conversation. Cards label the operation and its snapshot; opening reads current detail. Failed, ambiguous, cancelled-before-write and unchanged-status calls do not claim a successful mutation. Once TAPD confirms success, later cancellation, local storage, redaction or timeline failure cannot turn it into a failed write; a safe warning asks you to query rather than resubmit. Restoring cards never repeats writes.
+
+成功的建单、评论和状态工具结果会显示操作卡片并重新收录目标（包括曾移除的目标），沿用原有确认及实际项目核对。卡片只保存有限摘要，不保存评论或创建正文；未知状态和人员保持空白。持久化或展示失败不改变已成功的 TAPD 写入，不自动重试；提示查询确认，避免重复提交。

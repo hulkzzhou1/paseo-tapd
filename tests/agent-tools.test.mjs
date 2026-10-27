@@ -113,8 +113,8 @@ test("detail and metadata tools reuse configured authenticated reads and preserv
 test("confirmed writes verify the actual project and preserve field denylist and plain-text escaping", async (t) => {
   const { call, requests } = setup(t, entityApi);
   const item = { kind: "story", id: "11111111", workspaceId: "87654321", confirmed: true };
-  assert.deepEqual((await call("tapd_update_status", { ...item, status: "done" })).structuredContent, { ok: true });
-  assert.deepEqual((await call("tapd_add_comment", { ...item, text: "<script>example</script>" })).structuredContent, { ok: true });
+  assert.equal((await call("tapd_update_status", { ...item, status: "done" })).structuredContent.ok, true);
+  assert.equal((await call("tapd_add_comment", { ...item, text: "<script>example</script>" })).structuredContent.ok, true);
   const created = await call("tapd_create", { kind: "task", title: "示例任务", workspaceId: item.workspaceId, storyId: item.id, confirmed: true,
     extraFields: { workspace_id: "12345678", story_id: "99999999", custom_text: "示例字段" } });
   assert.equal(created.structuredContent.kind, "task");

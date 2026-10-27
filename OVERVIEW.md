@@ -119,3 +119,5 @@ A completed TAPD write remains successful even when a later cancellation, serial
 随插件提供 `paseo-tapd` skill，指导查询、接手绑定、阶段推进与验收；需要由目标 Agent provider 的技能发现机制加载，不由插件自动注入现有会话。工具新增 Agent/仓库/模型候选读取、静默绑定和派发：明确授权后可绑定当前或指定 Agent，或新建 worktree 与 Agent、保存关联后发送获批提示词。绑定不修改 TAPD 处理人和状态；派发会将提示词发送给选定 provider，并可能产生费用。部分失败返回已有资源 ID 和阶段，不自动重试或删除资源。
 
 工具关联以原子文件保存在 daemon 本机 `plugin-data/tapd-workbench/agent-links.json`（相对 PASEO_HOME），包含单据类型/编号、实际 TAPD 项目、API 地址及 Paseo 工作区/Agent 引用，不保存凭据或任务提示词，不参与 Git 设置同步。界面每两秒通过本机 RPC 读取并合并旧关联，支持移除工具关联；旧设置记录保留。工具候选读取只访问 Paseo 本机 API，目标单据验证与自动回评仅访问已配置 TAPD API；自动回评先解析单据实际项目，仍需启用原有开关。不新增网络目的地。
+
+会话卡片统一突出标题与状态，使用主题色边条、状态徽标和次要单号/处理人信息；批量条目和侧栏列表保持一致。此展示调整不新增数据读取、存储或网络访问。

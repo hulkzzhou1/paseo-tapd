@@ -5,7 +5,7 @@ import { Platform, Pressable, ScrollView, Text, View } from "react-native";
 import { conversationEntityKey, conversationFocusRpc, conversationListRpc, conversationRemoveRpc, type ConversationEntity, type ConversationSummary } from "../../shared/conversation";
 import { EntityDetailExperience } from "../workbench/EntityDetailExperience";
 import type { DetailTarget } from "../workbench/EntityDetailContent";
-import { kindColor, statusTone, toneColor } from "../workbench/status-tones";
+import { EntitySummary } from "./EntitySummary";
 
 const labels = { story: "需求", task: "任务", bug: "缺陷" };
 
@@ -69,12 +69,7 @@ export function contributeConversationAccess(client: PluginClientContext) {
         {entities.map(entity => <View key={conversationEntityKey(entity)} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Pressable onFocus={() => setFocusedKey(conversationEntityKey(entity))} onBlur={() => setFocusedKey("")} accessibilityRole="button" accessibilityLabel={`打开 TAPD ${labels[entity.kind]} #${entity.id}：${entity.title}`} onPress={() => void selectEntity(entity)}
             style={{ flex: 1, padding: 12, gap: 6, borderWidth: 1, borderColor: focusedKey === conversationEntityKey(entity) ? colors.accent : colors.border, borderRadius: 10, backgroundColor: colors.surface1 }}>
-            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-              <Text style={{ color: kindColor(entity.kind, theme) }}>{labels[entity.kind]} · #{entity.id}</Text>
-              <Text style={{ color: toneColor(statusTone(entity.kind, entity.status, entity.statusLabel), theme) }}>{entity.statusLabel || entity.status}</Text>
-            </View>
-            <Text numberOfLines={2} style={{ color: colors.foreground, lineHeight: 21 }}>{entity.title || `#${entity.id}`}</Text>
-            {entity.owner ? <Text style={{ color: colors.foregroundMuted }}>{entity.owner}</Text> : null}
+            <EntitySummary entity={entity} theme={theme} />
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel={`从会话移除 #${entity.id}`} disabled={pending} onPress={() => void removeEntity(entity)} style={{ padding: 12, minHeight: 44 }}>
             <Text style={{ color: colors.foregroundMuted }}>移除</Text>

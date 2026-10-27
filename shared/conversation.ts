@@ -47,3 +47,21 @@ export const conversationRemoveRpc = defineRpc({
 export function conversationEntityKey(entity: ConversationEntity): string {
   return JSON.stringify([entity.siteUrl, entity.apiEndpoint, entity.workspaceId, entity.kind, entity.id]);
 }
+
+export const batchEntitySchema = conversationEntitySchema.omit({ siteUrl: true, apiEndpoint: true });
+export const batchResultSchema = z.object({
+  batchId: z.string().min(1).max(200),
+  operation: z.enum(["search", "board"]),
+  siteUrl: endpoint, apiEndpoint: endpoint,
+  items: z.array(batchEntitySchema).max(5),
+  returned: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative().nullable(),
+  partial: z.boolean(), truncated: z.boolean(), stale: z.boolean(),
+  fetchedAt: z.string().max(100), cachedAt: z.string().max(100),
+  warnings: z.array(z.string().max(300)).max(10),
+});
+export const conversationBatchPageRpc = defineRpc({
+  name: "tapd.conversation.batch_page",
+  input: conversationOwnerSchema.extend({ batchId: z.string().min(1).max(200), siteUrl: endpoint, apiEndpoint: endpoint, offset: z.number().int().nonnegative() }),
+  output: z.object({ items: z.array(batchEntitySchema).max(5), nextOffset: z.number().int().nonnegative().nullable() }),
+});

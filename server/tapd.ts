@@ -1512,6 +1512,7 @@ export async function searchEntities(config: TapdConfig, query: string): Promise
         }
       } catch {
         // 单类搜索失败不影响其他类别
+        config.readWarnings?.push("部分项目或类型搜索失败，结果不完整。");
       }
     }
   }

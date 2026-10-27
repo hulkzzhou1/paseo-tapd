@@ -99,3 +99,57 @@ test('corrupt durable input is rejected before presentation instead of accepting
  const h=host(),p=plugin();try{await assert.rejects(p.rpcs.get('tapd.conversations')({},ctx(h)),/本机记录暂不可用/);assert.equal(h.rows.size,0);}
  finally{p.close();if(prior===undefined)delete process.env.PASEO_HOME;else process.env.PASEO_HOME=prior;await rm(directory,{recursive:true,force:true});}
 });
+
+
+test('batch search cards retain every returned summary without collecting until selection and recover stored pages',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'tapd-batch-'));const prior=process.env.PASEO_HOME;process.env.PASEO_HOME=directory;clearTapdCache();let reads=0;
+ t.mock.method(globalThis,'fetch',async source=>{reads++;const u=new URL(source);return Response.json({status:1,data:u.pathname==='/stories'?Array.from({length:5},(_,i)=>({Story:{id:String(11111111+i),name:'示例需求 '+i,status:'open'}})):u.pathname==='/tasks'?Array.from({length:3},(_,i)=>({Task:{id:String(22222222+i),name:'示例任务 '+i,status:'open'}})):[]});});
+ const h=host();let p=plugin();
+ try{
+  const {tools}=await p.before.get('agent.session_open')({request:{purpose:'interactive',tools:[],env:{}}},ctx(h));
+  const result=await tools.find(x=>x.name==='tapd_search').execute({query:'示例'},{...ctx(h),agent:{id:'example-agent'}});
+  assert.equal(result.isError,undefined);assert.equal(result.structuredContent.items.length,8);
+  const card=h.rows.get('example-agent')?.[0];assert.equal(card?.kind,'tapd-batch-result');assert.equal(card.data.items.length,5);assert.equal(card.data.returned,8);assert.equal(card.data.truncated,true);assert.equal(card.data.total,null);
+  assert.equal((await p.rpcs.get('tapd.conversations')({},ctx(h))).conversations[0].entities.length,0);
+  const beforeReads=reads;const input={agentId:'example-agent',batchId:card.data.batchId,siteUrl:card.data.siteUrl,apiEndpoint:card.data.apiEndpoint,offset:5};
+  const page=await p.rpcs.get('tapd.conversation.batch_page')(input,ctx(h));assert.equal(page.items.length,3);assert.equal(page.nextOffset,null);
+  const entity={siteUrl:card.data.siteUrl,apiEndpoint:card.data.apiEndpoint,...page.items[2]};
+  await p.rpcs.get('tapd.conversation.focus')({agentId:'example-agent',entity},ctx(h));
+  assert.equal((await p.rpcs.get('tapd.conversations')({},ctx(h))).conversations[0].entities[0].id,'22222224');
+  p.close();p=plugin();h.rows.clear();await p.rpcs.get('tapd.conversations')({},ctx(h));
+  assert.equal(h.rows.get('example-agent')[0].kind,'tapd-batch-result');assert.deepEqual(await p.rpcs.get('tapd.conversation.batch_page')(input,ctx(h)),page);assert.equal(reads,beforeReads);
+  await assert.rejects(p.rpcs.get('tapd.conversation.batch_page')({...input,agentId:'example-other-agent'},ctx(h)),/不可用/);
+ }finally{p.close();if(prior===undefined)delete process.env.PASEO_HOME;else process.env.PASEO_HOME=prior;await rm(directory,{recursive:true,force:true});}
+});
+
+test('large board keeps all returned rows behind byte-bounded timeline preview and guarded stored pages',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'tapd-batch-large-'));const prior=process.env.PASEO_HOME;process.env.PASEO_HOME=directory;clearTapdCache();let reads=0;
+ t.mock.method(globalThis,'fetch',async source=>{reads++;const u=new URL(source);if(u.pathname==='/bugs')throw new Error('private API failure');return Response.json({status:1,data:u.pathname==='/stories/count'?{count:1000}:u.pathname==='/stories'?Array.from({length:200},(_,i)=>({Story:{id:String(11111111+i),name:'示'.repeat(500),status:'open',description:'不可持久化正文'}})):[]});});
+ const h=host();let p=plugin();
+ try{
+  const {tools}=await p.before.get('agent.session_open')({request:{purpose:'interactive',tools:[],env:{}}},ctx(h));
+  const result=await tools.find(x=>x.name==='tapd_board').execute({filters:{ownerMode:'all',statusScope:'all'}},{...ctx(h),agent:{id:'example-agent'}});
+  assert.equal(result.isError,undefined);assert.ok(Buffer.byteLength(JSON.stringify(result.structuredContent),'utf8')>64000);
+  const card=h.rows.get('example-agent')?.[0];assert.equal(card?.kind,'tapd-batch-result');assert.ok(Buffer.byteLength(JSON.stringify(card.data),'utf8')<64000);assert.equal(card.data.returned,200);assert.equal(card.data.total,1000);assert.equal(card.data.partial,true);assert.equal(card.data.truncated,true);
+  const input={agentId:'example-agent',batchId:card.data.batchId,siteUrl:card.data.siteUrl,apiEndpoint:card.data.apiEndpoint};let offset=5;const ids=card.data.items.map(x=>x.id);const beforeReads=reads;
+  while(offset!==null){const page=await p.rpcs.get('tapd.conversation.batch_page')({...input,offset},ctx(h));ids.push(...page.items.map(x=>x.id));offset=page.nextOffset;}
+  assert.equal(ids.length,200);assert.equal(ids.at(-1),'11111310');assert.equal(reads,beforeReads);
+  assert.equal((await p.rpcs.get('tapd.conversations')({},ctx(h))).conversations[0].entities.length,0);
+  await assert.rejects(p.rpcs.get('tapd.conversation.batch_page')({...input,siteUrl:'https://other.example.com',offset:5},ctx(h)),/不可用/);
+  await assert.rejects(p.rpcs.get('tapd.conversation.batch_page')({...input,offset:-1},ctx(h)),/不可用/);
+  const entity={siteUrl:card.data.siteUrl,apiEndpoint:card.data.apiEndpoint,...card.data.items[0]};await p.rpcs.get('tapd.conversation.focus')({agentId:'example-agent',entity},ctx(h));await p.rpcs.get('tapd.conversation.focus')({agentId:'example-agent',entity},ctx(h));assert.equal((await p.rpcs.get('tapd.conversations')({},ctx(h))).conversations[0].entities.length,1);
+  p.close();p=plugin();h.rows.clear();await p.rpcs.get('tapd.conversations')({},ctx(h));assert.equal(h.rows.get('example-agent')[0].data.partial,true);assert.equal((await p.rpcs.get('tapd.conversation.batch_page')({...input,offset:195},ctx(h))).items.at(-1).id,'11111310');assert.equal(reads,beforeReads);
+  const {readFile}=await import('node:fs/promises');const persisted=await readFile(join(directory,'plugin-data/tapd-workbench/conversations.json'),'utf8');assert.equal(persisted.includes('不可持久化正文'),false);assert.equal(persisted.includes('private API failure'),false);assert.equal(persisted.includes(values.token),false);
+ }finally{p.close();if(prior===undefined)delete process.env.PASEO_HOME;else process.env.PASEO_HOME=prior;await rm(directory,{recursive:true,force:true});}
+});
+
+test('empty successful search and failed empty search produce visibly different batch metadata',async t=>{
+ const directory=await mkdtemp(join(tmpdir(),'tapd-batch-empty-'));const prior=process.env.PASEO_HOME;process.env.PASEO_HOME=directory;clearTapdCache();let failed=false;
+ t.mock.method(globalThis,'fetch',async source=>{const u=new URL(source);if(failed&&['/stories','/tasks','/bugs'].includes(u.pathname))throw new Error('private failure');return Response.json({status:1,data:[]});});
+ const h=host(),p=plugin();
+ try{
+  const {tools}=await p.before.get('agent.session_open')({request:{purpose:'interactive',tools:[],env:{}}},ctx(h));const search=tools.find(x=>x.name==='tapd_search');
+  await search.execute({query:'empty'},{...ctx(h),agent:{id:'example-agent'}});assert.equal(h.rows.get('example-agent')[0].data.partial,false);assert.equal(h.rows.get('example-agent')[0].data.returned,0);
+  failed=true;clearTapdCache();await search.execute({query:'failed'},{...ctx(h),agent:{id:'example-agent'}});const card=h.rows.get('example-agent')[1];assert.equal(card.data.partial,true);assert.equal(card.data.returned,0);assert.ok(card.data.warnings.length);assert.equal(JSON.stringify(card).includes('private failure'),false);
+ }finally{p.close();if(prior===undefined)delete process.env.PASEO_HOME;else process.env.PASEO_HOME=prior;await rm(directory,{recursive:true,force:true});}
+});

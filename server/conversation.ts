@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
-import { conversationEntityKey, conversationEntitySchema, entityResultSchema, type ConversationEntity, type ConversationSummary } from "../shared/conversation";
+import { batchResultSchema, batchEntitySchema, conversationEntityKey, conversationEntitySchema, entityResultSchema, type ConversationEntity, type ConversationSummary } from "../shared/conversation";
 import type { TapdSettingsValues } from "../shared/contracts";
 import { resolveConfig } from "./tapd";
 
@@ -16,12 +16,18 @@ const recordSchema = z.object({
   hostId: owner, agentId: owner, workspaceId: z.string().nullable(),
   entities: z.array(conversationEntitySchema),
   sources: sourceSchema,
-  cards: z.array(z.object({ id: z.string().min(1).max(200), data: entityResultSchema }).strict()),
+  cards: z.array(z.union([
+    z.object({ id: z.string().min(1).max(200), data: entityResultSchema }).strict(),
+    z.object({ id: z.string().min(1).max(200), data: batchResultSchema, entities: z.array(batchEntitySchema) }).strict(),
+  ])),
 }).strict();
 const stateSchema = z.object({ version: z.literal(1), records: z.array(recordSchema) }).strict().refine(state =>
   new Set(state.records.map(record => JSON.stringify([record.hostId, record.agentId]))).size === state.records.length);
 type State = z.infer<typeof stateSchema>;
 type Record = State["records"][number];
+function cardEntities(card: Record["cards"][number]): ConversationEntity[] {
+  return "entities" in card ? card.entities.map(entity => ({ siteUrl: card.data.siteUrl, apiEndpoint: card.data.apiEndpoint, ...entity })) : [card.data.entity];
+}
 const storageError = "会话单据本机记录暂不可用，请重试；TAPD 单据不会因此重复提交。";
 
 function storageFile() {
@@ -96,7 +102,7 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
     for (const entity of entities) {
       const key = conversationEntityKey(entity);
       if (seen.includes(key)) continue;
-      const previous = target.entities.find(item => conversationEntityKey(item) === key);
+      const previous = target.entities.find(item => conversationEntityKey(item) === key) ?? target.cards.toReversed().flatMap(cardEntities).find(item => conversationEntityKey(item) === key);
       target.entities = target.entities.filter(item => conversationEntityKey(item) !== key);
       target.entities.unshift({ ...entity, title: entity.title || previous?.title || "", status: entity.status || previous?.status || "", statusLabel: entity.statusLabel || previous?.statusLabel || "", owner: entity.owner || previous?.owner || "" });
       if (sourceId) seen.push(key);
@@ -132,7 +138,7 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
       if (!page.startCursor || JSON.stringify(cursor) === JSON.stringify(page.startCursor)) throw new Error(storageError);
       cursor = page.startCursor;
     }
-    for (const card of stored.cards) if (!present.has(card.id)) await timeline.append({ type: "plugin", id: card.id, kind: "tapd-entity-result", version: 1, data: card.data });
+    for (const card of stored.cards) if (!present.has(card.id)) await timeline.append({ type: "plugin", id: card.id, kind: "entities" in card ? "tapd-batch-result" : "tapd-entity-result", version: 1, data: card.data });
     recovered.set(key, fingerprint);
   }
   function restoreSerial(paseo: Paseo, agentId: string) {
@@ -197,6 +203,30 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
     });
     await restoreSerial(context.paseo, context.agentId);
   }
+  async function recordBatch(context: ConversationContext, raw: z.input<typeof batchResultSchema>, entities: ConversationEntity[]) {
+    await bootstrap(context);
+    const data = batchResultSchema.parse(raw);
+    const parsed = await validate(entities, data.warnings);
+    if (data.returned !== parsed.length || parsed.some(entity => entity.siteUrl !== data.siteUrl || entity.apiEndpoint !== data.apiEndpoint)) throw new Error(storageError);
+    if (Buffer.byteLength(JSON.stringify(data), "utf8") > 64000) throw new Error(storageError);
+    if (!await reconcile(context.paseo, context.agentId)) throw new Error(storageError);
+    await change(next => {
+      const target = record(next, context);
+      if (!target.cards.some(card => card.id === data.batchId)) target.cards.push({ id: data.batchId, data, entities: parsed.map(entity => batchEntitySchema.parse(entity)) });
+    });
+    await restoreSerial(context.paseo, context.agentId);
+  }
+  async function batchPage(context: ConversationContext, input: { batchId: string; siteUrl: string; apiEndpoint: string; offset: number }) {
+    await bootstrap(context);
+    if (!await reconcile(context.paseo, context.agentId)) throw new Error("批量结果不可用，请重新查询。");
+    const stored = (await load()).records.find(item => item.hostId === hostId(context.paseo, context.agentId) && item.agentId === context.agentId);
+    const card = stored?.cards.find(item => item.id === input.batchId);
+    if (!card || !("entities" in card) || card.data.siteUrl !== input.siteUrl || card.data.apiEndpoint !== input.apiEndpoint || !Number.isSafeInteger(input.offset) || input.offset < 0 || input.offset > card.entities.length) throw new Error("批量结果不可用，请重新查询。");
+    const refs = card.entities.map(entity => ({ siteUrl: card.data.siteUrl, apiEndpoint: card.data.apiEndpoint, ...entity }));
+    await validate(refs, card.data.warnings);
+    const end = Math.min(input.offset + 5, refs.length);
+    return { items: card.entities.slice(input.offset, end), nextOffset: end < refs.length ? end : null };
+  }
   async function list(context: { paseo: Paseo }): Promise<{ conversations: ConversationSummary[] }> {
     await bootstrap(context);
     const conversations: ConversationSummary[] = [];
@@ -216,11 +246,11 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
     await change(next => { const target = record(next, context); target.entities = target.entities.filter(item => conversationEntityKey(item) !== conversationEntityKey(entity)); });
     return { ok: true as const };
   }
-  return { bootstrap, collect, recordResult, list, remove,
+  return { bootstrap, collect, recordResult, recordBatch, batchPage, list, remove,
     focus: async (context: ConversationContext, entity: ConversationEntity) => {
       await bootstrap(context);
       const stored = (await load()).records.find(item => item.hostId === hostId(context.paseo, context.agentId) && item.agentId === context.agentId);
-      const known = [...(stored?.entities ?? []), ...(stored?.cards.map(card => card.data.entity) ?? [])].find(item => conversationEntityKey(item) === conversationEntityKey(entity));
+      const known = [...(stored?.entities ?? []), ...(stored?.cards.toReversed().flatMap(cardEntities) ?? [])].find(item => conversationEntityKey(item) === conversationEntityKey(entity));
       if (!known) throw new Error("单据引用不可用，请重新查询。");
       await collect(context, [known]); return { ok: true as const };
     },

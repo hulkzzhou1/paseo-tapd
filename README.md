@@ -258,3 +258,5 @@ The bundled [paseo-tapd skill](skills/paseo-tapd/SKILL.md) guides reads, taking 
 - `tapd_dispatch_agent`: after approval of item, repository, branch, provider/model and exact prompt, create a worktree and Agent, persist the binding, then send the prompt. Partial failure returns the created resource IDs and stage; inspect those resources before recovery, never blindly dispatch again. Creating a workspace or Agent may have completed even if its response was lost.
 
 工具产生的关联保存在本机 `${PASEO_HOME:-~/.paseo}/plugin-data/tapd-workbench/agent-links.json`，按 API 地址和实际 TAPD 项目隔离；详情与看板每两秒合并读取旧设置关联和这些记录，详情可移除，自动回评仍由原有开关控制。旧关联不迁移、不删除，新工具关联不参与 Git 配置同步。派发会将用户批准的提示词发送给选定模型服务，可能产生费用；不会自动清理部分创建的工作区或 Agent。
+
+单张结果卡片、批量条目和会话列表共用阅读层次：标题优先，状态以主题色边条和徽标区分，单号与处理人作为次要信息；保留键盘打开详情、批量展开及深浅主题适配。

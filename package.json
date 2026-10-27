@@ -1,7 +1,7 @@
 {
   "name": "tapd-workbench",
   "private": true,
-  "version": "0.4.33",
+  "version": "0.4.34",
   "files": [
     "LICENSE",
     "README.md",

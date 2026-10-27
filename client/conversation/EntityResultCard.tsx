@@ -5,7 +5,7 @@ import type { z } from "zod";
 import { entityResultSchema } from "../../shared/conversation";
 import { EntityDetailExperience } from "../workbench/EntityDetailExperience";
 import { useEntityNavigation, type OpenConversationEntity } from "./useEntityNavigation";
-import { kindColor, statusTone, toneColor } from "../workbench/status-tones";
+import { EntitySummary } from "./EntitySummary";
 
 const kindLabels = { story: "需求", task: "任务", bug: "缺陷" };
 export function EntityResultCard({ item, theme, agentId, openPanel }: PluginTimelineItemProps<z.infer<typeof entityResultSchema>> & { openPanel?: OpenConversationEntity }) {
@@ -15,18 +15,15 @@ export function EntityResultCard({ item, theme, agentId, openPanel }: PluginTime
   const button = useRef<View>(null);
   const [focused, setFocused] = useState(false);
   const colors = theme.colors;
-  const status = toneColor(statusTone(entity.kind, entity.status, entity.statusLabel), theme);
   return <View style={{ gap: 6, maxWidth: 760 }}>
     <Pressable ref={button} accessibilityRole="button" accessibilityLabel={`打开 TAPD ${kindLabels[entity.kind]} #${entity.id}：${entity.title}`}
       onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onPress={() => { void open(entity); }}
-      style={{ padding: 14, gap: 8, backgroundColor: colors.surface1, borderWidth: 1, borderColor: focused ? colors.accent : colors.border, borderRadius: 12 }}>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-        <Text style={{ color: kindColor(entity.kind, theme), fontWeight: "600" }}>{kindLabels[entity.kind]}</Text>
-        <Text style={{ color: colors.foregroundMuted }}>#{entity.id}</Text>
-        <Text style={{ color: status }}>{entity.statusLabel || entity.status}</Text>
+      style={({ pressed }) => ({ padding: 16, gap: 12, backgroundColor: pressed ? colors.surface2 : colors.surface1, borderWidth: 1, borderColor: focused ? colors.accent : colors.border, borderRadius: 12 })}>
+      <EntitySummary entity={entity} theme={theme} />
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderTopWidth: 1, borderColor: colors.border, paddingTop: 10 }}>
+        <Text style={{ color: operation === "read" ? colors.foregroundMuted : colors.statusSuccess, fontSize: 12, fontWeight: "600" }}>{operation === "read" ? "TAPD 单据" : "✓ 操作成功"}</Text>
+        <Text style={{ color: colors.accent, fontSize: 12, fontWeight: "600" }}>查看详情 →</Text>
       </View>
-      <Text numberOfLines={2} style={{ color: colors.foreground, fontSize: 15, lineHeight: 22, fontWeight: "600" }}>{entity.title || `#${entity.id}`}</Text>
-      {entity.owner ? <Text style={{ color: colors.foregroundMuted }}>{entity.owner}</Text> : null}
       <Text style={{ color: colors.foregroundMuted, fontSize: 12 }}>{caption} · 打开查看最新详情</Text>
     </Pressable>
     {warnings.map((warning, index) => <Text key={index} accessibilityRole="alert" style={{ color: colors.statusWarning, fontSize: 12 }}>{warning}</Text>)}

@@ -5,7 +5,7 @@ import type { z } from "zod";
 import { batchResultSchema, conversationBatchPageRpc } from "../../shared/conversation";
 import { EntityDetailExperience } from "../workbench/EntityDetailExperience";
 import { useEntityNavigation, type OpenConversationEntity } from "./useEntityNavigation";
-import { kindColor, statusTone, toneColor } from "../workbench/status-tones";
+import { EntitySummary } from "./EntitySummary";
 
 const kindLabels = { story: "需求", task: "任务", bug: "缺陷" };
 export function BatchResultCard({ item, theme, agentId, openPanel }: PluginTimelineItemProps<z.infer<typeof batchResultSchema>> & { openPanel?: OpenConversationEntity }) {
@@ -46,14 +46,8 @@ export function BatchResultCard({ item, theme, agentId, openPanel }: PluginTimel
         opener.current = buttons.current.get(index) ?? null;
         const entity = { siteUrl: data.siteUrl, apiEndpoint: data.apiEndpoint, ...row };
         void open(entity);
-      }} style={({ pressed }) => ({ padding: 10, gap: 5, borderRadius: 8, backgroundColor: pressed ? colors.surface2 : colors.surface0, borderWidth: 1, borderColor: focusedIndex === index ? colors.accent : colors.border })}>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-        <Text style={{ color: kindColor(row.kind, theme), fontWeight: "600" }}>{kindLabels[row.kind]}</Text>
-        <Text style={{ color: colors.foregroundMuted }}>#{row.id}</Text>
-        <Text style={{ color: toneColor(statusTone(row.kind, row.status, row.statusLabel), theme) }}>{row.statusLabel || row.status}</Text>
-      </View>
-      <Text numberOfLines={2} style={{ color: colors.foreground, lineHeight: 21 }}>{row.title || `#${row.id}`}</Text>
-      {row.owner ? <Text style={{ color: colors.foregroundMuted, fontSize: 12 }}>{row.owner}</Text> : null}
+      }} style={({ pressed }) => ({ padding: 12, gap: 8, borderRadius: 10, backgroundColor: pressed ? colors.surface2 : colors.surface0, borderWidth: 1, borderColor: focusedIndex === index ? colors.accent : colors.border })}>
+      <EntitySummary entity={row} theme={theme} />
     </Pressable>)}
     {error ? <Text accessibilityRole="alert" style={{ color: colors.statusDanger }}>其余结果暂时无法加载，请重试。</Text> : null}
     {items.length < data.returned ? <Pressable accessibilityRole="button" accessibilityLabel={error ? "重试加载其余单据" : `展开更多已返回单据（${items.length}/${data.returned}）`} disabled={loading} onPress={() => { void expand(); }} style={{ paddingVertical: 8 }}>

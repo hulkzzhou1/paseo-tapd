@@ -1,6 +1,7 @@
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { imageRpc, addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, syncPullRpc, syncPushRpc, tapdSettings, updateCheckRpc, updateStatusRpc } from "./shared/contracts";
 import { createHandlers } from "./server/handlers";
+import { createTapdTools } from "./server/agent-tools";
 import { recordTurnEnd } from "./server/agent-state";
 import { clearTapdCache, resolveConfig, type TapdConfigInput } from "./server/tapd";
 import { pullSettings, pushSettings, type SyncSettingsAccess } from "./server/git-sync";
@@ -18,6 +19,7 @@ export default function contribute(server: PluginServerContext) {
   const syncAccess: SyncSettingsAccess = { read: getValues };
 
   const handlers = createHandlers(getValues);
+  const tools = createTapdTools(getValues);
   server.handle(boardRpc, handlers.board);
   server.handle(createRpc, handlers.create);
   server.handle(createFieldsRpc, handlers.createFields);
@@ -56,8 +58,10 @@ export default function contribute(server: PluginServerContext) {
     }, 10_000);
   });
 
-  // 给每个 agent 会话注入 TAPD 环境变量（不覆盖已有同名变量），便于 agent 直接调用 TAPD OpenAPI
+  // 给每个 agent 会话注册 TAPD 工具并注入 TAPD 环境变量（不覆盖已有同名变量），便于 agent 直接调用 TAPD OpenAPI
   server.before("agent.session_open", async ({ request }) => {
+    if (request.purpose === "history") return request;
+    const withTools = { ...request, tools: [...request.tools, ...tools] };
     let values: TapdConfigInput | null = null;
     try {
       const state = await settings.read();
@@ -68,13 +72,13 @@ export default function contribute(server: PluginServerContext) {
     const config = resolveConfig(values ?? { token: "", workspaceIds: "" });
     const { token, endpoint, site } = config;
     const workspaces = config.workspaceIds.join(",");
-    if (!token && !workspaces) return request;
+    if (!token && !workspaces) return withTools;
     const env: Record<string, string> = { ...(request.env ?? {}) };
     if (token && !env.TAPD_TOKEN) env.TAPD_TOKEN = token;
     if (endpoint && !env.TAPD_API_ENDPOINT) env.TAPD_API_ENDPOINT = endpoint;
     if (site && !env.TAPD_SITE_URL) env.TAPD_SITE_URL = site;
     if (workspaces && !env.TAPD_WORKSPACE_IDS) env.TAPD_WORKSPACE_IDS = workspaces;
-    return { ...request, env };
+    return { ...withTools, env };
   });
 
   // Agent turn 结束：记台账；开关打开且该 agent 关联了 TAPD 单据时自动回写评论

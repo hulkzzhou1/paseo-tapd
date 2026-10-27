@@ -179,7 +179,12 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
 
     async entity(input: RpcInput<typeof entityRpc>): Promise<RpcOutput<typeof entityRpc>> {
       const { config } = await requireConfig();
-      return fetchEntity(config, input.kind, input.id);
+      if ((input.siteUrl !== undefined && input.siteUrl !== config.site)
+        || (input.apiEndpoint !== undefined && input.apiEndpoint !== config.endpoint)
+        || (input.workspaceId !== undefined && !config.workspaceIds.includes(input.workspaceId))) {
+        throw new Error("此单据与当前 TAPD 连接或项目不匹配，请检查插件设置。");
+      }
+      return fetchEntity(input.workspaceId ? { ...config, workspaceIds: [input.workspaceId] } : config, input.kind, input.id);
     },
 
     async search(input: RpcInput<typeof searchRpc>): Promise<RpcOutput<typeof searchRpc>> {

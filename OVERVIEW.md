@@ -78,3 +78,8 @@ Write tools require the explicit configured project and `confirmed: true` after 
 Tool inputs are bounded by UTF-8 byte length. Result `warnings` flag tolerated read failures and capped search/iteration results; absent candidates or empty searches do not establish an exhaustive project result. Cancellation is also checked at the HTTP write boundary, after comment-author lookup.
 
 看板的读取警告随快照缓存（包括界面先加载及后台刷新），缓存命中不会丢失完整性提示。「我处理的」无法识别当前用户时直接报错，不扩大为全员查询。Board read warnings travel with cached snapshots, including UI-warmed results and background refreshes. If the current user cannot be resolved, a mine query fails rather than broadening to everyone.
+
+
+Single-item tool queries also append a clickable result card to the calling conversation through the public Paseo timeline API. Card data contains only the item project, kind, ID, bounded title/status/owner, connection identifiers and generic completeness warnings; full descriptions, comment bodies and credentials are excluded. The current mainline daemon owns timeline storage. Opening the card explicitly reads current detail through the configured API after checking the recorded site/API identifiers and project, then uses the same detail/action pages as the workbench. No additional remote destination is introduced. A failed card append leaves the completed TAPD read successful with a presentation warning.
+
+单张工具查询也会通过 Paseo 公开时间线接口，向调用所在对话追加可点击结果卡片。卡片只携带项目、类型、单号、有限长度的标题/状态/处理人、连接标识和通用的完整性提示，不包含完整正文、评论内容或凭据；时间线存储由当前主线 daemon 管理。点击卡片才读取最新详情，服务端先核对记录的站点/API 标识及项目，始终只访问当前配置的 API；详情和操作页与工作台共用，不增加远程目的地。卡片追加失败时保留已完成的查询结果，并返回展示提示。

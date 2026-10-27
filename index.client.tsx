@@ -1,5 +1,7 @@
 import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
+import { EntityResultCard } from "./client/conversation/EntityResultCard";
+import { entityResultSchema } from "./shared/conversation";
 import { tapdAttachmentSource } from "./shared/contracts";
 import { WorkbenchScreen } from "./client/workbench/WorkbenchScreen";
 import { TapdSettingsScreen } from "./client/workbench/SettingsForm";
@@ -44,5 +46,6 @@ export default function contribute(client: PluginClientContext) {
     },
   });
   client.addAttachmentSource(tapdAttachmentSource);
+  client.addTimelineRenderer({ kind: "tapd-entity-result", version: 1, schema: entityResultSchema, Component: EntityResultCard });
   return () => {};
 }

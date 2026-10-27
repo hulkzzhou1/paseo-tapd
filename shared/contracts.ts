@@ -433,7 +433,8 @@ const entityChildItemSchema = z.object({
 
 export const entityRpc = defineRpc({
   name: "tapd.entity",
-  input: z.object({ kind: entityKindSchema, id: z.string() }),
+  input: z.object({ kind: entityKindSchema, id: z.string(), workspaceId: z.string().min(1).max(100).optional(),
+    siteUrl: z.string().max(4096).optional(), apiEndpoint: z.string().max(4096).optional() }),
   output: z.object({
     kind: entityKindSchema,
     id: z.string(),

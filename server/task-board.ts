@@ -2,12 +2,14 @@ import type { AgentToolContext } from "@getpaseo/plugin/server";
 import { conversationEntitySchema } from "../shared/conversation";
 import { taskBoardSchema, type TaskBoard } from "../shared/task-board";
 import type { TapdSettingsValues } from "../shared/contracts";
+import { createOwnershipLifecycle } from "./ownership-lifecycle";
 import type { AgentLinks } from "./agent-links";
 import { fetchEntitySummary, fetchTaskClassification, resolveConfig } from "./tapd";
 
 export function createTaskBoard(getValues: () => Promise<TapdSettingsValues>, links: AgentLinks) {
   return {
     async read(agentId: string, context: Pick<AgentToolContext, "paseo">): Promise<TaskBoard> {
+      await createOwnershipLifecycle(getValues, links).reconcile(context);
       const values = await getValues();
       const config = resolveConfig(values);
       const agent = context.paseo.agents.ref(agentId);

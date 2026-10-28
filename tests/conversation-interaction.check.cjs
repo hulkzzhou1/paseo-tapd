@@ -17,7 +17,7 @@ async function main(){
  export const useRpc=rpc=>useCallback(input=>window.rpc(rpc,input),[rpc]);window.rpc=async(rpc,input)=>{window.calls.push({name:rpc.name,input});
  if(rpc.name==='tapd.task.migration')return {groups:window.migrationGroups??[],warnings:[]};
  if(rpc.name==='tapd.task.migration.confirm'){if(window.migrationFail)throw Error('changed');const group=window.migrationGroups.find(group=>group.id===input.id);window.toolLinks=group.candidates.filter(link=>link.agentId===input.agentId).map(link=>({...link,responsibility:{confirmedAt:'2026-01-01',actorAgentId:'user',revision:'migrated'}}));window.migrationGroups=[];return {ok:true,changed:true,link:window.toolLinks[0]};}
- if(rpc.name==='tapd.task-board')return {agentId:input.agentId,workspaceId:window.workspaceId,items:window.boardItems??[],fetchedAt:'2026-01-01T00:00:00Z',partial:false};
+ if(rpc.name==='tapd.task-board'){if(window.failOwnershipStore)throw new Error('ownership storage unavailable');return {agentId:input.agentId,workspaceId:window.workspaceId,items:window.boardItems??[],fetchedAt:'2026-01-01T00:00:00Z',partial:false};}
  if(rpc.name==='tapd.task.claim'){const link={key:input.kind+'-'+input.id,kind:input.kind,id:input.id,tapdWorkspaceId:input.workspaceId,apiEndpoint:'https://api.example.com',siteUrl:'https://example.com',agentId:input.agentId,agentTitle:'新负责人',workspaceId:'example-workspace',workspaceTitle:'Example',createdAt:'2026-01-01',responsibility:{confirmedAt:'2026-01-01',actorAgentId:'user',revision:'assignment'}};window.toolLinks=[link];return {ok:true,changed:true,link};}
  if(rpc.name==='tapd.task.release'){if(window.failRelease)throw new Error('storage unavailable');window.toolLinks=[];return {ok:true,changed:true};}
  if(rpc.name==='tapd.task.transfer'){if(window.failTransfer)throw new Error('revision changed');const link={...window.toolLinks[0],agentId:input.targetAgentId,agentTitle:'转交目标',responsibility:{confirmedAt:'2026-01-01',actorAgentId:'user',revision:'transferred'}};window.toolLinks=[link];return {ok:true,changed:true,link};}
@@ -106,6 +106,13 @@ async function main(){
  await page.getByRole('button',{name:'已完成（0）',exact:true}).click();
  await page.getByText('当前分类没有任务',{exact:true}).waitFor();
  await page.getByRole('button',{name:'未完成（1）',exact:true}).click();
+ await page.evaluate(()=>window.failOwnershipStore=true);
+ await page.getByRole('button',{name:'刷新任务',exact:true}).click();
+ await page.getByText('读取失败，已保留上次任务；请刷新重试',{exact:true}).waitFor();
+ await page.getByText('明确接手的任务',{exact:true}).waitFor();
+ await page.evaluate(()=>window.failOwnershipStore=false);
+ await page.getByRole('button',{name:'刷新任务',exact:true}).click();
+ await page.getByText('状态来自 TAPD 工作流',{exact:true}).waitFor();
  await page.getByRole('button',{name:'打开任务 #11111111：明确接手的任务',exact:true}).focus();await page.keyboard.press('Enter');
  await page.getByText('完整正文',{exact:true}).waitFor();
  await page.evaluate(()=>{window.boardItems=[];window.toolLinks=[];window.refresh();window.panelCalls=[];});

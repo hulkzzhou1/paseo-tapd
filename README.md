@@ -345,3 +345,7 @@ Story field tools recognize both `rich_edit` and `rich_text`, discover actual pr
 Credential checks are shared by TAPD tools and UI RPC reads. Unsafe complete details fail visibly rather than returning an incomplete successful item; safe partial reads keep their failure indicators. Comments containing configured, daemon, or still-readable legacy credentials are rejected before sending.
 
 TAPD 工具与界面 RPC 共用凭据保护：完整详情含受保护内容时明确读取失败，不伪装成空数据；安全的部分读取保留失败提示。评论正文包含设置、daemon 或兼容期仍可读取的旧凭据时，在发送前拒绝。
+
+Creation, status and comment writes share configured-project validation. Existing-item writes freshly verify the item type, number and actual project; unavailable or mismatched targets stop before sending. Only standalone creation without a specified project defaults to the first configured project.
+
+建单、改状态与评论共用配置项目校验。现有单据写入前实时核实类型、编号及实际项目；目标无法读取或不匹配时停止，不猜测写入。仅未指定项目的独立建单默认使用首个配置项目。

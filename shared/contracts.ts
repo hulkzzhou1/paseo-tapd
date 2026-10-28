@@ -455,7 +455,7 @@ export const updateStatusRpc = defineRpc({
     kind: entityKindSchema,
     id: z.string(),
     status: z.string(),
-    /** 单据实际所在项目；为空回退首个配置项目 */
+    /** 单据实际所在项目；未指定时读取已配置项目以核实实际归属 */
     workspaceId: z.string().default(""),
   }),
   output: z.object({ ok: z.boolean(), writeState: z.literal("accepted"), outcome: z.enum(["verified", "unverified"]), status: z.string().nullable(), statusLabel: z.string().optional(), warning: z.string().optional() }),
@@ -467,7 +467,7 @@ export const addCommentRpc = defineRpc({
     kind: entityKindSchema,
     id: z.string(),
     text: z.string(),
-    /** 单据实际所在项目；为空回退首个配置项目 */
+    /** 单据实际所在项目；未指定时读取已配置项目以核实实际归属 */
     workspaceId: z.string().default(""),
   }),
   output: z.object({ ok: z.boolean() }),

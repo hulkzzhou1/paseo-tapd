@@ -10,7 +10,7 @@ import { EntitySummary } from "./EntitySummary";
 const kindLabels = { story: "需求", task: "任务", bug: "缺陷" };
 export function EntityResultCard({ item, theme, agentId, openPanel }: PluginTimelineItemProps<z.infer<typeof entityResultSchema>> & { openPanel?: OpenConversationEntity }) {
   const { entity, warnings, operation } = item.data;
-  const caption = { read: "查询时的摘要", create: "单据已创建 · 创建时的摘要", comment: "评论已发表 · 操作时的摘要", status: "状态已修改 · 操作时的摘要" }[operation];
+  const caption = { read: "查询时的摘要", create: "单据已创建 · 创建时的摘要", comment: "评论已发表 · 操作时的摘要", status: "状态已修改 · 操作时的摘要", field: "字段值已回读核实 · 操作时的摘要" }[operation];
   const { target, setTarget, open } = useEntityNavigation(agentId, openPanel);
   const button = useRef<View>(null);
   const [focused, setFocused] = useState(false);

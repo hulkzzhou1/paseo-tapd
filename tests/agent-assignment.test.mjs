@@ -90,16 +90,3 @@ test('invalid stored data is not overwritten and concurrent bindings survive',as
   assert.equal(result.phase,'binding');assert.equal(result.agentId,'example-agent');assert.equal(result.bound,false);assert.equal(result.promptSent,false);
   assert.ok(!s.calls.some(call=>call[0]==='send'));
 });
-test('automatic report resolves actual TAPD project rather than Paseo workspace',async t=>{
-  await setup(t);
-  const {createHandlers}=await import('../server/handlers.ts');
-  const posts=[];
-  t.mock.method(globalThis,'fetch',async(input,init)=>{
-    const url=new URL(input);
-    if(init.method==='POST') {posts.push(new URLSearchParams(init.body));return Response.json({status:1,data:{}});}
-    return Response.json({status:1,data:url.pathname==='/stories'?[{Story:{id:target.id,name:'Example'}}]:[]});
-  });
-  const handlers=createHandlers(async()=>({...values,autoReportAgentResult:true,links:[{key:'story-11111111',kind:'story',id:target.id,agentId:'example-agent',workspaceId:'paseo-workspace-not-tapd'}]}));
-  await handlers.autoReportAfterTurn({agentId:'example-agent',record:{outcome:'completed',summary:'Example validation completed'}});
-  assert.equal(posts.length,1);assert.equal(posts[0].get('workspace_id'),'12345678');
-});

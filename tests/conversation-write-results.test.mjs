@@ -21,11 +21,11 @@ function host(serverId='example-host') {
 function plugin(){const rpcs=new Map(),before=new Map(),events=new Map();const close=contribute({registerSettings:()=>({read:async()=>({status:'ready',values}),subscribe:()=>()=>{}}),handle:(rpc,fn)=>rpcs.set(rpc.name,fn),before:(name,fn)=>before.set(name,fn),on:(name,fn)=>events.set(name,fn)});return {rpcs,before,events,close};}
 const ctx=h=>({paseo:h.paseo,signal:new AbortController().signal});
 async function call(p,h,name,input,signal=new AbortController().signal){const {tools}=await p.before.get('agent.session_open')({request:{purpose:'interactive',agentId:'example-agent',tools:[],env:{}}},ctx(h));return tools.find(t=>t.name===name).execute(input,{paseo:h.paseo,signal,agent:{id:'example-agent'}});}
-function mockTapd(t,afterRequest=()=>{}){clearTapdCache();const requests=[];t.mock.method(globalThis,'fetch',async (source,init)=>{const u=new URL(source),body=new URLSearchParams(init.body);requests.push({u,init,body});afterRequest({u,init,body});
+function mockTapd(t,afterRequest=()=>{}){clearTapdCache();const requests=[];let fieldValue="原值";t.mock.method(globalThis,'fetch',async (source,init)=>{const u=new URL(source),body=new URLSearchParams(init.body);requests.push({u,init,body});afterRequest({u,init,body});
  let data=[];
- if(init.method==='POST')data={Story:{id:'22222222'}};
- else if(u.pathname==='/stories'&&u.searchParams.has('id'))data=[{Story:{id:u.searchParams.get('id'),name:'示例需求',status:'open',description:'不应持久化的正文'}}];
- else if(u.pathname.endsWith('get_fields_info'))data={status:{options:{open:'待处理',done:'已完成'}}};
+ if(init.method==='POST'){if(body.has('custom_field_one'))fieldValue=body.get('custom_field_one');data={Story:{id:'22222222'}};}
+ else if(u.pathname==='/stories'&&u.searchParams.has('id'))data=[{Story:{id:u.searchParams.get('id'),name:'示例需求',status:'open',description:'不应持久化的正文',custom_field_one:fieldValue}}];
+ else if(u.pathname.endsWith('get_fields_info'))data={status:{options:{open:'待处理',done:'已完成'}},custom_field_one:{label:'方案',html_type:'rich_edit',readonly:0}};
  else if(u.pathname==='/users/info')data={User:{nick:'example-member'}};
  return Response.json({status:1,data});});return requests;}
 async function fixture(t,run){const directory=await mkdtemp(join(tmpdir(),'tapd-conversation-writes-')),prior=process.env.PASEO_HOME;process.env.PASEO_HOME=directory;const h=host();let p=plugin();
@@ -90,4 +90,17 @@ test('redaction cannot erase a confirmed write outcome or leak credentials in it
  const result=await call(p,h,'tapd_add_comment',{kind:'story',id:'11111111',workspaceId:'12345678',text:'示例评论',confirmed:true});
  assert.equal(result.isError,undefined);assert.equal(result.structuredContent.ok,true);assert.equal(requests.filter(x=>x.init.method==='POST').length,1);assert.equal(h.rows.get('example-agent')[0].data.operation,'comment');
  });}finally{values.token=original;}
+});
+
+
+test('verified field updates use recoverable compact cards without storing field bodies',async t=>{
+ const requests=mockTapd(t);await fixture(t,async f=>{
+ const input={kind:'story',workspaceId:'12345678',id:'11111111',fieldKey:'custom_field_one',expectedValue:'原值',value:'<p>不可保存的方案正文</p>',confirmed:true};
+ const result=await call(f.p,f.h,'tapd_update_field',input);
+ assert.equal(result.structuredContent.outcome,'verified');
+ const card=f.h.rows.get('example-agent')?.[0];assert.equal(card?.data.operation,'field');
+ assert.equal(JSON.stringify(card).includes('不可保存的方案正文'),false);
+ f.reload();await f.p.rpcs.get('tapd.conversations')({},ctx(f.h));
+ assert.equal(requests.filter(x=>x.init.method==='POST').length,1);
+ });
 });

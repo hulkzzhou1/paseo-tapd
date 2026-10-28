@@ -10,7 +10,6 @@ export interface AgentTurnRecord {
 
 const records = new Map<string, AgentTurnRecord>();
 const MAX_RECORDS = 500;
-const SUMMARY_MAX = 200;
 
 type TurnOutcome = PluginLifecycleEvents["agent.turn_ended"]["outcome"];
 
@@ -22,23 +21,14 @@ export function recordTurnEnd(event: {
   agentId: string;
   outcome: TurnOutcome;
   endedAt: string;
-  timeline: PluginLifecycleEvents["agent.turn_ended"]["timeline"];
 }): AgentTurnRecord {
-  let summary = "";
-  for (const item of [...event.timeline].reverse()) {
-    if (item.type === "assistant_message" && typeof item.text === "string" && item.text.trim()) {
-      summary = item.text.trim().slice(0, SUMMARY_MAX);
-      break;
-    }
-  }
-  const error =
-    event.outcome.kind === "failed" ? (event.outcome.error?.message ?? "").slice(0, SUMMARY_MAX) : "";
   const record: AgentTurnRecord = {
     agentId: event.agentId,
     outcome: event.outcome.kind,
     endedAt: event.endedAt,
-    summary,
-    error,
+    // The deprecated event history cannot establish current-turn authorship.
+    summary: "",
+    error: event.outcome.kind === "failed" ? "本轮执行失败，请查看会话。" : "",
   };
   records.delete(record.agentId);
   if (records.size >= MAX_RECORDS) {

@@ -173,21 +173,9 @@ function SettingsEditor({ settings, theme }: { settings: ReadySettings; theme: W
       <SyncSettingsSection settings={settings} theme={theme} />
       <SettingsSection title="Agent">
         <SettingsCard>
-          <SettingsSwitch
-            label="完成工作后自动回写 TAPD 评论"
-            hint="每次派给 TAPD 单据的 Agent 完成一轮 turn 后，把结果摘要作为评论写回该单据。仅对已关联的单据生效。"
-            value={settings.values.autoReportAgentResult}
-            onValueChange={(value) => {
-              void (async () => {
-                const ok = await settings.save(
-                  { ...settings.values, autoReportAgentResult: value },
-                  settings.revision,
-                );
-                if (ok) toast.show(value ? "已开启自动回写评论" : "已关闭自动回写评论", { variant: "success" });
-                else toast.error(settings.saveError ?? "保存失败，请重试");
-              })();
-            }}
-          />
+          <Text style={{ color: theme.colors.foregroundMuted }}>
+            普通回合结束不再自动评论（包括旧版已开启的设置）。明确阶段成果经授权后写入 TAPD；回合状态与完整输出请查看 Agent 会话。
+          </Text>
         </SettingsCard>
       </SettingsSection>
       <SettingsSection title="操作">

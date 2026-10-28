@@ -32,15 +32,15 @@ TAPD 工作台把 TAPD（需求、任务、缺陷）带进 Paseo。
 
 工作流能力：选择仓库与 provider/model，可把单据派给一个编码 Agent；插件创建 worktree 工作区并启动一个提示词中包含单据快照的 Agent，派发的工作区与 Agent 可从单据和卡片追踪。插件可以把评论回写 TAPD（纯文本转 HTML）、变更单据工作流状态，并在看板上新建需求、任务或缺陷；需求详情浮窗另可一键创建挂在该需求下的任务/缺陷（自动写入 TAPD 的 story_id 关联，并沿用需求所在项目，避免多项目时挂错）。挂载表单按类型向 TAPD fields_info 接口取其余可写字段动态渲染（枚举/人员字段给选项 chip 或昵称输入，日期及「时间/日期」类自定义字段打开自绘月历并带昨天/今天/明天快捷项）；处理人默认当前 Token 用户（打开创建时经 TAPD users/info 解析一次）；字段顺序与隐藏布局按类型存于插件设置，随设置同步自动备份。
 
-单据也可在详情浮窗中关联到一个已有 Agent。提示词默认填入标准跟进通知，可编辑后发送，也可清空只绑定；卡片与详情浮窗都会记录这个关联。工作台会展示该 Agent 的实时状态：卡片「已关联」标签内带状态圆点，详情浮窗的关联行显示状态文字、最近状态时间与最近一次工作结果（简短摘要，失败时显示错误信息）；更新经 daemon 的 agent 事件流推送（带短暂节流）。设置 → Agent 提供「完成工作后自动回写 TAPD 评论」开关（默认关闭）：打开后 daemon 记录每次 turn 结果，并在该 Agent 关联了单据时，通过与手动评论相同的 TAPD 评论通道自动把结果摘要写回单据。
+单据也可在详情浮窗关联已有 Agent。提示词可编辑后发送，也可清空只绑定；卡片与详情记录关联并显示实时状态、最近回合结果与时间。本地台账通过 daemon Agent 事件更新。普通 turn-ended 只更新本地状态，不写 TAPD 评论、不推进业务状态；旧 `autoReportAgentResult` 布尔值继续可读及同步但不生效，设置页说明阶段成果需显式授权评论。事件的 deprecated timeline 无法证明当前回合摘要归属，因此不提取摘要或原始错误；详情引导查看 Agent 会话。
 
 Agent 会话在相关变量尚未定义时会收到 TAPD 连接变量（TAPD_TOKEN、TAPD_API_ENDPOINT、TAPD_SITE_URL、TAPD_WORKSPACE_IDS），从而可直接调用 TAPD OpenAPI。
 
 附件源支持在撰写提示词时按关键词或 ID 搜索 TAPD 单据，并附上文本快照（标题、状态、负责人、链接）。
 
-设置 → 配置同步（Git）可把非密配置（视图、收藏、看板列、单据关联记录、派活默认仓库与模型、自动回评开关等）备份到用户自己的 Git 仓库或从中恢复：填入仓库地址（HTTPS 或 SSH）、访问令牌与分支，按「推送 / 拉取」按钮执行。同步内容为仓库根目录的 `tapd-workbench-settings.json`；隐私字段不出本机、不写入该文件：TAPD Token、Git 令牌、项目 ID、派活仓库路径，且拉取也不会覆盖同步配置本身。推送用当前设置生成一次提交（无变更则跳过），支持空仓库首次推送与换分支（指定分支不存在时回退默认分支）；拉取取仓库最新文件并整体覆盖上述非密字段。常规流程：正常配置好插件并推送一次 → 重装/换机后填写连接信息与同步配置 → 点拉取找回关联等数据。
+设置 → 配置同步（Git）可把非密配置（视图、收藏、看板列、单据关联记录、派活默认仓库与模型、旧自动回评兼容值等）备份到用户自己的 Git 仓库或从中恢复：填入仓库地址（HTTPS 或 SSH）、访问令牌与分支，按「推送 / 拉取」按钮执行。同步内容为仓库根目录的 `tapd-workbench-settings.json`；隐私字段不出本机、不写入该文件：TAPD Token、Git 令牌、项目 ID、派活仓库路径，且拉取也不会覆盖同步配置本身。推送用当前设置生成一次提交（无变更则跳过），支持空仓库首次推送与换分支（指定分支不存在时回退默认分支）；拉取取仓库最新文件并整体覆盖上述非密字段。常规流程：正常配置好插件并推送一次 → 重装/换机后填写连接信息与同步配置 → 点拉取找回关联等数据。
 
-连接与数据：插件运行在 daemon 侧，只调用 TAPD OpenAPI，token 仅作为 TAPD Authorization 头使用。凭据与项目 ID 来自插件设置页，回退到 daemon 环境变量 TAPD_TOKEN 与 TAPD_WORKSPACE_IDS。保存在插件设置中的 token 以明文 JSON 存于 daemon 主机，可被已连接的设置界面读取；介意时请改用环境变量。TAPD API 基地址（默认 https://api.tapd.cn）与网页链接基地址（默认 https://www.tapd.cn）可在设置 → 连接中分别填写「API 地址」与「网页域名」，留空分别回退环境变量 TAPD_API_ENDPOINT、TAPD_SITE_URL 和上述默认值。地址需为完整 HTTP(S) URL，不接受账号、密码、查询参数或片段。测试连接使用当前草稿地址；保存后单据链接和新 Agent 会话使用这些配置（不覆盖 Agent 已有变量）。凭证只发送到配置的 API 地址，API 重定向会被拒绝；网页域名用于单据链接与正文相对地址解析，不用于 API 认证。两个地址不进入 Git 备份，也不能从备份覆盖本机配置。读取覆盖所有已配置项目；写操作（评论、状态变更、建单）只在用户明确操作时执行，优先作用于单据实际所在项目（详情弹窗内的回写会携带该字段，无法确定时回退第一个配置的 TAPD 项目）；唯一例外是「自动回写评论」开关明确开启时，Agent turn 结束会自动以该通道回写一条结果评论（仍只发往该 Agent 关联的单据）。派给 Agent 需在派发对话框中确认，经 Paseo SDK 执行，作为 Agent 提示词的单据快照会发送给所选的 agent provider。会话引用和短卡片摘要另存本机插件目录（见下文）；看板和完整单据读取结果只缓存在 daemon 内存，修改设置即清空。配置同步也会写文件：daemon 为用户配置的 Git 仓库在系统临时目录做浅克隆，写入 `tapd-workbench-settings.json` 后提交推送（或读取该文件返回），目录用完即删；HTTPS 模式下 Git 令牌会在克隆/推送时发送到该仓库服务器，并暂存于临时克隆目录的 `.git/config`（目录删除即清除），SSH 模式不涉及令牌；报错文本会抹去令牌，且拉取永远不会替换本机的同步目的地（地址/分支）或任何密钥字段。工作台打开时，插件会从 GitHub 拉取公开的 registry 记录与固定提交处的清单来做更新检查（api.github.com，失败时回退 raw.githubusercontent.com）；不附带凭据、不发送用户数据，结果缓存一小时。配置同步只再新增一个网络目的地：用户在设置中填写的 Git 仓库（HTTPS 模式下一次克隆/推送会把 Git 令牌发送到该仓库所在主机），推送/拉取仅由设置页按钮触发，内容为脱敏的设置 JSON，报错不回显令牌，拉取不会改变本机同步目的地、也不会导入密钥字段；且推送有硬性红线：若脱敏后的负载仍含 TAPD 或 Git 令牌字面值（如误抄进视图名/收藏），推送直接中止，令牌不可能经意外字段进入仓库。若 registry 固定了更新的版本，工作台会显示一个可关闭的横幅，提示运行更新命令。需要 Paseo 0.13.2 或更高版本。已知限制：评论人匹配只取最近 200 条评论；每个看板列最多显示 300 个单据；Agent 状态与结果台账保存在 daemon 内存，daemon 重启后最近一次结果会清空（实时状态会重新读取）。
+连接与数据：插件运行在 daemon 侧，只调用 TAPD OpenAPI，token 仅作为 TAPD Authorization 头使用。凭据与项目 ID 来自插件设置页，回退到 daemon 环境变量 TAPD_TOKEN 与 TAPD_WORKSPACE_IDS。保存在插件设置中的 token 以明文 JSON 存于 daemon 主机，可被已连接的设置界面读取；介意时请改用环境变量。TAPD API 基地址（默认 https://api.tapd.cn）与网页链接基地址（默认 https://www.tapd.cn）可在设置 → 连接中分别填写「API 地址」与「网页域名」，留空分别回退环境变量 TAPD_API_ENDPOINT、TAPD_SITE_URL 和上述默认值。地址需为完整 HTTP(S) URL，不接受账号、密码、查询参数或片段。测试连接使用当前草稿地址；保存后单据链接和新 Agent 会话使用这些配置（不覆盖 Agent 已有变量）。凭证只发送到配置的 API 地址，API 重定向会被拒绝；网页域名用于单据链接与正文相对地址解析，不用于 API 认证。两个地址不进入 Git 备份，也不能从备份覆盖本机配置。读取覆盖所有已配置项目；写操作（评论、状态变更、建单、受控字段更新）只在用户明确操作时执行，优先作用于单据实际所在项目（详情弹窗内的回写会携带该字段，无法确定时回退第一个配置的 TAPD 项目）；普通 Agent 回合结束不写入，即使旧设置已启用自动回评。派给 Agent 需在派发对话框中确认，经 Paseo SDK 执行，作为 Agent 提示词的单据快照会发送给所选的 agent provider。会话引用和短卡片摘要另存本机插件目录（见下文）；看板和完整单据读取结果只缓存在 daemon 内存，修改设置即清空。配置同步也会写文件：daemon 为用户配置的 Git 仓库在系统临时目录做浅克隆，写入 `tapd-workbench-settings.json` 后提交推送（或读取该文件返回），目录用完即删；HTTPS 模式下 Git 令牌会在克隆/推送时发送到该仓库服务器，并暂存于临时克隆目录的 `.git/config`（目录删除即清除），SSH 模式不涉及令牌；报错文本会抹去令牌，且拉取永远不会替换本机的同步目的地（地址/分支）或任何密钥字段。工作台打开时，插件会从 GitHub 拉取公开的 registry 记录与固定提交处的清单来做更新检查（api.github.com，失败时回退 raw.githubusercontent.com）；不附带凭据、不发送用户数据，结果缓存一小时。配置同步只再新增一个网络目的地：用户在设置中填写的 Git 仓库（HTTPS 模式下一次克隆/推送会把 Git 令牌发送到该仓库所在主机），推送/拉取仅由设置页按钮触发，内容为脱敏的设置 JSON，报错不回显令牌，拉取不会改变本机同步目的地、也不会导入密钥字段；且推送有硬性红线：若脱敏后的负载仍含 TAPD 或 Git 令牌字面值（如误抄进视图名/收藏），推送直接中止，令牌不可能经意外字段进入仓库。若 registry 固定了更新的版本，工作台会显示一个可关闭的横幅，提示运行更新命令。需要 Paseo 0.13.2 或更高版本。已知限制：评论人匹配只取最近 200 条评论；每个看板列最多显示 300 个单据；Agent 状态与结果台账保存在 daemon 内存，daemon 重启后最近一次结果会清空（实时状态会重新读取）。
 
 状态范围按项目分别读取 TAPD `/workflows/last_steps` 的结束状态，用于筛选和卡片完成标识；高级状态条件与范围取交集，返回结果再次校验。接口不可用时回退标准终态和明确的完成标签，此时无法识别无完成含义的自定义终态标签。新增读取仅发送项目 ID 与单据类型到配置的 TAPD API 地址，沿用现有认证与缓存。
 
@@ -67,11 +67,11 @@ Agent tool inputs/results travel through Paseo's provider-supported MCP/native t
 
 Write tools require the explicit configured project and `confirmed: true` after the agent presents the precise target/payload for user approval. This is a caller assertion, not a new human approval service or a bypass of provider/Paseo permission policy. Status/comment writes additionally read the item and reject a project mismatch; child creation checks the parent requirement. Status writes verify the project's options and skip the current value. No write is automatically retried. Cancellation is checked before execution and immediately before writes; an already-dispatched HTTP write may still complete, with the existing 20-second request timeout. Check state before retrying an ambiguous result. Configuration sync, plugin updates, image bytes and agent dispatch are not exposed as these tools. Existing UI and explicitly enabled auto-report behavior are unchanged. No additional files/media are written by tools.
 
-主线 session-open 钩子向实际 Agent 会话注册 README 中的 16 个 `tapd_*` 工具，保留此前工具及已有连接变量，跳过 history。需要包含工具 API 的主线构建；npm 同号 SDK 不够。开发通过 `sdk:main` 显式复制可信的主线 SDK 构建产物到本地 node_modules，不自动执行构建/安装脚本，不改插件配置。
+主线 session-open 钩子向实际 Agent 会话注册 README 中的 19 个 `tapd_*` 工具，保留此前工具及已有连接变量，跳过 history。需要包含工具 API 的主线构建；npm 同号 SDK 不够。开发通过 `sdk:main` 显式复制可信的主线 SDK 构建产物到本地 node_modules，不自动执行构建/安装脚本，不改插件配置。
 
 输入和结果经 Paseo 的 MCP/native 传输到插件进程；返回的项目 ID、单据完整正文、评论、成员昵称及元数据会提供给调用 Agent 及其 provider。每次调用读取当前插件配置，只访问原配置 TAPD API，沿用认证与禁止 API 重定向，不新增远程目的地。工具不能覆写 Token 或地址，不返回设置/秘密；输入 JSON 限 64 KB，错误不回显原始响应，结果中的已配置凭据被抹去。部分失败保留错误标记，现有截断与缓存不变。TAPD 正文属于不可信业务数据，不能充当指令或写入授权。
 
-建单、改状态和评论需要显式配置项目及 `confirmed: true`，由 Agent 先向用户展示准确目标及完整内容并取得批准；该参数只是调用方声明，不构成独立人工审批系统，仍遵从 Paseo/provider 权限。状态和评论先核对单据真实项目，子建单核对父需求；状态验证所属项目候选并跳过当前值。写入不自动重试，结果不明先读取确认。入口及真正写入前检查取消信号；已经发送的写入可能完成，仍受现有 20 秒请求超时限制。配置同步、插件升级、图片二进制和 Agent 派发不暴露为这些工具，现有界面及明确开启的自动回评保持原行为。工具不新增文件或媒体落盘。
+建单、改状态、评论和单字段更新需要显式配置项目及 `confirmed: true`，由 Agent 先向用户展示准确目标及完整内容并取得批准；该参数只是调用方声明，不构成独立人工审批系统，仍遵从 Paseo/provider 权限。状态和评论先核对单据真实项目，子建单核对父需求；状态验证所属项目候选并跳过当前值。写入不自动重试，结果不明先读取确认。入口及真正写入前检查取消信号；已经发送的写入可能完成，仍受现有 20 秒请求超时限制。配置同步、插件升级、图片二进制和 Agent 派发不暴露为这些工具，现有派发界面保持原行为，普通回合自动回评已停用。工具不新增文件或媒体落盘。
 
 工具输入上限按 UTF-8 字节计算。工具结果的 `warnings` 标注被现有容错读取吞掉的部分失败或搜索/迭代候选截断；不要把缺失候选或搜索空结果当作完整项目结论。评论在用户信息读取之后、HTTP 写入实际发出之前再次检查取消。
 
@@ -118,7 +118,7 @@ A completed TAPD write remains successful even when a later cancellation, serial
 
 随插件提供 `paseo-tapd` skill，指导查询、接手绑定、阶段推进与验收；需要由目标 Agent provider 的技能发现机制加载，不由插件自动注入现有会话。工具新增 Agent/仓库/模型候选读取、静默绑定和派发：明确授权后可绑定当前或指定 Agent，或新建 worktree 与 Agent、保存关联后发送获批提示词。绑定不修改 TAPD 处理人和状态；派发会将提示词发送给选定 provider，并可能产生费用。部分失败返回已有资源 ID 和阶段，不自动重试或删除资源。
 
-工具关联以原子文件保存在 daemon 本机 `plugin-data/tapd-workbench/agent-links.json`（相对 PASEO_HOME），包含单据类型/编号、实际 TAPD 项目、API 地址及 Paseo 工作区/Agent 引用，不保存凭据或任务提示词，不参与 Git 设置同步。界面每两秒通过本机 RPC 读取并合并旧关联，支持移除工具关联；旧设置记录保留。工具候选读取只访问 Paseo 本机 API，目标单据验证与自动回评仅访问已配置 TAPD API；自动回评先解析单据实际项目，仍需启用原有开关。不新增网络目的地。
+工具关联以原子文件保存在 daemon 本机 `plugin-data/tapd-workbench/agent-links.json`（相对 PASEO_HOME），包含单据类型/编号、实际 TAPD 项目、API 地址及 Paseo 工作区/Agent 引用，不保存凭据或任务提示词，不参与 Git 设置同步。界面每两秒通过本机 RPC 读取并合并旧关联，支持移除工具关联；旧设置记录保留。工具候选读取只访问 Paseo 本机 API，目标单据验证仅访问已配置 TAPD API；阶段评论通过显式授权的评论工具执行。不新增网络目的地。
 
 会话卡片统一突出标题与状态，使用主题色边条、状态徽标和次要单号/处理人信息；批量条目和侧栏列表保持一致。此展示调整不新增数据读取、存储或网络访问。
 
@@ -126,3 +126,13 @@ A completed TAPD write remains successful even when a later cancellation, serial
 会话列表新增搜索、类型计数筛选及紧凑的元信息布局。用户打开会话入口时自动读取列表内单据的标题、状态和处理人，也支持手动刷新，最多两张并发并逐批显示；这是对之前「点击单张才读取」规则的更新。正文、评论和关联单据继续仅在打开详情时读取，历史结果卡片不改写。摘要只访问当前配置的 TAPD API 和项目，更新原有本机引用，不恢复已移除项、不改变顺序、不新增存储位置或网络目的地；失败时保留原摘要并提示重试。后台本机轮询不会触发摘要请求。
 
 TAPD 卡片压缩上下留白与行间距，保持标题字号、状态层次和操作按钮点击区域；此调整不改变数据读取或权限。
+
+## 需求字段与写入恢复
+
+新增 `tapd.field_definitions`、`tapd.read_field`、`tapd.update_field` RPC 及同名下划线 Agent 工具，输入/输出经共享 schema 约束。仅向已配置 API 的 `/stories/get_fields_info`、`/stories` 发送请求，项目须已配置、类型须为需求。发现返回实际 description/custom key、label、原始 html_type、readonly 三态及 supported；支持 text/input/textarea/rich_edit，不将元数据只读标记当作账号授权证明。其他字段类型仅展示为不支持。
+
+单字段读取显式请求目标列，不依赖丢弃自定义字段的旧详情投影；区分未返回、null 和空串，最多 50,000 字符，原始 HTML 和空白保持原样。读写数据若包含已配置凭据字面值则拒绝，避免脱敏后的旧值造成覆盖。更新要求 `confirmed: true` 和完整旧值，只 POST 项目、编号及一个目标字段；空串显式发送以请求清空。只读/未知可编辑性/旧值未返回/冲突均在 POST 前拒绝。旧值检查并非原子 CAS，检查与写入之间仍可能存在并发修改。
+
+所有字段元数据和字段读取均 fresh，详情 RPC 支持 fresh、Agent 详情默认 fresh；fresh 绕过缓存和旧在途请求。已发送写入会失效缓存，旧请求不再填回旧缓存。收到成功响应后 fresh 回读，精确匹配才生成字段成功卡片；已接受但回读失败或不一致返回 `accepted/unverified`，不自动重试。传输层区分未发送、明确拒绝和未知结果，HTTP/业务错误只保留安全 code/status，不输出上游响应、info 或请求体；无法细分的业务拒绝保留为 api_rejected，不猜是权限还是工作流。创建响应成功却缺少编号也归未知，先查询核对。
+
+字段正文及旧值不存入本机卡片或绑定记录，复用已有卡片恢复；恢复不重放写入。普通回合不再触发业务评论，故无该路径重复回评；显式评论并无服务端幂等键或 exactly-once 保证，结果未知先核对最近评论（最多 30 条），需要完整历史时使用已授权同平台页面。真实部署字段、权限及通知链未测试，见 [验证与限制](docs/design-fields-validation.md)。

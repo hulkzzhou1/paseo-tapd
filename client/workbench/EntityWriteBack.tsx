@@ -45,7 +45,7 @@ export function StatusDropdown({ theme, kind, id, workspaceId, current, currentL
     try {
       await updateStatus({ kind, id, status: value, workspaceId });
     } catch {
-      setWriteError("修改状态失败，请重试。");
+      setWriteError("状态未确认，请读取详情核对后再操作。");
       return false;
     } finally {
       submittingRef.current = false;

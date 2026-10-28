@@ -28,10 +28,10 @@ async function fixture(t, long = false) {
   return { state, rpc: (name, input = {}) => rpcs.get(name)(input), restart() { close(); start(); }, async call(name = 'tapd_entity', input = { kind: 'task', id: '11111111' }, agentId = 'example-agent') { tools ??= (await before({ request: { purpose: 'interactive', agentId, tools: [], env: {} } }, context)).tools; return tools.find(tool => tool.name === name).execute(input, { ...context, agent: { id: agentId } }); }, cards(id = 'example-agent') { return (state.rows.get(id) ?? []).filter(entry => entry.item.type === 'plugin').map(entry => entry.item); } };
 }
 test('new registered single and batch cards append without rescanning a recovered 10000-row history', async t => {
-  const f = await fixture(t, true); await f.call(); await f.rpc('tapd.conversations'); f.state.pages.clear();
+  const f = await fixture(t, true); await f.call(); f.restart(); await f.call(); await f.rpc('tapd.conversations'); assert.ok(f.state.pages.get('example-agent') >= 50); f.state.pages.clear();
   await f.call(); await f.call('tapd_search', { query: 'Example' });
   assert.equal(f.state.pages.get('example-agent') ?? 0, 0, 'normal cards must not read historical timeline pages');
-  assert.equal(f.cards().length, 3); assert.equal(new Set(f.cards().map(card => card.id)).size, 3); assert.equal(f.state.writes, 0);
+  assert.equal(f.cards().length, 4); assert.equal(new Set(f.cards().map(card => card.id)).size, 4); assert.equal(f.state.writes, 0);
 });
 
 test('a suspended Agent recovery cannot block another Agents newly registered result card', { timeout: 5000 }, async t => {

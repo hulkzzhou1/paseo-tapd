@@ -10,6 +10,7 @@ import { getTurnRecord } from "./agent-state";
 import {
   addComment,
   boardWithCache,
+  readCacheKey,
   createEntity,
   describeError,
   fetchColumn,
@@ -113,7 +114,7 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
     },
     async board(input: RpcInput<typeof boardRpc>): Promise<RpcOutput<typeof boardRpc>> {
       const { config } = await requireConfig();
-      const key = JSON.stringify(input.filters ?? null);
+      const key = await readCacheKey(config, input.filters ?? null);
       return protectedResult(config, await boardWithCache(key, async () => {
         const warnings = config.readWarnings ??= [];
         const filters = input.filters ?? DEFAULT_FILTERS;
@@ -300,7 +301,7 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
         apiEndpoint: input.apiEndpoint === undefined ? values.apiEndpoint : input.apiEndpoint.trim(),
         siteUrl: input.siteUrl === undefined ? values.siteUrl : input.siteUrl.trim(),
       };
-      const config = resolveConfig(merged);
+      const config = { ...resolveConfig(merged), freshReads: true };
       config.protectedValues = [...(config.protectedValues ?? []), values.token];
       if (config.token.length === 0) {
         return {

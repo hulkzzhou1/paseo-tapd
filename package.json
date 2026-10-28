@@ -20,6 +20,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint client index.client.tsx",
     "test": "node --test tests/*.test.mjs",
+    "test:navigation": "node tests/navigation-interaction.check.cjs",
     "test:settings": "node tests/settings-interaction.check.cjs",
     "test:ownership": "node tests/public-daemon-ownership.check.mjs",
     "test:daemon": "node tests/daemon-lifecycle.check.mjs",

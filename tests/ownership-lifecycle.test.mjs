@@ -114,3 +114,18 @@ test('a created hook before Agent publication cannot tombstone a new unassigned 
  s.agents.set('example-not-yet-bound',{id:'example-not-yet-bound',title:'Stale',workspaceId:'example-workspace',archivedAt:null});
  await assert.rejects(s.rpc('tapd.task.claim',{...target,id:'22222222',agentId:'example-not-yet-bound'}),/已删除/,'actual removal event blocks a queued first claim too');
 });
+
+test('parent child-owner reads reconcile deletion before showing an owner or unassigned item',async t=>{
+ const s=await setup(t);
+ await s.rpc('tapd.task.claim',{...target,agentId:'example-agent'});
+ t.mock.method(globalThis,'fetch',async(source,init)=>{
+  assert.notEqual(init?.method,'POST');const u=new URL(source);
+  let data=[];
+  if(u.pathname==='/stories')data=u.searchParams.has('parent_id')?[{Story:{id:target.id,workspace_id:target.workspaceId,parent_id:'88888888',name:'Child'}}]:[{Story:{id:u.searchParams.get('id'),workspace_id:target.workspaceId,name:'Parent'}}];
+  return Response.json({status:1,data});
+ });
+ const first=await s.rpc('tapd.children',{workspaceId:target.workspaceId,id:'88888888'});assert.equal(first.items[0].responsibleAgent.id,'example-agent');
+ s.agents.delete('example-agent');
+ const second=await s.rpc('tapd.children',{workspaceId:target.workspaceId,id:'88888888'});assert.equal(second.items[0].responsibleAgent,null);assert.equal(second.items[0].ownershipUnknown,false);
+ assert.equal(s.writes(),0);
+});

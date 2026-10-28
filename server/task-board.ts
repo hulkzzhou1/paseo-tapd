@@ -4,6 +4,7 @@ import { taskBoardSchema, type TaskBoard } from "../shared/task-board";
 import type { TapdSettingsValues } from "../shared/contracts";
 import { createOwnershipLifecycle } from "./ownership-lifecycle";
 import type { AgentLinks } from "./agent-links";
+import {boardSnapshotKey,getBoardSnapshot,saveBoardSnapshot,taskBoardRevision} from "./task-board-state";
 import { fetchEntitySummary, fetchTaskClassification, resolveConfig } from "./tapd";
 
 export function createTaskBoard(getValues: () => Promise<TapdSettingsValues>, links: AgentLinks) {
@@ -18,21 +19,29 @@ export function createTaskBoard(getValues: () => Promise<TapdSettingsValues>, li
       const assigned = (await links.list()).filter(link => link.agentId === agentId && link.responsibility && link.apiEndpoint === config.endpoint && (!link.siteUrl || link.siteUrl === config.site) && config.workspaceIds.includes(link.tapdWorkspaceId));
       if ([config.token, values.syncGitToken].filter(Boolean).some(secret => JSON.stringify(assigned).includes(secret))) throw new Error("承担关系含敏感配置，无法安全展示，请检查本机记录。");
       const items: TaskBoard["items"] = [];
-      for (const link of assigned) {
+      for (const link of assigned.slice(0,200)) {
+        const snapshotKey = boardSnapshotKey(config,link.tapdWorkspaceId,link.kind,link.id);
+        const previous = getBoardSnapshot(snapshotKey);
+        let stale = false;
         let entity = conversationEntitySchema.parse({ siteUrl: config.site, apiEndpoint: config.endpoint, workspaceId: link.tapdWorkspaceId, kind: link.kind, id: link.id });
         let classification: "unfinished" | "completed" | "unknown" = "unknown";
         let fetchedAt = "", warning = "";
         try {
           const summary = await fetchEntitySummary(config, link.kind, link.id, link.tapdWorkspaceId);
           entity = conversationEntitySchema.parse({ ...entity, ...summary });
-          classification = summary.workflowAmbiguous ? "unknown" : await fetchTaskClassification(config, link.kind, link.tapdWorkspaceId, entity.status);
+          classification = await fetchTaskClassification(config, link.kind, link.tapdWorkspaceId, entity.status, { workitemTypeId: summary.workitemTypeId, parallel: summary.workflowParallel });
           fetchedAt = new Date().toISOString();
           if (classification === "unknown") warning = "无法可靠判断工作流，状态待确认。";
-        } catch { warning = "单据或工作流读取失败，承担关系已保留。"; }
+        } catch {
+          if (previous) { entity = previous.entity; fetchedAt = previous.fetchedAt; stale = true; }
+          warning = previous ? "读取失败，显示上次成功摘要（已过期）；当前状态待确认。" : "单据读取失败，承担关系已保留，状态待确认。";
+        }
         for (const secret of [config.token, values.syncGitToken].filter(Boolean)) if (JSON.stringify(entity).includes(secret)) { entity = conversationEntitySchema.parse({ ...entity, title: "", status: "", statusLabel: "", owner: "" }); classification = "unknown"; warning = "摘要包含敏感配置，已隐藏。"; }
-        items.push({ entity, link, classification, fetchedAt, warning });
+        const item = { entity, link, classification, fetchedAt, warning, stale };
+        if (fetchedAt && !stale) saveBoardSnapshot(snapshotKey,item);
+        items.push(item);
       }
-      return taskBoardSchema.parse({ agentId, workspaceId: agent.workspaceId ?? null, items, fetchedAt: new Date().toISOString(), partial: items.some(item => !!item.warning) });
+      return taskBoardSchema.parse({ agentId, workspaceId: agent.workspaceId ?? null, items, fetchedAt: new Date().toISOString(), partial: assigned.length>200 || items.some(item => !!item.warning), revision: taskBoardRevision(config), truncated: assigned.length>200, total: assigned.length, warnings: assigned.length>200?["看板达到每次 200 张读取上限，计数仅含已返回任务。"]:[] });
     },
   };
 }

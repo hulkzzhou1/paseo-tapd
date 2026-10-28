@@ -2,7 +2,7 @@ import type { AgentToolContext } from "@getpaseo/plugin/server";
 import type { TapdSettingsValues } from "../shared/contracts";
 import { suppressTask, type AgentLinks } from "./agent-links";
 
-export function createOwnershipLifecycle(getValues: () => Promise<TapdSettingsValues>, links: AgentLinks) {
+export function createOwnershipLifecycle(getValues: () => Promise<TapdSettingsValues>, links: Pick<AgentLinks, "state" | "stateTransaction">) {
   async function knownAgents() {
     const [state, values] = await Promise.all([links.state(), getValues()]);
     return [...new Set([

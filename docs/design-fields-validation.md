@@ -74,4 +74,4 @@ PASEO_RUNTIME_DIR="$RUNTIME_ROOT" node tests/public-daemon-fields.check.mjs
 
 新脚本要求 Linux user/mount namespace（unshare、mount、bash）。它只从 `@getpaseo/server` 和 `@getpaseo/client/node` 公开入口构建/连接 daemon，不调用 test-utils、内部模块或 agentManager。临时 home 与真实用户 home 分离，主线/插件/依赖/Node 只读挂载；禁用全部真实 provider、relay、语音和元数据模型，凭据及单据均为 fixture。插件只安装/重载在临时 daemon，API 只指向 loopback 模拟服务；进程退出清理临时状态。缺少命名空间能力时直接失败，不降级到真实 home。
 
-本次没有修改产品实现，故未机械重跑首轮已通过的 112 项测试、typecheck 和 lint。新增验收脚本另做只读审查，结论记录在 PR。仍未验证真实模型/MCP 授权、普通回合通知、Agent 归档/删除跨进程恢复或真实 TAPD 权限；旧值比较的并发窗口和未知评论结果核对限制不变。就本任务的代码审查和受控验证而言可建议转 ready；按用户要求 PR 仍保留 draft，转 ready 不代表部署验收通过。
+本次没有修改产品实现，故未机械重跑首轮已通过的 112 项测试、typecheck 和 lint。新增验收脚本的 Standards 审查发现中转挂载别名仍可写；已将别名及最终路径全部 remount 为只读，并在启动前用可写性检查断言。该发现不证明此前运行发生过宿主修改。修复复测与两轴复核结论记录在 PR。仍未验证真实模型/MCP 授权、普通回合通知、Agent 归档/删除跨进程恢复或真实 TAPD 权限；旧值比较的并发窗口和未知评论结果核对限制不变。就本任务的代码审查和受控验证而言可建议转 ready；按用户要求 PR 仍保留 draft，转 ready 不代表部署验收通过。

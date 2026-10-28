@@ -156,6 +156,10 @@ mount --bind "$runtimeRoot" "$sandboxRoot/mounts/runtime"
 mount --bind "$pluginRoot" "$sandboxRoot/mounts/plugin"
 mount --bind "$depsRoot" "$sandboxRoot/mounts/deps"
 mount --bind "$nodeRoot" "$sandboxRoot/mounts/node"
+for part in runtime plugin deps node; do
+  mount -o remount,bind,ro "$sandboxRoot/mounts/$part"
+  test ! -w "$sandboxRoot/mounts/$part"
+done
 mount --bind "$sandboxRoot/user" "$userRoot"
 if [ "$userRoot" != /root ]; then mount --bind "$sandboxRoot/user" /root; fi
 mkdir -p "$runtimeRoot" "$pluginRoot" "$depsRoot" "$nodeRoot"
@@ -163,7 +167,10 @@ mount --bind "$sandboxRoot/mounts/runtime" "$runtimeRoot"
 mount --bind "$sandboxRoot/mounts/plugin" "$pluginRoot"
 mount --bind "$sandboxRoot/mounts/deps" "$depsRoot"
 mount --bind "$sandboxRoot/mounts/node" "$nodeRoot"
-for path in "$runtimeRoot" "$pluginRoot" "$depsRoot" "$nodeRoot"; do mount -o remount,bind,ro "$path"; done
+for path in "$runtimeRoot" "$pluginRoot" "$depsRoot" "$nodeRoot"; do
+  mount -o remount,bind,ro "$path"
+  test ! -w "$path"
+done
 cd "$sandboxRoot"
 exec "$nodeExecutable" "$pluginRoot/tests/public-daemon-fields.check.mjs" sandbox
 `;

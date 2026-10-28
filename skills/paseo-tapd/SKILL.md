@@ -80,3 +80,5 @@ description: 在 Paseo 中通过 TAPD 工具查询、接手、创建单据，记
 子需求建单必须从实际父项目读取 `tapd_child_types` 和类别对应 `tapd_create_fields`，使用返回类别 ID，不通过 extraFields 写 parent_id 或 workitem_type_id。能力、类别关系或必填元数据不支持时说明限制，不改成无父级的顶层单据。子创建后仅 `outcome=verified` 表示父级与类别已核实；accepted/unverified 按返回单号 `tapd_entity` 只读核对，unknown 搜索并核查实际关系，不自动重建或因为卡片失败重复 POST。
 
 状态写入后以返回的 `outcome` 判断是否已核实：只有 `verified` 才报告当前状态；`writeState: accepted` 且 `outcome: unverified` 表示已接受但回读失败或不一致，先实时读取详情核对，不自动重复提交。未核实结果不产生状态修改成功卡片，看板仍会失效后重新读取。
+
+配置与备份：连接与工作台设置仅保存在本机，Git 备份/恢复已移除；不要尝试调用旧同步 RPC。此移除不影响派发时选择 Git 项目或创建 worktree。

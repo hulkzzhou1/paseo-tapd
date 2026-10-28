@@ -13,6 +13,7 @@ async function setup(t,overrides={}) {
  const home=await mkdtemp(join(tmpdir(),'tapd-board-'));const prior=process.env.PASEO_HOME;process.env.PASEO_HOME=home;
  for(const key of ['TAPD_TOKEN','TAPD_API_ENDPOINT','TAPD_SITE_URL','TAPD_WORKSPACE_IDS'])delete process.env[key];
  const values=tapdSettingsSchema.parse({token:'example-secret',apiEndpoint:'https://api.example.com',siteUrl:'https://example.com',workspaceIds:'12345678',...overrides});
+ if(overrides.syncGitToken !== undefined) values.syncGitToken=overrides.syncGitToken; // Still-readable legacy snapshot.
  const agents=new Map(['example-agent','example-other'].map(id=>[id,{id,title:id,workspaceId:'example-workspace',archivedAt:null}]));const sends=[];const creates=[];
  const ref=id=>({id,workspaceId:agents.get(id)?.workspaceId,current:()=>agents.get(id),refresh:async()=>agents.has(id)?{agent:agents.get(id)}:null,get archivedAt(){return agents.get(id)?.archivedAt;},send:async prompt=>sends.push(prompt)});
  const paseo={agents:{ref,list:async()=>({entries:[...agents.values()].map(agent=>({agent}))})},projects:{list:async()=>({projects:[{projectKind:'git',projectRootPath:'/example/repo',projectDisplayName:'Example'}]})},providers:{snapshot:async()=>({entries:[{provider:'example',models:[{id:'model'}]}]})},workspaces:{create:async()=>{creates.push('workspace');return {id:'example-workspace',agents:{create:async()=>ref('example-other')}};}}};

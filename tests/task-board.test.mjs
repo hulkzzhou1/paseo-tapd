@@ -16,10 +16,10 @@ async function setup(t,overrides={}) {
  const agents=new Map(['example-agent','example-other'].map(id=>[id,{id,title:id,workspaceId:'example-workspace',archivedAt:null}]));const sends=[];const creates=[];
  const ref=id=>({id,workspaceId:agents.get(id)?.workspaceId,current:()=>agents.get(id),refresh:async()=>agents.has(id)?{agent:agents.get(id)}:null,get archivedAt(){return agents.get(id)?.archivedAt;},send:async prompt=>sends.push(prompt)});
  const paseo={agents:{ref,list:async()=>({entries:[...agents.values()].map(agent=>({agent}))})},projects:{list:async()=>({projects:[{projectKind:'git',projectRootPath:'/example/repo',projectDisplayName:'Example'}]})},providers:{snapshot:async()=>({entries:[{provider:'example',models:[{id:'model'}]}]})},workspaces:{create:async()=>{creates.push('workspace');return {id:'example-workspace',agents:{create:async()=>ref('example-other')}};}}};
- const api={status:null,workflow:{done:"已完成"},actualProject:null};
+ const api={status:null,workflow:{done:"已完成"},actualProject:null,workflowType:null};
  const context={paseo,agent:{id:'example-agent'},signal:new AbortController().signal};const rpcs=new Map();let before;let writes=0;
  clearTapdCache();t.mock.method(globalThis,'fetch',async(source,init)=>{if(init.method==='POST')writes++;const u=new URL(source);let data=[];
- if(u.pathname==='/stories')data=[{Story:{id:u.searchParams.get('id'),name:'Example task',...(api.actualProject?{workspace_id:api.actualProject}:{}),status:api.status??(u.searchParams.get('id')==='22222222'?'done':'open')}}];
+ if(u.pathname==='/stories')data=[{Story:{id:u.searchParams.get('id'),name:'Example task',...(api.workflowType?{workitem_type_id:api.workflowType}:{}),...(api.actualProject?{workspace_id:api.actualProject}:{}),status:api.status??(u.searchParams.get('id')==='22222222'?'done':'open')}}];
  if(u.pathname.endsWith('/get_fields_info'))data={status:{options:{open:'待处理',done:'已完成',custom:'已完成'}}};
  if(u.pathname==='/workflows/last_steps')data=api.workflow;
  return Response.json({status:1,data});});
@@ -72,6 +72,9 @@ test('custom translated completion labels never decide status; unknown workflow 
  const s=await setup(t);assert.equal((await s.call('tapd_take_task',target)).structuredContent.ok,true);
  s.api.status='custom';
  let board=(await s.call('tapd_task_board',{})).structuredContent;assert.equal(board.items[0].entity.statusLabel,'已完成');assert.equal(board.items[0].classification,'unfinished','actual terminal metadata takes precedence over translated label');
+ s.api.workflowType='example-category';
+ board=(await s.call('tapd_task_board',{})).structuredContent;assert.equal(board.items[0].classification,'unknown','category-specific workflow cannot reuse project-wide terminal guesses');
+ s.api.workflowType=null;
  s.api.workflow=[];
  board=(await s.call('tapd_task_board',{})).structuredContent;assert.equal(board.items[0].classification,'unknown');assert.equal(board.partial,true);assert.ok(board.items[0].warning);
  s.api.actualProject='87654321';

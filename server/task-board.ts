@@ -23,7 +23,7 @@ export function createTaskBoard(getValues: () => Promise<TapdSettingsValues>, li
         try {
           const summary = await fetchEntitySummary(config, link.kind, link.id, link.tapdWorkspaceId);
           entity = conversationEntitySchema.parse({ ...entity, ...summary });
-          classification = await fetchTaskClassification(config, link.kind, link.tapdWorkspaceId, entity.status);
+          classification = summary.workflowAmbiguous ? "unknown" : await fetchTaskClassification(config, link.kind, link.tapdWorkspaceId, entity.status);
           fetchedAt = new Date().toISOString();
           if (classification === "unknown") warning = "无法可靠判断工作流，状态待确认。";
         } catch { warning = "单据或工作流读取失败，承担关系已保留。"; }

@@ -458,7 +458,7 @@ export const updateStatusRpc = defineRpc({
     /** 单据实际所在项目；为空回退首个配置项目 */
     workspaceId: z.string().default(""),
   }),
-  output: z.object({ ok: z.boolean() }),
+  output: z.object({ ok: z.boolean(), writeState: z.literal("accepted"), outcome: z.enum(["verified", "unverified"]), status: z.string().nullable(), statusLabel: z.string().optional(), warning: z.string().optional() }),
 });
 
 export const addCommentRpc = defineRpc({

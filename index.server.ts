@@ -17,7 +17,7 @@ import { createConversationRuntime } from "./server/conversation";
 import { conversationRefreshRpc, conversationBatchPageRpc, conversationListRpc, conversationFocusRpc, conversationRemoveRpc } from "./shared/conversation";
 import { createTapdTools } from "./server/agent-tools";
 import { recordTurnEnd } from "./server/agent-state";
-import { clearTapdCache, resolveConfig, type TapdConfigInput } from "./server/tapd";
+import { clearTapdCache, resolveConfig, protectFieldData, type TapdConfigInput } from "./server/tapd";
 import { pullSettings, pushSettings, type SyncSettingsAccess } from "./server/git-sync";
 
 export default function contribute(server: PluginServerContext) {
@@ -48,7 +48,7 @@ export default function contribute(server: PluginServerContext) {
     await ownership.reconcile(context);
     const values = await getValues(), config = resolveConfig(values);
     const result = (await agentLinks.list()).filter(link => link.apiEndpoint === config.endpoint && (!link.siteUrl || link.siteUrl === config.site) && config.workspaceIds.includes(link.tapdWorkspaceId));
-    if ([config.token, values.syncGitToken].filter(Boolean).some(secret => JSON.stringify(result).includes(secret))) throw new Error("关联包含敏感配置，无法安全展示；原记录已保留。");
+    protectFieldData(config, result);
     return result;
   };
   server.handle(agentLinksRpc, async (_input, context) => ({ links: await visibleLinks(context), pendingAgents: await migration.pendingAgents(), boardRevision: taskBoardRevision(resolveConfig(await getValues())) }));

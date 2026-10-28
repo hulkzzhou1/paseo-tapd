@@ -137,3 +137,47 @@ test('user RPC transfer and release compare revisions, preserve unrelated tasks 
  assert.equal((await s.call('tapd_take_task',target,'example-agent')).structuredContent.ok,true,'a new explicit acceptance remains possible after release');
  assert.equal(s.writes(),0);assert.equal(s.sends.length,0);assert.equal(s.creates.length,0);
 });
+
+test('public board RPC and tools never publish protected labels, including escaped and overridden credentials or snapshots',async t=>{
+ const s=await setup(t,{token:'tapd"\\example-secret',syncGitToken:'sync"\\example-secret'});
+ process.env.TAPD_TOKEN='env"\\example-secret';t.after(()=>delete process.env.TAPD_TOKEN);
+ await s.rpc('tapd.task.claim',{...target,agentId:'example-agent'});
+ let labels=['Safe'],offline=false;
+ t.mock.method(globalThis,'fetch',async source=>{if(offline)throw Error('offline');const u=new URL(source);return Response.json({status:1,data:u.pathname==='/stories'?[{Story:{id:target.id,name:'Safe',status:'open',label:labels.join('|'),workitem_type_id:'12345678'}}]:u.pathname.endsWith('get_fields_info')?{status:{options:{open:'Open'}}}:[]});});
+ const good=await s.rpc('tapd.task-board',{agentId:'example-agent'});assert.deepEqual(good.items[0].entity.labels,['Safe']);
+ for(const secret of [s.values.token,s.values.syncGitToken,process.env.TAPD_TOKEN]){
+  labels=[secret];
+  for(const result of [await s.rpc('tapd.task-board',{agentId:'example-agent'}),(await s.call('tapd_task_board',{})).structuredContent])assert.ok(!JSON.stringify(result).includes(JSON.stringify(secret).slice(1,-1)));
+ }
+ s.values.syncGitToken='Safe';offline=true;
+ const cached=await s.rpc('tapd.task-board',{agentId:'example-agent'});assert.equal(cached.items[0].entity.labels,null,'new protected configuration also guards cached summaries');
+});
+
+test('assignment, migration and visible-link RPCs reject SDK credentials before storage or transport',async t=>{
+ const s=await setup(t,{syncGitToken:'sync"\\example-secret'}),secret=s.values.syncGitToken;
+ s.agents.get('example-agent').title=secret;
+ await assert.rejects(s.rpc('tapd.task.claim',{...target,agentId:'example-agent'}));
+ const file=join(s.home,'plugin-data/tapd-workbench/agent-links.json');const {readFile}=await import('node:fs/promises');
+ assert.ok(!(await readFile(file,'utf8').catch(()=>'' )).includes(JSON.stringify(secret).slice(1,-1)));
+ s.agents.get('example-agent').title='Safe';
+ s.values.links=[{key:'story-33333333',kind:'story',id:'33333333',agentId:'example-other',agentTitle:'Legacy',workspaceId:'example-workspace',workspaceTitle:'',createdAt:''}];
+ const group=(await s.rpc('tapd.task.migration',{agentId:'example-other'})).groups[0];s.agents.get('example-other').title=secret;
+ await assert.rejects(s.rpc('tapd.task.migration.confirm',{...target,id:'33333333',agentId:'example-other',expectedRevision:group.revision}));
+ s.agents.get('example-other').title='Safe';const create=s.context.paseo.workspaces.create;s.context.paseo.workspaces.create=async()=>({...await create(),name:secret});
+ const partial=await s.rpc('tapd.task.dispatch',{...target,id:'44444444',repoPath:'/example/repo',provider:'example/model',branchName:'fixture/review',prompt:'Approved fixture'});
+ assert.equal(partial.ok,false);assert.equal(partial.bound,false);assert.equal(partial.promptSent,false);assert.equal(s.sends.length,0);
+ assert.ok(!(await readFile(file,'utf8')).includes(JSON.stringify(secret).slice(1,-1)));
+ await s.rpc('tapd.task.claim',{...target,agentId:'example-agent'});
+ const stored=JSON.parse(await readFile(file,'utf8'));stored.links[0].agentTitle=secret;await writeFile(file,JSON.stringify(stored));
+ await assert.rejects(s.rpc('tapd.agent-links'));
+});
+
+test('status RPC and registered tool freshly verify accepted writes without fabricating status or replaying POST',async t=>{
+ const s=await setup(t);let posts=0,readsAfter=0,mode='offline';
+ t.mock.method(globalThis,'fetch',async(source,init)=>{const u=new URL(source);if(init.method==='POST'){posts++;return Response.json({status:1,data:{Story:{id:target.id}}});}if(posts&&u.pathname==='/stories'){readsAfter++;if(mode==='offline')throw Error('offline');}return Response.json({status:1,data:u.pathname==='/stories'?[{Story:{id:target.id,status:'open',name:'Example'}}]:u.pathname.endsWith('get_fields_info')?{status:{options:{open:'Open',done:'Done'}}}:[]});});
+ const before=(await s.rpc('tapd.agent-links',{})).boardRevision;
+ const rpc=await s.rpc('tapd.update_status',{...target,status:'done'});assert.equal(rpc.writeState,'accepted');assert.equal(rpc.outcome,'unverified');assert.equal(rpc.ok,false);assert.ok(readsAfter>0);assert.equal(posts,1);
+ assert.ok((await s.rpc('tapd.agent-links',{})).boardRevision>before,'accepted writes invalidate before verification');
+ mode='mismatch';
+ const result=await s.call('tapd_update_status',{...target,status:'done'});assert.equal(result.isError,undefined);assert.equal(result.structuredContent.outcome,'unverified');assert.equal(result.structuredContent.writeState,'accepted');assert.equal(result.structuredContent.entity,undefined,'unverified result cannot claim requested status');assert.equal(posts,2);
+});

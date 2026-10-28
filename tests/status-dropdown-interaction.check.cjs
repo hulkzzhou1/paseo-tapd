@@ -47,7 +47,7 @@ async function main() {
       if(rpc.name==='tapd.update_status'){
         await new Promise(r=>setTimeout(r,180));
         if(!window.writeFailed){window.writeFailed=true;throw new Error('private write error must stay hidden');}
-        window.savedStatus=input.status;return {ok:true};
+        if(window.unverified)return {ok:false,outcome:'unverified',writeState:'accepted',status:window.savedStatus};window.savedStatus=input.status;return {ok:true,outcome:'verified',writeState:'accepted',status:input.status};
       }
       if(rpc.name==='tapd.agent_status')return {items:[]};
       throw new Error('Unexpected RPC '+rpc.name);
@@ -105,6 +105,14 @@ async function main() {
       await page.getByRole('button',{name:'修改状态：已完成',exact:true}).waitFor();
       assert.deepEqual((await calls('tapd.update_status')).at(-1).input,{kind:'bug',id:'12345678',workspaceId:'87654321',status:'done'});
       assert.equal(await page.evaluate(()=>window.refreshed),2);
+      await page.evaluate(()=>window.unverified=true);
+      await page.getByRole('button',{name:'修改状态：已完成',exact:true}).click();
+      await page.getByRole('menuitemradio',{name:'待处理',exact:true}).click();
+      await page.waitForFunction(()=>window.toast==='已接受状态修改，但当前状态未核实；请刷新核对，勿重复提交。');
+      await page.getByRole('button',{name:'修改状态：已完成',exact:true}).waitFor();
+      assert.equal(await page.evaluate(()=>window.savedStatus),'done','accepted-unverified must not display the requested status');
+      assert.equal(await page.evaluate(()=>window.refreshed),3);await page.waitForTimeout(250);
+      assert.equal((await calls('tapd.update_status')).length,4,'unverified feedback never retries the write');
       assert.deepEqual(errors,[]);
       console.log('PASS status detail dropdown: lazy project/kind candidates, current/no-op, double submit, safe failure/retry, detail/board refresh, compact dark detail');
     } finally {if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}

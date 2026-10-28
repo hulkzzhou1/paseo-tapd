@@ -14,6 +14,8 @@ import {
   describeError,
   fetchColumn,
   fetchEntity,
+  fetchEntitySummary,
+  protectFieldData,
   fetchContentImage,
   fetchFilterFields,
   fetchFilterOptions,
@@ -47,7 +49,7 @@ type GetValues = () => Promise<TapdSettingsValues>;
 export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig, "writeSignal" | "readWarnings"> = {}, agentLinks?: Pick<AgentLinks, "list"> & Partial<Pick<AgentLinks, "state">>) {
   async function requireConfig(): Promise<{ config: TapdConfig; values: TapdSettingsValues }> {
     const values = await getValues();
-    const config = { ...resolveConfig(values), ...execution, protectedValues: [values.syncGitToken, process.env.TAPD_TOKEN ?? ""] };
+    const config = { ...resolveConfig(values), ...execution };
     if (config.token.length === 0) {
       throw new Error("未配置 TAPD Token：请在「TAPD 工作台设置」中填写，或为 daemon 配置环境变量 TAPD_TOKEN。");
     }
@@ -67,7 +69,8 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
       const matches = links?.filter(link => link.kind === item.kind && link.id === item.id && link.tapdWorkspaceId === item.workspaceId
         && link.apiEndpoint === config.endpoint && (!link.siteUrl || link.siteUrl === config.site) && (link.responsibility || !suppressed)) ?? [];
       const owner = !pendingLegacy && matches.length === 1 && matches[0].responsibility ? { id: matches[0].agentId, title: matches[0].agentTitle } : null;
-      const unsafe = owner && [config.token, ...(config.protectedValues ?? [])].filter(Boolean).some(secret => JSON.stringify(owner).includes(secret));
+      let unsafe = false;
+      try { protectFieldData(config, owner); } catch { unsafe = true; }
       return { ...item, responsibleAgent: unsafe ? null : owner, ownershipUnknown: links === null || !!unsafe || (matches.length > 0 && !owner) || pendingLegacy };
     });
   }
@@ -236,11 +239,17 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
 
     async updateStatus(input: RpcInput<typeof updateStatusRpc>): Promise<RpcOutput<typeof updateStatusRpc>> {
       const { config } = await requireConfig();
+      protectFieldData(config, input);
       const status = input.status.trim();
       if (!status) throw new Error("状态不能为空");
       await updateEntityStatus(config, input.workspaceId ?? "", input.kind, input.id, status);
       invalidateTaskBoards(config);
-      return { ok: true };
+      try {
+        const actual = await fetchEntitySummary({ ...config, freshReads: true }, input.kind, input.id, input.workspaceId || config.workspaceIds[0]);
+        protectFieldData(config, actual);
+        if (actual.status === status) return { ok: true, writeState: "accepted", outcome: "verified", status: actual.status, statusLabel: actual.statusLabel };
+        return { ok: false, writeState: "accepted", outcome: "unverified", status: actual.status, warning: "TAPD 已接受修改，但回读状态与请求不一致；请读取核对，勿重复提交。" };
+      } catch { return { ok: false, writeState: "accepted", outcome: "unverified", status: null, warning: "TAPD 已接受修改，但当前状态未核实；请读取核对，勿重复提交。" }; }
     },
 
     async addComment(input: RpcInput<typeof addCommentRpc>): Promise<RpcOutput<typeof addCommentRpc>> {

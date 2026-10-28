@@ -110,7 +110,7 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
           }
           return { structuredContent };
         } catch (error) {
-          if (writeCompleted) return { structuredContent: { ...((["tapd_update_field", "tapd_create_label", "tapd_update_labels"].includes(name) || verificationRequired) ? { ok: false, writeState: "accepted", outcome: "unverified" } : { ok: true }), presentationWarning: "TAPD 已接受写入，结果展示暂不可用；请查询核实，勿重复提交。" } };
+          if (writeCompleted) return { structuredContent: { ...((["tapd_update_status", "tapd_update_field", "tapd_create_label", "tapd_update_labels"].includes(name) || verificationRequired) ? { ok: false, writeState: "accepted", outcome: "unverified" } : { ok: true }), presentationWarning: "TAPD 已接受写入，结果展示暂不可用；请查询核实，勿重复提交。" } };
           return { isError: true, text: failure, structuredContent: { failure: safeFailure(error) } };
         }
       },
@@ -169,7 +169,7 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
         const result = await handlers.create(input);
         return { ...result, entity: { kind: result.kind, id: result.id, workspaceId: input.workspaceId, title: input.title, owner: input.owner } };
       }),
-    tool("tapd_update_status", "WRITE: change status only after the user approves the exact item, project and new status. Read tapd_entity and tapd_status_options first; use a status key, not a label. Do not automatically retry writes.",
+    tool("tapd_update_status", "WRITE: change status only after the user approves the exact item, project and new status. Read tapd_entity and tapd_status_options first; use a status key, not a label. Fresh read-back determines verified versus accepted/unverified; failed or mismatched verification never retries the POST.",
       target.extend({ status: z.string().trim().min(1).max(200), confirmed }),
       async ({ confirmed: _confirmed, ...input }, handlers, _config, signal) => {
         const entity = await actualTarget(input, handlers);
@@ -178,7 +178,7 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
         if (entity.status === input.status) return { ok: true, unchanged: true };
         if (signal.aborted) throw new Error();
         const result = await handlers.updateStatus(input);
-        return { ...result, entity: { ...entity, status: input.status, statusLabel: options.find(option => option.value === input.status)?.label ?? "" } };
+        return { ...result, ...(result.outcome === "verified" ? { entity: { ...entity, status: result.status, statusLabel: result.statusLabel ?? "" } } : {}) };
       }),
     tool("tapd_add_comment", "WRITE: post a plain-text comment only after the user approves the exact item, project and comment text. Read tapd_entity first. Do not automatically retry writes.",
       target.extend({ text: z.string().trim().min(1).max(50_000), confirmed }),

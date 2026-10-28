@@ -6,7 +6,7 @@ import {ownershipScopeSchema,toolLinkSchema,type ToolLink} from "../shared/agent
 import {migrationConfirmRpc,type MigrationGroup} from "../shared/ownership-migration";
 import type {TapdSettingsValues} from "../shared/contracts";
 import {sameTask,suppressTask,type AgentLinks,type OwnershipState} from "./agent-links";
-import {fetchEntitySummary,resolveConfig} from "./tapd";
+import {fetchEntitySummary,resolveConfig,protectFieldData} from "./tapd";
 
 const digest=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 function groups(state:OwnershipState,values:TapdSettingsValues):MigrationGroup[]{
@@ -38,7 +38,7 @@ export function createOwnershipMigration(getValues:()=>Promise<TapdSettingsValue
     for(const project of config.workspaceIds){
      try{await fetchEntitySummary(config,item.link.kind,item.link.id,project);found=toolLinkSchema.parse({...item.link,apiEndpoint:config.endpoint,siteUrl:config.site,tapdWorkspaceId:project,legacyOrigins:["settings"]});break;}catch{/* Never infer a project from a failed read. */}
     }
-    if(found&&![config.token,values.syncGitToken].filter(Boolean).some(secret=>JSON.stringify(found).includes(secret)))imported.push({key:item.key,link:found});else warnings.push("旧关联的实际项目暂无法核实，原设置已保留，可稍后重试。");
+    if(found){try{protectFieldData(config,found);imported.push({key:item.key,link:found});continue;}catch{/* Preserve unsafe sources without publishing or persisting them. */}}warnings.push("旧关联的实际项目暂无法核实，原设置已保留，可稍后重试。");
    }
    if(imported.length)await links.stateTransaction(async state=>{
     let changed=false;const next={...state,links:[...state.links],imports:[...state.imports]};
@@ -57,13 +57,13 @@ export function createOwnershipMigration(getValues:()=>Promise<TapdSettingsValue
   try{return await importing;}finally{importing=undefined;}
  }
  return {importLegacy,
-  async pendingAgents(){const values=await getValues(),config=resolveConfig(values),state=await links.state();const result=values.links.filter(link=>!state.deletedAgents.includes(link.agentId)&&!state.imports.includes(digest([config.endpoint,config.site,link]))).map(({agentId,workspaceId})=>({agentId,workspaceId}));if([config.token,values.syncGitToken].filter(Boolean).some(secret=>JSON.stringify(result).includes(secret)))throw new Error("旧关联包含敏感配置，无法安全展示；原记录已保留。");return result;},
+  async pendingAgents(){const values=await getValues(),config=resolveConfig(values),state=await links.state();const result=values.links.filter(link=>!state.deletedAgents.includes(link.agentId)&&!state.imports.includes(digest([config.endpoint,config.site,link]))).map(({agentId,workspaceId})=>({agentId,workspaceId}));protectFieldData(config,result);return result;},
   async list(agentId:string,context:Pick<AgentToolContext,"paseo">){
    await createOwnershipLifecycle(getValues,links).reconcile(context);
    const agent=context.paseo.agents.ref(agentId);await agent.refresh();if(!agent.current())throw new Error("目标 Agent 不可用。");
    const {warnings}=await importLegacy(),values=await getValues();
    const result=groups(await links.state(),values).filter(group=>group.candidates.some(link=>link.agentId===agentId));
-   if([resolveConfig(values).token,values.syncGitToken].filter(Boolean).some(secret=>JSON.stringify(result).includes(secret)))throw new Error("历史关联含敏感配置，无法安全展示；原记录已保留。");
+   protectFieldData(resolveConfig(values),result);
    return {groups:result,warnings};
   },
   async confirm(raw:z.infer<typeof migrationConfirmRpc.input>,context:Pick<AgentToolContext,"paseo">){
@@ -75,15 +75,18 @@ export function createOwnershipMigration(getValues:()=>Promise<TapdSettingsValue
    return links.stateTransaction(async state=>{
     const scope={apiEndpoint:config.endpoint,siteUrl:config.site,tapdWorkspaceId:input.workspaceId,kind:input.kind,id:input.id};
     const formal=state.links.find(link=>sameTask(link,scope)&&link.responsibility);
-    if(formal){if(formal.agentId===input.agentId&&state.suppressed.some(item=>sameTask(item,scope)))return {result:{ok:true as const,changed:false,link:formal}};throw new Error("负责人已改变，请刷新后核对。");}
+    if(formal){protectFieldData(config,formal);if(formal.agentId===input.agentId&&state.suppressed.some(item=>sameTask(item,scope)))return {result:{ok:true as const,changed:false,link:formal}};throw new Error("负责人已改变，请刷新后核对。");}
     const group=groups(state,values).find(group=>group.kind===input.kind&&group.id===input.id&&group.workspaceId===input.workspaceId);
     if(!group||group.revision!==input.expectedRevision)throw new Error("历史候选已改变，请刷新后重新选择。");
     const candidate=group.candidates.find(link=>link.agentId===input.agentId);if(!candidate)throw new Error("只能选择已列出的历史候选。");
     await agent.refresh();if(!agent.current()||agent.archivedAt)throw new Error("目标 Agent 不可用。");
     const at=new Date().toISOString(),revision=randomUUID();
     const link={...candidate,siteUrl:config.site,agentTitle:agent.current()?.title??candidate.agentTitle,workspaceId:agent.workspaceId??candidate.workspaceId,responsibility:{confirmedAt:at,actorAgentId:"user",revision}};
+    protectFieldData(config,link);
     const next=suppressTask(state,scope,"user");
-    return {state:{...next,legacyArchive:[...next.legacyArchive,...next.links.filter(item=>sameTask(item,scope)&&!item.responsibility)],links:[...next.links.filter(item=>!sameTask(item,scope)),link],history:[...next.history,{...ownershipScopeSchema.parse(link),action:"migration" as const,actorAgentId:"user",at,reason:"用户确认历史负责人",agentId:link.agentId,revision}]},result:{ok:true as const,changed:true,link}};
+    const saved={...next,legacyArchive:[...next.legacyArchive,...next.links.filter(item=>sameTask(item,scope)&&!item.responsibility)],links:[...next.links.filter(item=>!sameTask(item,scope)),link],history:[...next.history,{...ownershipScopeSchema.parse(link),action:"migration" as const,actorAgentId:"user",at,reason:"用户确认历史负责人",agentId:link.agentId,revision}]};
+    protectFieldData(config,saved);
+    return {state:saved,result:{ok:true as const,changed:true,link}};
    });
   },
  };

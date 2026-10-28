@@ -35,7 +35,7 @@ async function main(){
  assert.equal(await page.getByRole('button',{name:/会话 TAPD/}).count(),0);
  for(const [operation,caption] of [['create','单据已创建 · 创建时的摘要'],['comment','评论已发表 · 操作时的摘要'],['status','状态已修改 · 操作时的摘要']]){
  const before=await page.evaluate(()=>window.calls.filter(x=>x.name==='tapd.entity').length);
- await page.evaluate(value=>window.showWriteCard(value),operation);await page.getByText(caption+' · 打开查看最新详情',{exact:true}).waitFor();
+ await page.evaluate(value=>window.showWriteCard(value),operation);await page.getByText(caption,{exact:true}).waitFor();
  assert.equal(await page.evaluate(()=>window.calls.filter(x=>x.name==='tapd.entity').length),before,'write card rendering never refetches or repeats the operation');
  await page.getByRole('button',{name:'打开 TAPD 需求 #11111111：示例需求',exact:true}).focus();await page.keyboard.press('Enter');const detail=page.getByRole('dialog',{name:'#11111111 · 单据详情',exact:true});await detail.getByText('完整正文',{exact:true}).waitFor();
  for(const action of ['写回评论','派给 Agent','绑定 Agent'])await detail.getByRole('button',{name:action,exact:true}).waitFor();

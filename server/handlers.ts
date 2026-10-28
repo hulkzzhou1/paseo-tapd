@@ -1,3 +1,4 @@
+import { invalidateTaskBoards } from "./task-board-state";
 import { sameTask, type AgentLinks } from "./agent-links";
 import { childrenRpc, childTypesRpc } from "../shared/contracts";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
@@ -238,6 +239,7 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
       const status = input.status.trim();
       if (!status) throw new Error("状态不能为空");
       await updateEntityStatus(config, input.workspaceId ?? "", input.kind, input.id, status);
+      invalidateTaskBoards(config);
       return { ok: true };
     },
 

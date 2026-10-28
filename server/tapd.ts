@@ -686,15 +686,16 @@ async function fetchTerminalStatuses(config: TapdConfig, kind: EntityKind, label
 }
 
 /** Board membership must never be guessed from a translated status label. */
-export async function fetchTaskClassification(config: TapdConfig, kind: EntityKind, workspaceId: string, status: string): Promise<"unfinished" | "completed" | "unknown"> {
-  if (!config.workspaceIds.includes(workspaceId) || !status) return "unknown";
+export async function fetchTaskClassification(config: TapdConfig, kind: EntityKind, workspaceId: string, status: string, workflow: {workitemTypeId?:string;parallel?:boolean} = {}): Promise<"unfinished" | "completed" | "unknown"> {
+  if (!config.workspaceIds.includes(workspaceId) || !status || workflow.parallel) return "unknown";
   if (kind === "task") {
     if (["done"].includes(status)) return "completed";
     if (["open", "progressing"].includes(status)) return "unfinished";
     return "unknown";
   }
+  if (kind === "story" && !workflow.workitemTypeId) return "unknown";
   try {
-    const data = await requestJson(config, "/workflows/last_steps", { workspace_id: workspaceId, system: kind }, 0);
+    const data = await requestJson(config, "/workflows/last_steps", { workspace_id: workspaceId, system: kind, type: "status", ...(workflow.workitemTypeId ? {workitem_type_id:workflow.workitemTypeId} : {}) }, 0);
     if (!data || typeof data !== "object" || Array.isArray(data) || !Object.keys(data).length || !Object.values(data).every(value => typeof value === "string")) return "unknown";
     const candidates = await fetchStatusOptions(config, kind, workspaceId);
     if (!candidates.some(option => option.value === status)) return "unknown";
@@ -1705,7 +1706,8 @@ export async function fetchEntitySummary(config: TapdConfig, kind: EntityKind, i
   const status = String(row.status ?? "");
   return { labels: readDisplayLabels(config, row), kind, id, workspaceId, title: String((kind === "bug" ? row.title : row.name) ?? ""),
     status, statusLabel: labels[status] ?? status, owner: String((kind === "bug" ? row.current_owner : row.owner) ?? "").trim(),
-    workflowAmbiguous: kind === "story" && [row.workitem_type_id, row.step, row.flows].some(value => value !== undefined && value !== null && value !== "" && value !== "0" && value !== 0 && (!Array.isArray(value) || value.length > 0)) };
+    workitemTypeId: kind === "story" && typeof row.workitem_type_id === "string" && row.workitem_type_id.length <= 100 && /^\d+$/.test(row.workitem_type_id) && row.workitem_type_id !== "0" ? row.workitem_type_id : undefined,
+    workflowParallel: kind === "story" && ((row.workitem_type_id !== undefined && row.workitem_type_id !== null && row.workitem_type_id !== "" && row.workitem_type_id !== "0" && row.workitem_type_id !== 0 && !/^\d+$/.test(String(row.workitem_type_id))) || [row.step, row.flows].some(value => value !== undefined && value !== null && value !== "" && value !== "0" && value !== 0 && (!Array.isArray(value) || value.length > 0))) };
 }
 
 export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: string): Promise<EntityDetailResult> {

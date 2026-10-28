@@ -10,7 +10,7 @@ export function BoardChildren({ entity, theme, onOpen, refreshToken }: { entity:
   const [expanded, setExpanded] = useState(false);
   const [limit, setLimit] = useState(5);
   const rpc = useRpc(childrenRpc);
-  const query = useQuery({ queryKey: ["tapd-children", entity.apiEndpoint, entity.workspaceId, entity.id, refreshToken], queryFn: () => rpc({ workspaceId: entity.workspaceId, id: entity.id }), enabled: expanded, staleTime: 0, retry: false });
+  const query = useQuery({ queryKey: ["tapd-children", entity.apiEndpoint, entity.workspaceId, entity.id, refreshToken], queryFn: () => rpc({ workspaceId: entity.workspaceId, id: entity.id }), enabled: expanded, staleTime: 0, retry: false, refetchOnWindowFocus: false, refetchOnReconnect: false });
   const c = theme.colors;
   return <View style={{ paddingHorizontal: 10, paddingBottom: 6, gap: 5 }}>
     <Pressable accessibilityRole="button" accessibilityLabel={`展开需求 #${entity.id} 的子单据`} accessibilityState={{ expanded }} onPress={() => setExpanded(value => !value)} style={{ minHeight: 32, justifyContent: "center" }}><Text style={{ color: c.accent, fontSize: 12 }}>{expanded ? "收起子单据" : "查看子单据"}</Text></Pressable>

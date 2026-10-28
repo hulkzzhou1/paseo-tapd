@@ -1,6 +1,7 @@
 import { childrenRpc, childTypesRpc } from "./shared/contracts";
 import { createOwnershipMigration } from "./server/ownership-migration";
 import { migrationListRpc, migrationConfirmRpc } from "./shared/ownership-migration";
+import {taskBoardRevision} from "./server/task-board-state";
 import { createAgentLinks, sameTask, suppressTask } from "./server/agent-links";
 import { createAssignmentService, createAssignmentTools } from "./server/agent-assignment";
 import { createTaskBoard } from "./server/task-board";
@@ -46,7 +47,7 @@ export default function contribute(server: PluginServerContext) {
     if ([config.token, values.syncGitToken].filter(Boolean).some(secret => JSON.stringify(result).includes(secret))) throw new Error("关联包含敏感配置，无法安全展示；原记录已保留。");
     return result;
   };
-  server.handle(agentLinksRpc, async () => ({ links: await visibleLinks(), pendingAgents: await migration.pendingAgents() }));
+  server.handle(agentLinksRpc, async () => ({ links: await visibleLinks(), pendingAgents: await migration.pendingAgents(), boardRevision: taskBoardRevision(resolveConfig(await getValues())) }));
   server.handle(removeAgentLinkRpc, link => agentLinks.stateTransaction(async state => {
     const matches = (item: typeof link) => sameTask(item, link) && item.agentId === link.agentId;
     if (state.links.some(item => matches(item) && item.responsibility)) throw new Error("已确认承担关系请使用退出操作并填写原因。");

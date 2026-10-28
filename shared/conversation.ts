@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { defineRpc } from "@getpaseo/plugin";
-import { entityKindSchema } from "./contracts";
+import { entityKindSchema, entityLabelsSchema } from "./contracts";
 
 const endpoint = z.url().max(4096).refine(value => {
   const url = new URL(value);
   return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash;
 });
 export const conversationEntitySchema = z.object({
+  labels: entityLabelsSchema,
   siteUrl: endpoint,
   apiEndpoint: endpoint,
   workspaceId: z.string().min(1).max(100).regex(/^\d+$/),

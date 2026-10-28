@@ -60,12 +60,12 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
             try {
               const columns = name === "tapd_board" ? Object.values(structuredContent.columns) as { items: { url: string; title: string; status: string; statusLabel: string; owner: string }[]; total: number; truncated: boolean; error: string | null }[] : [];
               const rows = name === "tapd_search" ? structuredContent.items : columns.flatMap(column => column.items);
-              const entities = rows.map((row: { url: string; title: string; status?: string; statusLabel?: string; owner?: string }) => {
+              const entities = rows.map((row: { url: string; title: string; status?: string; statusLabel?: string; owner?: string; labels?: string[] | null }) => {
                 const url = new URL(row.url);
                 const base = new URL(config.site);
                 const match = url.pathname.slice(base.pathname.replace(/\/$/, "").length).match(/^\/tapd_fe\/(\d+)\/(story|task|bug)\/detail\/(\d+)$/);
                 if (url.origin !== base.origin || url.username || url.password || url.search || url.hash || !match) throw new Error();
-                return conversationEntitySchema.parse({ siteUrl: config.site, apiEndpoint: config.endpoint, workspaceId: match[1], kind: match[2], id: match[3], title: row.title.slice(0, 500), status: (row.status ?? "").slice(0, 200), statusLabel: (row.statusLabel ?? "").slice(0, 200), owner: (row.owner ?? "").slice(0, 200) });
+                return conversationEntitySchema.parse({ siteUrl: config.site, apiEndpoint: config.endpoint, workspaceId: match[1], kind: match[2], id: match[3], title: row.title.slice(0, 500), status: (row.status ?? "").slice(0, 200), statusLabel: (row.statusLabel ?? "").slice(0, 200), owner: (row.owner ?? "").slice(0, 200), labels: row.labels });
               });
               const warnings = structuredContent.warnings ?? [];
               const partial = columns.some(column => column.error) || warnings.some((warning: string) => /失败/.test(warning));
@@ -91,7 +91,7 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
               const data = entityResultSchema.parse({
                 operation, entity: {
                   siteUrl: config.site, apiEndpoint: config.endpoint,
-                  workspaceId: entity.workspaceId, kind: entity.kind, id: entity.id,
+                  workspaceId: entity.workspaceId, kind: entity.kind, id: entity.id, labels: entity.labels,
                   title: (entity.title ?? "").slice(0, 500), status: (entity.status ?? "").slice(0, 200),
                   statusLabel: (entity.statusLabel ?? "").slice(0, 200), owner: (entity.owner ?? "").slice(0, 200),
                 },
@@ -116,7 +116,7 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
   async function actualTarget(input: z.output<typeof target>, handlers: Handlers) {
     const entity = await handlers.entity({ kind: input.kind, id: input.id, workspaceId: input.workspaceId, fresh: true });
     if (entity.workspaceId !== input.workspaceId || entity.id !== input.id) throw new Error();
-    return { kind: entity.kind, id: entity.id, workspaceId: entity.workspaceId, title: entity.title, status: entity.status, statusLabel: entity.statusLabel, owner: entity.owner };
+    return { kind: entity.kind, id: entity.id, workspaceId: entity.workspaceId, title: entity.title, status: entity.status, statusLabel: entity.statusLabel, owner: entity.owner, labels: entity.labels };
   }
 
   return [

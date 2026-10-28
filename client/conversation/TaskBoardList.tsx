@@ -4,6 +4,7 @@ import { conversationEntityKey, type ConversationEntity } from "../../shared/con
 import type { TaskBoard } from "../../shared/task-board";
 import { kindColor, statusTone, toneColor } from "../workbench/status-tones";
 import type { WorkbenchTheme } from "../workbench/bits";
+import { EntityLabels } from "../workbench/EntityLabels";
 import { BoardChildren } from "./BoardChildren";
 import { CardGrid } from "./CardGrid";
 
@@ -41,6 +42,7 @@ export function TaskBoardList({ board, theme, loading, failed, recentCount, onRe
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}><Text style={{ color: kindColor(entity.kind, theme), fontSize: 11 }}>{kinds[entity.kind]}</Text><Text style={{ color: c.foregroundMuted, fontSize: 11 }}>#{entity.id}</Text><Text style={{ color: toneColor(statusTone(entity.kind, entity.status, entity.statusLabel), theme), fontSize: 11 }}>{entity.statusLabel || entity.status || "状态待确认"}</Text></View>
           <Text numberOfLines={2} style={{ color: c.foreground, fontSize: 13, lineHeight: 18, fontWeight: "600" }}>{entity.title || "单据摘要暂不可用"}</Text>
           <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: 11 }}>负责 Agent · {item.link.agentTitle || item.link.agentId}</Text>
+          <EntityLabels labels={entity.labels} theme={theme} />
           {!!item.fetchedAt && <Text style={{color:item.stale?c.statusWarning:c.foregroundMuted,fontSize:10}}>{item.stale?"上次成功（已过期）":"读取时间"} · {new Date(item.fetchedAt).toLocaleString()}</Text>}
           {!!item.warning && <Text style={{ color: c.statusWarning, fontSize: 11, lineHeight: 16 }}>{item.warning}</Text>}
         </Pressable>{entity.kind === "story" && <BoardChildren entity={entity} refreshToken={board?.fetchedAt} theme={theme} onOpen={onOpen} />}</View>;

@@ -155,7 +155,7 @@ test('public board RPC and tools never publish protected labels, including escap
 });
 
 test('assignment, migration and visible-link RPCs reject SDK credentials before storage or transport',async t=>{
- const s=await setup(t,{syncGitToken:'sync"\\example-secret'}),secret=s.values.syncGitToken;
+ const s=await setup(t,{token:'active"\\independent-value',syncGitToken:'retired"\\different-value'}),secret=s.values.syncGitToken;
  s.agents.get('example-agent').title=secret;
  await assert.rejects(s.rpc('tapd.task.claim',{...target,agentId:'example-agent'}));
  assert.equal((await s.call('tapd_take_task',target)).isError,true);
@@ -183,4 +183,28 @@ test('status RPC and registered tool freshly verify accepted writes without fabr
  assert.ok((await s.rpc('tapd.agent-links',{})).boardRevision>before,'accepted writes invalidate before verification');
  mode='mismatch';
  const result=await s.call('tapd_update_status',{...target,status:'done'});assert.equal(result.isError,undefined);assert.equal(result.structuredContent.outcome,'unverified');assert.equal(result.structuredContent.writeState,'accepted');assert.equal(result.structuredContent.entity,undefined,'unverified result cannot claim requested status');assert.equal(posts,2);
+});
+
+
+test('dispatch RPC and registered tools reject independent legacy credentials before resource creation or provider send',async t=>{
+ const s=await setup(t,{token:'active"\\credential-alpha',syncGitToken:'retired"\\credential-gamma'});
+ process.env.TAPD_TOKEN='ambient"\\credential-beta';t.after(()=>delete process.env.TAPD_TOKEN);
+ const dispatch={...target,repoPath:'/example/repo',provider:'example/model',branchName:'fixture/approved',prompt:'Approved work'};
+ for(const secret of [s.values.token,process.env.TAPD_TOKEN,s.values.syncGitToken]){
+  await assert.rejects(s.rpc('tapd.task.dispatch',{...dispatch,prompt:`Approved work ${secret}`}),error=>!error.message.includes(secret));
+  const result=await s.call('tapd_dispatch_agent',{...dispatch,prompt:`Approved work ${secret}`});assert.equal(result.isError,true);
+  assert.equal(JSON.stringify(result).includes(JSON.stringify(secret).slice(1,-1)),false);
+ }
+ assert.deepEqual(s.creates,[]);assert.deepEqual(s.sends,[]);
+
+});
+
+
+test('assignment tool options redact an independently protected legacy SDK title without hiding safe metadata',async t=>{
+ const s=await setup(t,{token:'active"\\standalone-alpha',syncGitToken:'retired"\\standalone-gamma'});
+ s.agents.get('example-agent').title=s.values.syncGitToken;
+ const options=await s.call('tapd_agent_options',{});
+ assert.equal(options.isError,undefined);
+ assert.equal(options.structuredContent.agents.find(agent=>agent.id==='example-agent').title,'[redacted]');
+ assert.equal(options.structuredContent.agents.find(agent=>agent.id==='example-other').title,'example-other');
 });

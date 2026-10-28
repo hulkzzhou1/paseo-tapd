@@ -21,7 +21,7 @@ async function fixture(t, projects = '12345678,87654321') {
       if (state.post === 'rejected') { res.writeHead(403).end(); return; }
       if (params.has('status')) state.status = params.get('status'); state.afterPost = true; data = { Story: { id: target.id } };
     } else if (state.offline || (state.afterPost && state.post === 'unverified')) { res.writeHead(503).end(); return; }
-    else if (url.pathname === '/stories' && !state.missing && url.searchParams.get('workspace_id') === state.project) data = [{ [state.wrapper]: { id: state.id, workspace_id: state.project, name: 'Example', status: state.status } }];
+    else if (url.pathname === '/stories' && !state.missing && url.searchParams.get('workspace_id') === state.project) data = [{ [state.wrapper]: { id: state.id, workspace_id: state.project, name: 'Example', status: state.status, ...(state.entityType ? {entity_type:state.entityType} : {}) } }];
     else if (url.pathname === '/users/info') data = { nick: 'example-user' };
     else if (url.pathname.endsWith('/get_fields_info')) data = { status: { options: { open: 'Open', done: 'Done' } } };
     res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ status: 1, data }));
@@ -80,4 +80,18 @@ test('write outcomes distinguish rejection, unknown transport and accepted-unver
   const before = f.state.posts.length;
   const accepted = await f.rpc('tapd.update_status', { ...target, status: 'done' }); assert.equal(accepted.writeState, 'accepted'); assert.equal(accepted.outcome, 'unverified'); assert.equal(accepted.ok, false);
   assert.equal(f.state.posts.length, before + 1);
+});
+
+
+test('correctly wrapped existing targets cannot contradict their requested entity type before RPC or tool writes', async t => {
+  const f=await fixture(t);f.state.entityType='bug';
+  for(const [rpc,tool,input] of [['tapd.update_status','tapd_update_status',{...target,status:'done'}],['tapd.add_comment','tapd_add_comment',{...target,text:'Approved comment'}]]){
+    await assert.rejects(f.rpc(rpc,input));
+    assert.equal((await f.tool(tool,{...input,confirmed:true})).isError,true);
+  }
+  assert.equal(f.state.posts.length,0,'explicit type contradictions never reach POST');
+  f.state.entityType='story';
+  await f.rpc('tapd.update_status',{...target,status:'done'});
+  await f.rpc('tapd.add_comment',{...target,text:'Approved comment'});
+  assert.equal(f.state.posts.length,2,'matching actual types remain writable');
 });

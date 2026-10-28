@@ -16,6 +16,11 @@ class AssignmentError extends Error {
   constructor(code: string, message: string) { super(message); this.code = code; }
 }
 type Context = Pick<AgentToolContext, "paseo"> & { signal?: AbortSignal };
+function settingsSnapshot(snapshot: TapdSettingsValues) {
+  // Keep a still-readable retired secret only in execution-local protection, never saved settings.
+  return { ...tapdSettingsSchema.parse(snapshot),
+    ...("syncGitToken" in snapshot && typeof snapshot.syncGitToken === "string" ? { syncGitToken: snapshot.syncGitToken } : {}) };
+}
 export function createAssignmentService(getValues: () => Promise<TapdSettingsValues>, links: AgentLinks) {
   const lifecycle = createOwnershipLifecycle(getValues, links);
   const migration = createOwnershipMigration(getValues, links);
@@ -34,7 +39,7 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
   async function checked<T>(data: T): Promise<T> { protectFieldData(resolveConfig(await getValues()), data); return data; }
   async function target(raw: z.infer<typeof taskTargetSchema> & { reason?: string }, context: Context, validateEntity = true) {
     await lifecycle.reconcile(context);
-    const values = tapdSettingsSchema.parse(await getValues());
+    const values = settingsSnapshot(await getValues());
     const config = resolveConfig(values);
     if (!config.workspaceIds.includes(raw.workspaceId)) throw new Error("单据项目未配置。");
     if (validateEntity) await entity(raw, values);
@@ -71,7 +76,7 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
       const agentId = input.agentId ?? actorAgentId;
       if (!userAssignment && agentId !== actorAgentId) throw new Error("只能接手当前 Agent 的任务；用户指派请使用界面操作。");
       await lifecycle.reconcile(context);
-      const values = tapdSettingsSchema.parse(await getValues());
+      const values = settingsSnapshot(await getValues());
       const config = await entity(input, values);
       protectFieldData(config, input);
       const agent = await available(agentId, context);
@@ -145,7 +150,7 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
     },
     async dispatch(raw: z.infer<typeof taskDispatchSchema>, context: Context, actorAgentId: string): Promise<RpcOutput<typeof taskDispatchRpc>> {
       const input = taskDispatchSchema.parse(raw);
-      const values = tapdSettingsSchema.parse(await getValues());
+      const values = settingsSnapshot(await getValues());
       const config = await entity(input, values);
       if ([config.token, ...(config.protectedValues ?? [])].filter(Boolean).some(secret => input.prompt.includes(secret!))) throw new Error("提示词包含敏感配置。");
       const [projects, providers] = await Promise.all([context.paseo.projects.list(), context.paseo.providers.snapshot()]);
@@ -197,7 +202,7 @@ export function createAssignmentTools(getValues: () => Promise<TapdSettingsValue
         let secrets: string[] = [];
         try {
           if (context.signal?.aborted || Buffer.byteLength(JSON.stringify(raw)) > 64_000) throw new Error();
-          const values = tapdSettingsSchema.parse(await getValues());
+          const values = settingsSnapshot(await getValues());
           const config = resolveConfig(values);
           secrets = [config.token, ...(config.protectedValues ?? [])].filter(Boolean);
           const result = await run(input.parse(raw), context, values);

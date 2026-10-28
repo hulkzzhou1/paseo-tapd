@@ -19,7 +19,7 @@ export const ownershipEventSchema = ownershipScopeSchema.extend({
   previousAgentId: z.string().optional(), agentId: z.string().optional(), revision: z.string().optional(),
 });
 export const ownershipOfferSchema = ownershipScopeSchema.extend({
-  id: z.string(), actorAgentId: z.string().max(200), targetAgentId: z.string().max(200),
+  offerId: z.string(), actorAgentId: z.string().max(200), targetAgentId: z.string().max(200),
   expectedOwnerAgentId: z.string().optional(), expectedRevision: z.string().optional(),
   reason: z.string().max(500), createdAt: z.string(), acceptedRevision: z.string().optional(),
 });

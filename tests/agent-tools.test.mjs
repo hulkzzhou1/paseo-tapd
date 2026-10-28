@@ -22,6 +22,8 @@ const { tapdSettingsSchema } = await import("../shared/contracts.ts");
 const { clearTapdCache } = await import("../server/tapd.ts");
 for (const key of ["TAPD_TOKEN", "TAPD_WORKSPACE_IDS", "TAPD_API_ENDPOINT", "TAPD_SITE_URL"]) delete process.env[key];
 const initial = tapdSettingsSchema.parse({ token: "example-secret", syncGitToken: "example-git-secret", workspaceIds: "12345678,87654321", apiEndpoint: "https://api.example.com", siteUrl: "https://example.com" });
+// Exercise the compatibility boundary while an old settings snapshot remains readable.
+initial.syncGitToken = "example-git-secret";
 const context = () => ({ signal: new AbortController().signal });
 function setup(t, respond = () => []) {
   clearTapdCache();

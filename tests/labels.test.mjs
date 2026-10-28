@@ -15,6 +15,8 @@ const { default: contribute } = await import("../index.server.ts");
 const { labelsRpc, itemLabelsRpc, createLabelRpc } = await import("../shared/labels.ts");
 for (const key of ["TAPD_TOKEN", "TAPD_API_ENDPOINT", "TAPD_SITE_URL", "TAPD_WORKSPACE_IDS"]) delete process.env[key];
 const values = tapdSettingsSchema.parse({ token: "example-secret", syncGitToken: "example-git-secret", workspaceIds: "12345678,87654321", apiEndpoint: "https://api.example.com", siteUrl: "https://example.com" });
+// Exercise the compatibility boundary while an old settings snapshot remains readable.
+values.syncGitToken = "example-git-secret";
 const project = "87654321";
 function fixture(t) {
   clearTapdCache();

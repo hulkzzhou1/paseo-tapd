@@ -4,6 +4,7 @@ import { conversationEntityKey, type ConversationEntity } from "../../shared/con
 import type { TaskBoard } from "../../shared/task-board";
 import { kindColor, statusTone, toneColor } from "../workbench/status-tones";
 import type { WorkbenchTheme } from "../workbench/bits";
+import { BoardChildren } from "./BoardChildren";
 import { CardGrid } from "./CardGrid";
 
 const kinds = { story: "需求", task: "任务", bug: "缺陷" };
@@ -35,12 +36,12 @@ export function TaskBoardList({ board, theme, loading, failed, recentCount, onRe
       <CardGrid>{visible.map(item => {
         const entity = item.entity;
         const key = conversationEntityKey(entity);
-        return <Pressable key={key} accessibilityRole="button" accessibilityLabel={`打开任务 #${entity.id}：${entity.title}`} onFocus={() => setFocused(key)} onBlur={() => setFocused("")} onPress={() => onOpen(entity)} style={({ pressed }) => ({ borderWidth: 1, borderColor: focused === key ? c.accent : c.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, gap: 3, backgroundColor: pressed ? c.surface2 : c.surface1 })}>
+        return <View key={key}><Pressable accessibilityRole="button" accessibilityLabel={`打开任务 #${entity.id}：${entity.title}`} onFocus={() => setFocused(key)} onBlur={() => setFocused("")} onPress={() => onOpen(entity)} style={({ pressed }) => ({ borderWidth: 1, borderColor: focused === key ? c.accent : c.border, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, gap: 3, backgroundColor: pressed ? c.surface2 : c.surface1 })}>
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}><Text style={{ color: kindColor(entity.kind, theme), fontSize: 11 }}>{kinds[entity.kind]}</Text><Text style={{ color: c.foregroundMuted, fontSize: 11 }}>#{entity.id}</Text><Text style={{ color: toneColor(statusTone(entity.kind, entity.status, entity.statusLabel), theme), fontSize: 11 }}>{entity.statusLabel || entity.status || "状态待确认"}</Text></View>
           <Text numberOfLines={2} style={{ color: c.foreground, fontSize: 13, lineHeight: 18, fontWeight: "600" }}>{entity.title || "单据摘要暂不可用"}</Text>
           <Text numberOfLines={1} style={{ color: c.foregroundMuted, fontSize: 11 }}>负责 Agent · {item.link.agentTitle || item.link.agentId}</Text>
           {!!item.warning && <Text style={{ color: c.statusWarning, fontSize: 11, lineHeight: 16 }}>{item.warning}</Text>}
-        </Pressable>;
+        </Pressable>{entity.kind === "story" && <BoardChildren entity={entity} refreshToken={board?.fetchedAt} theme={theme} onOpen={onOpen} />}</View>;
       })}</CardGrid>
       {!visible.length && <View style={{ padding: 24, gap: 8, alignItems: "center" }}><Text style={{ color: c.foreground, fontSize: 14 }}>当前分类没有任务</Text><Text style={{ color: c.foregroundMuted, fontSize: 12, lineHeight: 18 }}>明确接手单据后才会进入任务看板；历史绑定需要确认归属。</Text></View>}
     </ScrollView>

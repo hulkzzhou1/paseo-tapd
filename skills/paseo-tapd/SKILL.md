@@ -44,7 +44,7 @@ description: 在 Paseo 中通过 TAPD 工具查询、接手、创建单据，记
 
 | 意图 | 工具与准备 |
 | --- | --- |
-| 建需求、任务、缺陷 | 先用 `tapd_create_fields` 读取目标项目/类型的必填字段和可选值，再用 `tapd_create`。子任务或子缺陷先读取父需求，用其实际项目及 `storyId`；不要静默选首个项目或猜必填值。 |
+| 建需求、任务、缺陷 | 先用 `tapd_create_fields` 读取目标项目/类型的必填字段和可选值，再用 `tapd_create`。子任务或子缺陷先读取父需求，用其实际项目及 `storyId`；子需求先用 `tapd_child_types` 取得双方允许的类别，再显式提供 `parentStoryId` 和 `workitemTypeId`；不要静默选首个项目或猜必填值。 |
 | 改状态 | 先读详情及项目状态，再用 `tapd_update_status` 提交状态 key；`unchanged: true` 表示没有发生变更。 |
 | 更新需求方案字段 | 用 `tapd_field_definitions` 按 label 确认实际 key，再用 `tapd_read_field` 读原文；保留人工内容，展示旧值与完整新值后，以 `tapd_update_field` 提交。 |
 | 查询、创建项目标签 | `tapd_labels` 读取项目定义，满页按 `nextPage` 继续；`name` 是模糊筛选。明确授权完整项目、名称及可选颜色后用 `tapd_create_label`，仅创建定义、不附加单据；同名不写入或改色。 |
@@ -68,3 +68,9 @@ description: 在 Paseo 中通过 TAPD 工具查询、接手、创建单据，记
 输入框上方 TAPD 入口打开本次会话侧栏列表；选择单据打开可复用的详情 tab。会话收录不表示 Agent 绑定。卡片是历史摘要，判断当前状态依赖最新详情。
 
 向用户报告实际操作结果和单据入口；阶段结束说明已验证内容、当前/建议状态、绑定是否确认及待处理事项。没有执行的写入明确标注为建议或待确认。
+
+## 真实任务拆分
+
+用 `tapd_children` 查询父需求的直属子需求、子任务与相关缺陷，检查各类 partial/truncated/total；未知数量不当作零。子单据的主要负责 Agent 独立解析，归属待确认不表示未接手；查看不绑定，父负责人不自动成为子负责人。独立交付拆成真实 TAPD 子任务或子需求，子单完成不推断父完成。
+
+子需求建单必须从实际父项目读取 `tapd_child_types` 和类别对应 `tapd_create_fields`，使用返回类别 ID，不通过 extraFields 写 parent_id 或 workitem_type_id。能力、类别关系或必填元数据不支持时说明限制，不改成无父级的顶层单据。子创建后仅 `outcome=verified` 表示父级与类别已核实；accepted/unverified 按返回单号 `tapd_entity` 只读核对，unknown 搜索并核查实际关系，不自动重建或因为卡片失败重复 POST。

@@ -92,7 +92,7 @@ MIT
 - 顶部常驻六项下拉筛选：状态范围（全部 / 未结束 / 已结束）、迭代、更新时间、处理人、创建人、优先级；人员支持搜索单选及准确昵称输入，优先级支持多选。选择即时生效，旧视图中的选择继续保留；严重程度、关键词、标签和已添加的高级条件也直接显示在顶部，不再提供「更多筛选」入口。具体工作流状态及其他动态字段通过「添加条件」选择。
 - 状态范围按各项目的工作流结束状态判断，支持自定义完成状态；高级条件中的状态条件与所选范围取交集。
 - 视图 = 可复用的过滤预设：内置「我相关的」（负责人、创建人、开发、参与、关注或评论过，以及关联任务涉及我），另支持关键词、负责人、创建人、状态范围、迭代、最近更新时间、优先级、缺陷严重程度、标签，以及工作区 TAPD 字段定义中的任意字段
-- 单据详情浮窗：描述、评论、在 TAPD 中打开、复制链接；需求详情额外展示该需求下挂的任务列表与缺陷列表（分页展示，超过 200 条时显示「前 200 / 共 N 条」截断提示，点击可切换到对应单据详情）；任务/缺陷详情显示所属需求入口；关联的 Agent 以名称显示并实时展示状态与最近工作结果
+- 单据详情浮窗：描述、评论、在 TAPD 中打开、复制链接；需求详情额外展示真实子需求、任务列表与相关缺陷列表（分页展示，超过 200 条时显示「前 200 / 共 N 条」截断提示，点击可切换到对应单据详情）；任务/缺陷详情显示所属需求入口；关联的 Agent 以名称显示并实时展示状态与最近工作结果
 - 任务/缺陷卡片把 `#id` 独立展示在标题下一行，并显示「需求：所属需求」标识；详情浮窗中子单据列表行标题悬停时在行内展开全文
 - 派给 Agent：选择仓库与 provider/model；插件创建 worktree 工作区并启动一个预置了单据快照的 Agent，之后可从卡片追踪
 - 看板秒开：89 秒内的看板数据直接复用（同一过滤条件各自独立缓存）；过期先显示上次数据并在顶部提示「后台刷新中…」，同时后台重拉，刷新完成后自动更新；「刷新」按钮强制绕过缓存
@@ -193,6 +193,7 @@ The current published compatible SDK is `@getpaseo/plugin@0.14.0-beta.1`, pinned
 | `tapd_projects` | Configured project IDs / 已配置项目 |
 | `tapd_board`, `tapd_search`, `tapd_entity` | Filter, search and full detail / 筛选、搜索与完整详情 |
 | `tapd_filter_options`, `tapd_filter_fields`, `tapd_members` | Iterations, filters and member candidates / 迭代、筛选字段与人员 |
+| `tapd_children`, `tapd_child_types` | Real direct children, responsible Agents and permitted child requirement categories / 真实子单据、主要负责 Agent 与允许的子需求类别 |
 | `tapd_status_options`, `tapd_create_fields` | Project-specific workflow and creation fields / 项目工作流与建单字段 |
 | `tapd_field_definitions`, `tapd_read_field`, `tapd_update_field` | Discover, read and verify one story text/rich-text field / 发现、读取并核实需求单字段更新 |
 | `tapd_labels`, `tapd_item_labels`, `tapd_create_label` | Fresh paged project labels, exact item-label reads and approved project-label creation / 项目标签分页、单据标签实时读取、授权创建项目标签 |
@@ -304,3 +305,9 @@ Story field tools recognize both `rich_edit` and `rich_text`, discover actual pr
 看板的「待确认归属」保留旧工具关联和旧设置关联，包括同一单据的多个候选及其来源。可按单号、项目或 Agent 搜索，选定候选后明确确认；历史单一绑定也不会自动成为正式任务。候选集合发生变化时拒绝旧确认，要求刷新重选。普通查看记录继续位于「最近查看」，不混入任务计数。
 
 打开看板时按当前配置读取旧设置关联的真实项目，只读核实不会接手、写 TAPD 或通知 Agent；单次最多处理 200 条待导入源记录，未完成时给出提示。失败保留原来源，可稍后重试；后台两秒本机关联轮询不会触发这项 TAPD 读取。确认后只保留一个主要负责人，原候选记录归档在本机，同时持久化抑制标记，旧设置同步、重复导入和重载均不能恢复被排除的绑定。关联界面只采用服务端生效结果，不再自行合并旧设置。
+
+### Real TAPD children / 真实子单据
+
+需求任务卡片可展开直属子需求、子任务和相关缺陷，直接打开详情；详情保留分页阅读。每类最多实时读取 200 条，已读取数量、未知总数、部分失败与截断分别显示，失败不等于没有子单。主要负责 Agent 来自各子单自身的确认关联，父负责人不会自动复制，读取和恢复不接手或推进任何父子状态。
+
+从需求详情使用「+ 子需求」选择允许的需求类别，再填写完整表单。工具使用 `tapd_child_types` 发现类别，`tapd_create` 明确传入 `parentStoryId` 和 `workitemTypeId`；任务/缺陷继续使用 `storyId`。共享创建边界实时核对实际父项目、双方类别约束和必填字段，禁止通过扩展字段覆写父级/类别。子创建成功后实时核实新单项目、父级和类别；`accepted/unverified` 需要按返回单号只读核查，不能重复创建。界面遇到此结果或无法判断的创建异常时保留草稿并停止重复提交。类别读取最多 1000 条，缺失、不完整、未启用或不允许的类别明确停止，不静默创建顶层单据。实际部署权限与类别必填元数据仍由远端校验。

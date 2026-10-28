@@ -1,3 +1,4 @@
+import { childrenRpc, childTypesRpc } from "./shared/contracts";
 import { createOwnershipMigration } from "./server/ownership-migration";
 import { migrationListRpc, migrationConfirmRpc } from "./shared/ownership-migration";
 import { createAgentLinks, sameTask, suppressTask } from "./server/agent-links";
@@ -51,13 +52,15 @@ export default function contribute(server: PluginServerContext) {
     if (state.links.some(item => matches(item) && item.responsibility)) throw new Error("已确认承担关系请使用退出操作并填写原因。");
     return { state: { ...suppressTask(state, link, "user"), links: state.links.filter(item => !matches(item)) }, result: { ok: true as const } };
   }));
-  const handlers = createHandlers(getValues);
+  const handlers = createHandlers(getValues, {}, agentLinks);
+  server.handle(childrenRpc, handlers.children);
+  server.handle(childTypesRpc, handlers.childTypes);
   server.handle(labelsRpc, handlers.labels);
   server.handle(itemLabelsRpc, handlers.itemLabels);
   server.handle(createLabelRpc, handlers.createLabel);
   server.handle(updateLabelsRpc, handlers.updateLabels);
   const conversations = createConversationRuntime(getValues);
-  const tools = [...createTapdTools(getValues, conversations), ...createAssignmentTools(getValues, agentLinks)];
+  const tools = [...createTapdTools(getValues, conversations, agentLinks), ...createAssignmentTools(getValues, agentLinks)];
   server.handle(conversationBatchPageRpc, (input, context) => conversations.batchPage({ paseo: context.paseo, agentId: input.agentId }, input));
   server.handle(conversationRefreshRpc, ({ agentId, entity }, context) => conversations.refreshEntity({ paseo: context.paseo, agentId }, entity).catch(() => { throw new Error("单据摘要读取失败，请刷新重试。"); }));
   server.handle(conversationListRpc, (_input, context) => conversations.list(context));

@@ -1,7 +1,7 @@
 {
   "id": "tapd-workbench",
   "name": "TAPD Workbench",
-  "description": "TAPD 工作台：唯一负责 Agent 任务看板与历史归属确认、TAPD 工作流状态、通用项目标签与单据标签增删核实、需求字段核实更新、静默指派、接受委派、转交退出和受控派发、紧凑双列卡片与完整详情 / TAPD workbench with exclusive Agent responsibility and legacy confirmation, workflow-backed task boards, generic labels and verified incremental item label changes, verified field edits, silent assignment, accepted delegation, transfer/release, approved dispatch and compact detail cards",
+  "description": "TAPD 工作台：唯一负责 Agent 任务看板与历史归属确认、TAPD 工作流状态、真实子需求/任务拆分与追踪、通用项目标签与单据标签增删核实、需求字段核实更新、静默指派、接受委派、转交退出和受控派发、紧凑双列卡片与完整详情 / TAPD workbench with exclusive Agent responsibility and legacy confirmation, workflow-backed task boards, real child requirements/tasks, generic labels and verified incremental item label changes, verified field edits, silent assignment, accepted delegation, transfer/release, approved dispatch and compact detail cards",
   "media": [
     "assets/screenshots/workbench-v2.png"
   ],

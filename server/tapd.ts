@@ -58,6 +58,8 @@ export interface EntityComment {
 
 /** 需求详情中的子单据行（关联任务/关联缺陷） */
 export interface EntityChildItem {
+  workspaceId: string; status: string; parentId: string;
+  responsibleAgent: { id: string; title: string } | null;
   kind: EntityKind;
   id: string;
   title: string;
@@ -88,11 +90,13 @@ export interface EntityDetailResult {
   commentsError: string | null;
   /** 仅需求：该需求下挂的任务（TAPD task.story_id） */
   childTasks: EntityChildItem[];
+  childStories: EntityChildItem[];
+  childReads: Record<EntityKind, { total: number | null; partial: boolean; truncated: boolean; error: string | null }>;
   /** 仅需求：该需求下挂的缺陷（TAPD bug.story_id） */
   childBugs: EntityChildItem[];
   /** 仅需求：任务/缺陷真实总数（> 列表长度说明列表被 limit 200 截断；0 = 未知/未统计） */
-  childTasksTotal: number;
-  childBugsTotal: number;
+  childTasksTotal: number | null;
+  childBugsTotal: number | null;
   /** 仅任务/缺陷：所属需求（TAPD task.story_id / bug.story_id） */
   parentStory: { id: string; title: string; url: string } | null;
 }
@@ -962,6 +966,8 @@ export interface CreateEntityInput {
   iterationId: string;
   /** 挂载的所属需求 ID（仅 task/bug 生效） */
   storyId?: string;
+  parentStoryId?: string;
+  workitemTypeId?: string;
   /** 单据所在项目；缺省仍取 workspaceIds[0] */
   workspaceId?: string;
   /** 动态表单收集的其余可写字段（key 会经 denylist 过滤） */
@@ -971,7 +977,7 @@ export interface CreateEntityInput {
 /** 创建接口额外透传字段时禁止的系统列/受控列（含动态表单里已静态化的列） */
 const CREATE_FIELD_DENYLIST = new Set([
   "id", "workspace_id", "story_id", "parent_id", "name", "title", "description",
-  "owner", "current_owner", "priority_label", "iteration_id", "status",
+  "owner", "current_owner", "priority_label", "iteration_id", "status", "workitem_type_id",
   "created", "modified", "creator", "reporter", "cc", "follower",
 ]);
 
@@ -1206,11 +1212,12 @@ export async function fetchCreateFields(
   config: TapdConfig,
   kind: EntityKind,
   workspaceId?: string,
+  workitemTypeId?: string,
 ): Promise<{ me: string; fields: CreateFieldInfo[] }> {
   const ws = (workspaceId ?? "").trim() || config.workspaceIds[0] || "";
   let data: unknown;
   try {
-    data = await requestJson(config, FIELDS_INFO_PATH[kind], { workspace_id: ws }, 30 * 60_000);
+    data = await requestJson(config, FIELDS_INFO_PATH[kind], { workspace_id: ws, workitem_type_id: workitemTypeId }, 30 * 60_000);
   } catch {
     return { me: "", fields: [] };
   }
@@ -1258,12 +1265,104 @@ export async function fetchCreateFields(
   return { me, fields };
 }
 
+async function readHierarchyStory(config: TapdConfig, workspaceId: string, id: string) {
+  if (!config.workspaceIds.includes(workspaceId) || !/^\d{1,100}$/.test(id)) throw new TapdApiError("父需求项目或编号无效。");
+  const data = await requestJson(config, "/stories", { workspace_id: workspaceId, id, limit: 1, fields: "id,workspace_id,name,workitem_type_id,parent_id" }, 0, true);
+  const row = unwrapRows(data, ["Story"])[0];
+  if (!row || String(row.id) !== id || String(row.workspace_id ?? "") !== workspaceId) throw new TapdApiError("父需求未返回或项目不匹配，未提交。");
+  return row;
+}
+function categoryAllows(value: unknown, id: string): boolean {
+  if (value === "") return true;
+  if (value === "|") return false;
+  if (typeof value !== "string" || !/^\|?\d+(?:\|\d+)*\|?$/.test(value)) throw new TapdApiError("需求类别关系元数据未知，未提交。");
+  return value.split("|").includes(id);
+}
+export async function fetchChildHierarchy(config: TapdConfig, workspaceId: string, parentId: string) {
+  await readHierarchyStory(config, workspaceId, parentId);
+  const scoped = { ...config, workspaceIds: [workspaceId], freshReads: true };
+  const items: EntityChildItem[] = [];
+  const reads = {} as EntityDetailResult["childReads"];
+  await Promise.all((["story", "task", "bug"] as const).map(async kind => {
+    const collected: EntityChildItem[] = [], seen = new Set<string>();
+    let partial = false, truncated = false, error: string | null = null, total: number | null = null;
+    const relation = kind === "story" ? "parent_id" : "story_id";
+    const labels = await fetchStatusLabels(scoped, kind);
+    for (let page = 1; page <= 2; page++) {
+      try {
+        const data = await requestJson(scoped, LIST_PATH[kind], { workspace_id: workspaceId, [relation]: parentId, page, limit: 100, order: "id asc",
+          fields: `id,workspace_id,${relation},${kind === "bug" ? "title,current_owner" : "name,owner"},status,priority_label` }, 0, true);
+        if (!Array.isArray(data) || data.length > 100) throw new Error();
+        for (const row of unwrapRows(data, [KIND_WRAPPER[kind]])) {
+          const id = String(row?.id ?? "");
+          if (!/^\d{1,100}$/.test(id) || String(row.workspace_id ?? "") !== workspaceId || String(row[relation] ?? "") !== parentId) { partial = true; error = "部分子单据项目或父级不匹配，已排除。"; continue; }
+          if (seen.has(id)) continue;
+          seen.add(id);
+          const status = String(row.status ?? "");
+          collected.push({ kind, id, workspaceId, parentId, status, title: String((kind === "bug" ? row.title : row.name) ?? "").slice(0, 500), statusLabel: labels[status] ?? status,
+            owner: String((kind === "bug" ? row.current_owner : row.owner) ?? "").slice(0, 200), priority: String(row.priority_label ?? "").slice(0, 100),
+            url: entityUrl(config, workspaceId, kind, id), responsibleAgent: null });
+        }
+        if (data.length < 100) { total = partial ? null : collected.length; break; }
+        truncated = page === 2;
+      } catch { partial = true; truncated = true; error = "子单据读取不完整，请刷新重试。"; break; }
+    }
+    if (truncated && !partial) {
+      try { const data = await requestJson(scoped, COUNT_PATH[kind], { workspace_id: workspaceId, [relation]: parentId }, 0, true);
+        if (data?.count === undefined || data.count === null || !Number.isSafeInteger(Number(data.count)) || Number(data.count) < collected.length) throw new Error();
+        total = Number(data.count); truncated = total > collected.length;
+      } catch { partial = true; error = "子单据总数未知，已保留读取结果。"; }
+    }
+    reads[kind] = { total, partial, truncated, error };
+    items.push(...collected);
+  }));
+  protectFieldData(config, items);
+  return { items, reads };
+}
+
+export async function fetchChildTypes(config: TapdConfig, workspaceId: string, parentId: string) {
+  const parent = await readHierarchyStory(config, workspaceId, parentId);
+  const types: any[] = [];
+  for (let page = 1; page <= 5; page++) {
+    const data = await requestJson(config, "/workitem_types", { workspace_id: workspaceId, page, limit: 200, order: "id asc" }, 0, true);
+    if (!Array.isArray(data) || data.length > 200) throw new TapdApiError("需求类别元数据不可用。");
+    for (const entry of data) {
+      const type = unwrapRow(entry, ["WorkitemType"]);
+      if (!type || String(type.workspace_id) !== workspaceId || !/^\d{1,100}$/.test(String(type.id)) || (type.entity_type !== undefined && type.entity_type !== "story")) throw new TapdApiError("需求类别项目或类型不匹配。");
+      if (types.some(existing => String(existing.id) === String(type.id))) throw new TapdApiError("需求类别元数据重复或不完整，未提交。");
+      types.push(type);
+    }
+    if (data.length < 200) break;
+    if (page === 5) throw new TapdApiError("需求类别列表不完整，未提交。");
+  }
+  const parentType = types.find(type => String(type.id) === String(parent.workitem_type_id));
+  if (!parentType || String(parentType.status) !== "3") throw new TapdApiError("父需求类别未知或未启用，未提交。");
+  const allowed = types.filter(type => String(type.status) === "3" && categoryAllows(parentType.children_ids, String(type.id)) && categoryAllows(type.parent_ids, String(parentType.id)))
+    .map(type => ({ id: String(type.id), name: String(type.name ?? "").slice(0, 200) }));
+  protectFieldData(config, allowed);
+  return { types: allowed };
+}
+
 export async function createEntity(
   config: TapdConfig,
   input: CreateEntityInput,
-): Promise<{ id: string; kind: EntityKind; url: string }> {
+) {
   const workspaceId = (input.workspaceId ?? "").trim() || config.workspaceIds[0] || "";
+  protectFieldData(config, input);
+  const parentId = input.parentStoryId || input.storyId || "";
+  if (input.parentStoryId && (input.kind !== "story" || input.storyId)) throw new TapdApiError("子需求父级参数无效。");
+  if (input.kind === "story" && input.storyId) throw new TapdApiError("子需求请使用显式 parentStoryId。");
+  if (input.workitemTypeId && input.kind !== "story") throw new TapdApiError("需求类别不能用于任务或缺陷。");
+  if (parentId) {
+    await readHierarchyStory(config, workspaceId, parentId);
+    if (input.kind === "story") {
+      const { types } = await fetchChildTypes(config, workspaceId, parentId);
+      if (!input.workitemTypeId || !types.some(type => type.id === input.workitemTypeId)) throw new TapdApiError("该父需求不允许所选子需求类别，未提交。");
+    }
+  }
   const params: Record<string, QueryValue> = { workspace_id: workspaceId };
+  if (input.parentStoryId) params.parent_id = input.parentStoryId;
+  if (input.workitemTypeId) params.workitem_type_id = input.workitemTypeId;
   if (input.kind === "bug") params.title = input.title;
   else params.name = input.title;
   if (input.description.trim()) {
@@ -1284,11 +1383,28 @@ export async function createEntity(
     const value = (rawValue ?? "").trim();
     if (value) params[key] = value;
   }
+  if (parentId) {
+    const fields = await requestJson(config, FIELDS_INFO_PATH[input.kind], { workspace_id: workspaceId, workitem_type_id: input.workitemTypeId }, 0, true);
+    if (!fields || typeof fields !== "object" || Array.isArray(fields) || !fields[input.kind === "bug" ? "title" : "name"]) throw new TapdApiError("建单必填字段元数据不可用，未提交。");
+    for (const [key, value] of Object.entries(fields)) {
+      const field = value as any;
+      if (field && [true, 1, "1"].includes(field.required) && ![true, 1, "1"].includes(field.readonly) && !params[key]) throw new TapdApiError("存在未填写的必填字段，未提交。");
+    }
+  }
   const data = await requestPost(config, LIST_PATH[input.kind], params);
   const row = unwrapRow(data, [KIND_WRAPPER[input.kind]]);
   const id = String(row?.id ?? "");
   if (!id) throw requestFailure("write", "missing_created_id");
-  return { id, kind: input.kind, url: entityUrl(config, workspaceId, input.kind, id) };
+  const result = { id, kind: input.kind, url: entityUrl(config, workspaceId, input.kind, id) };
+  if (!parentId) return result;
+  try {
+    const actual = await requestJson(config, LIST_PATH[input.kind], { workspace_id: workspaceId, id, limit: 1, fields: "id,workspace_id,parent_id,story_id,workitem_type_id" }, 0, true);
+    const created = unwrapRows(actual, [KIND_WRAPPER[input.kind]])[0];
+    const verified = !!created && String(created.id) === id && String(created.workspace_id) === workspaceId
+      && String(created[input.kind === "story" ? "parent_id" : "story_id"]) === parentId
+      && (input.kind !== "story" || String(created.workitem_type_id) === input.workitemTypeId);
+    return { ...result, writeState: "accepted" as const, outcome: verified ? "verified" as const : "unverified" as const };
+  } catch { return { ...result, writeState: "accepted" as const, outcome: "unverified" as const }; }
 }
 
 export async function fetchFilterFields(config: TapdConfig): Promise<FilterField[]> {
@@ -1585,8 +1701,9 @@ export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: stri
   for (const candidate of config.workspaceIds) {
     const data = await requestJson(config, LIST_PATH[kind], { workspace_id: candidate, id, limit: 1 });
     const rows = unwrapRows(data, [KIND_WRAPPER[kind]]);
-    if (rows.length > 0) {
-      row = rows[0];
+    const match = rows.find(value => String(value?.id) === id && (value.workspace_id === undefined || String(value.workspace_id) === candidate));
+    if (match) {
+      row = match;
       workspaceId = candidate;
       break;
     }
@@ -1595,8 +1712,8 @@ export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: stri
     throw new TapdApiError(`未找到${KIND_LABELS[kind]} #${id}`);
   }
 
-  const labels = await fetchStatusLabels(config, kind);
-  const iterationMap = await fetchIterationMap(config);
+  const labels = await fetchStatusLabels({ ...config, workspaceIds: [workspaceId] }, kind);
+  const iterationMap = await fetchIterationMap({ ...config, workspaceIds: [workspaceId] });
   const status = String(row.status ?? "");
   const iterationId = String(row.iteration_id ?? "");
   const detail: EntityDetailResult = {
@@ -1618,6 +1735,8 @@ export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: stri
     comments: [],
     commentsError: null,
     childTasks: [],
+    childStories: [],
+    childReads: { story: { total: null, partial: false, truncated: false, error: null }, task: { total: null, partial: false, truncated: false, error: null }, bug: { total: null, partial: false, truncated: false, error: null } },
     childBugs: [],
     childTasksTotal: 0,
     childBugsTotal: 0,
@@ -1625,8 +1744,8 @@ export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: stri
   };
 
   // 任务/缺陷详情：解析所属需求（story_id），点击可跳回需求详情
-  if (kind !== "story") {
-    const storyId = String(row.story_id ?? "").trim();
+  if (kind !== "story" || row.parent_id) {
+    const storyId = String(kind === "story" ? row.parent_id : row.story_id ?? "").trim();
     if (storyId && storyId !== "0") {
       const parent = { id: storyId, title: "", url: entityUrl(config, workspaceId, "story", storyId) };
       try {
@@ -1665,62 +1784,21 @@ export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: stri
     detail.commentsError = describeError(error);
   }
 
-  // 需求详情：拉取该需求下挂的任务与缺陷（task.story_id / bug.story_id）
   if (kind === "story") {
-    const labelsFor: Record<EntityKind, Record<string, string>> = {
-      task: await fetchStatusLabels(config, "task"),
-      bug: await fetchStatusLabels(config, "bug"),
-      story: {},
-    };
-    const loadChildren = async (childKind: Exclude<EntityKind, "story">): Promise<EntityChildItem[]> => {
-      try {
-        const data = await requestJson(config, LIST_PATH[childKind], {
-          workspace_id: workspaceId,
-          story_id: id,
-          limit: 200,
-          order: "modified desc",
-          fields: LIST_FIELDS[childKind],
-        });
-        return unwrapRows(data, [KIND_WRAPPER[childKind]])
-          .map((row) => {
-            const childId = String(row?.id ?? "");
-            const status = String(row?.status ?? "");
-            return {
-              kind: childKind,
-              id: childId,
-              title: String((childKind === "bug" ? row?.title : row?.name) ?? ""),
-              statusLabel: labelsFor[childKind][status] ?? status,
-              owner: String((childKind === "bug" ? row?.current_owner : row?.owner) ?? "").trim(),
-              priority: String(row?.priority_label ?? "").trim(),
-              url: entityUrl(config, workspaceId, childKind, childId),
-            };
-          })
-          .filter((item) => item.id.length > 0);
-      } catch {
-        return []; // 子单据读取失败不阻塞需求详情
-      }
-    };
-    const countChildren = async (childKind: Exclude<EntityKind, "story">): Promise<number> => {
-      try {
-        const data = await requestJson(config, COUNT_PATH[childKind], {
-          workspace_id: workspaceId,
-          story_id: id,
-        });
-        const count = Number(data?.count ?? 0);
-        return Number.isFinite(count) ? count : 0;
-      } catch {
-        return 0;
-      }
-    };
-    const [tasks, bugs] = await Promise.all([loadChildren("task"), loadChildren("bug")]);
-    const [taskTotal, bugTotal] = await Promise.all([
-      tasks.length >= 200 ? countChildren("task") : Promise.resolve(0),
-      bugs.length >= 200 ? countChildren("bug") : Promise.resolve(0),
-    ]);
-    detail.childTasks = tasks;
-    detail.childBugs = bugs;
-    detail.childTasksTotal = taskTotal;
-    detail.childBugsTotal = bugTotal;
+    try {
+      const children = await fetchChildHierarchy(config, workspaceId, id);
+      detail.childTasks = children.items.filter(item => item.kind === "task");
+      detail.childStories = children.items.filter(item => item.kind === "story");
+      detail.childBugs = children.items.filter(item => item.kind === "bug");
+      detail.childReads = children.reads;
+      if (Object.values(children.reads).some(read => read.partial)) config.readWarnings?.push("部分子单据读取失败，结果不完整。");
+      detail.childTasksTotal = children.reads.task.total;
+      detail.childBugsTotal = children.reads.bug.total;
+    } catch {
+      for (const kind of ["story", "task", "bug"] as const) detail.childReads[kind] = { total: null, partial: true, truncated: true, error: "子单据读取失败，不能判断为空。" };
+      config.readWarnings?.push("子单据读取失败，不能判断为空。");
+      detail.childTasksTotal = null; detail.childBugsTotal = null;
+    }
   }
   return detail;
 }

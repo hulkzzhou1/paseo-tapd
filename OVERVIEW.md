@@ -87,7 +87,7 @@ Tool inputs are bounded by UTF-8 byte length. Result `warnings` flag tolerated r
 
 看板的读取警告随快照缓存（包括界面先加载及后台刷新），缓存命中不会丢失完整性提示。「我处理的」无法识别当前用户时直接报错，不扩大为全员查询。Board read warnings travel with cached snapshots, including UI-warmed results and background refreshes. If the current user cannot be resolved, a mine query fails rather than broadening to everyone.
 
-读取响应、工作台快照及在途请求按 API/站点、配置项目和凭据作用域隔离；选择缓存前先校验当前连接。缓存作用域只保留凭据的 SHA-256 指纹，不含原始 Token。设置页的连接测试每次重新验证当前草稿凭据，不复用旧用户结果；测试不会保存草稿。
+读取响应、工作台快照及在途请求按 API/站点、配置项目和凭据作用域隔离；选择缓存前先校验当前连接。缓存作用域只保留凭据的 SHA-256 指纹，不含原始 Token。设置页的连接测试每次重新验证当前草稿凭据，不复用旧用户结果；测试不会保存草稿。设置变更或写入会使旧读取失效：过时的前台结果提示刷新，后台结果不能覆盖新快照或清除较新的刷新任务；允许回退的旧快照保留原成功时间及连接作用域。
 
 
 Single-item tool queries also append a clickable result card to the calling conversation through the public Paseo timeline API. Card data contains only the item project, kind, ID, bounded title/status/owner, connection identifiers and generic completeness warnings; full descriptions, comment bodies and credentials are excluded. Timeline rows are presented by the daemon; the plugin separately retains compact records to recover them after restart. Opening the card explicitly reads current detail through the configured API after checking the recorded site/API identifiers and project, then uses the same detail/action pages as the workbench. No additional remote destination is introduced. A failed card append leaves the completed TAPD read successful with a presentation warning.
@@ -227,3 +227,7 @@ Shared basic-write project boundary: creation, status and comment operations rej
 
 
 First navigation from an assigned task board, accepted delegation or an expanded child no longer requires a previous recent reference or result card. The existing focus RPC verifies the accessible Agent and configured API/site/project; an unseen target requires a fresh summary with matching type, number and explicit actual project before recording canonical title/status/owner/labels. Client summaries are not persisted as authority. Protected or unverifiable targets fail safely without opening a tab. Known references/cards retain their stored summaries and do not require an extra TAPD read. Opening only changes recent viewing, never responsibility, business state or timeline cards; the existing full-detail panels and deterministic per-item tab keys are reused. No new destination or TAPD write is introduced.
+
+Card presentation keeps durable records and stable card IDs. A newly persisted result appends its own card directly; completed-card identities are tracked per host/Agent, with presentation serialized only within that conversation. Full timeline pagination remains for startup/reconnect/replacement and uncertain presentation recovery, checking stable IDs before appending missing cards. An append whose acknowledgement is lost leaves the saved result available for reconciliation without resubmitting the business write or Agent prompt. Normal single and batch result appends do not trigger full history scans, and a blocked history in another Agent does not hold the current card's presentation queue.
+
+卡片持久记录与稳定 ID 保留：新结果先安全落盘，再直接追加自身卡片；已展示身份及串行展示按主机/Agent 隔离。启动、重连、时间线替换和展示结果不确定时仍分页读取历史，以稳定 ID 检查并补齐缺失卡片。追加成功但回执丢失时，通过已保存记录对账，不重发业务写入或 Agent 提示词；正常单张与批量结果追加不触发全量扫描，其他 Agent 的挂起历史不阻塞当前展示队列。

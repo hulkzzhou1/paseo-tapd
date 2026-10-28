@@ -249,14 +249,20 @@ export function clearTapdCache(): void {
 
 export type StaleBoardResult<T> = T & { stale: boolean; cachedAt: string };
 
+function invalidatedRead(): TapdApiError {
+  return new TapdApiError("TAPD 读取期间配置或数据已变更，请刷新重试。", undefined, { code: "invalidated", phase: "read", writeState: "not_sent" });
+}
+
 export async function boardWithCache<T extends Record<string, unknown>>(
   key: string,
   fetcher: () => Promise<T>,
   force: boolean,
 ): Promise<StaleBoardResult<T>> {
+  const generation = cacheGeneration;
   const cached = boardCache.get(key) as { at: number; result: T } | undefined;
   if (force || !cached) {
     const result = await fetcher();
+    if (generation !== cacheGeneration) throw invalidatedRead();
     boardCache.set(key, { at: Date.now(), result });
     return { ...result, stale: false, cachedAt: "" };
   }
@@ -268,12 +274,12 @@ export async function boardWithCache<T extends Record<string, unknown>>(
   if (!running) {
     running = fetcher()
       .then((result) => {
-        boardCache.set(key, { at: Date.now(), result });
+        if (generation === cacheGeneration) boardCache.set(key, { at: Date.now(), result });
         return result;
       })
       .catch(() => null)
       .finally(() => {
-        boardRefreshes.delete(key);
+        if (boardRefreshes.get(key) === running) boardRefreshes.delete(key);
       });
     boardRefreshes.set(key, running);
   }
@@ -304,11 +310,16 @@ async function requestJson(
   const generation = cacheGeneration;
   const url = `${config.endpoint}${path}${query ? `?${query}` : ""}`;
   const key = await readCacheKey(config, url);
+  if (generation !== cacheGeneration) throw invalidatedRead();
   const cached = responseCache.get(key);
   if (!fresh && cached && Date.now() - cached.at < ttlMs) return cached.value;
   const pending = fresh ? undefined : inflightRequests.get(key);
   if (pending) {
-    try { return await pending; } catch (error) {
+    try {
+      const result = await pending;
+      if (generation !== cacheGeneration) throw invalidatedRead();
+      return result;
+    } catch (error) {
       config.readWarnings?.push("部分 TAPD 读取失败，结果可能不完整。");
       throw error;
     }
@@ -325,7 +336,8 @@ async function requestJson(
       let payload;
       try { payload = await response.json(); } catch { throw requestFailure("read", "invalid_response", response.status); }
       if (!payload || typeof payload !== "object" || payload.status !== 1) throw requestFailure("read", "api_rejected", response.status);
-      if (!fresh && generation === cacheGeneration) responseCache.set(key, { at: Date.now(), value: payload.data });
+      if (generation !== cacheGeneration) throw invalidatedRead();
+      if (!fresh) responseCache.set(key, { at: Date.now(), value: payload.data });
       return payload.data;
     } catch (error) {
       if (error instanceof TapdApiError) throw error;
@@ -335,7 +347,9 @@ async function requestJson(
 
   if (!fresh) inflightRequests.set(key, request);
   try {
-    return await request;
+    const result = await request;
+    if (generation !== cacheGeneration) throw invalidatedRead();
+    return result;
   } catch (error) {
     config.readWarnings?.push("部分 TAPD 读取失败，结果可能不完整。");
     throw error;

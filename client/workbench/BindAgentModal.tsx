@@ -1,9 +1,10 @@
 import { WorkbenchDialog as Modal, dialogFormStyles } from "./WorkbenchDialog";
-import { taskClaimRpc } from "../../shared/task-board";
+import { taskClaimRpc, taskTransferRpc } from "../../shared/task-board";
 import { usePaseo, useRpc } from "@getpaseo/plugin/client";
 import { TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
+import { type ToolLink } from "../../shared/agent-links";
 import { type TapdLink } from "../../shared/contracts";
 import { Chip, type WorkbenchTheme } from "./bits";
 import { type EntityDetailData } from "./EntityDetailContent";
@@ -18,7 +19,8 @@ interface AgentRow {
 }
 
 /** 用户直接指派只建立承担关系，不启动执行。 */
-export function BindAgentModal({ open, onClose, theme, data, links, onBound, backToDetail }: {
+export function BindAgentModal({ open, onClose, theme, data, links, onBound, backToDetail, transferFrom }: {
+  transferFrom?: ToolLink;
   open: boolean;
   backToDetail?: boolean;
   onClose: () => void;
@@ -29,6 +31,9 @@ export function BindAgentModal({ open, onClose, theme, data, links, onBound, bac
 }) {
   const paseo = usePaseo();
   const claim = useRpc(taskClaimRpc);
+  const transfer = useRpc(taskTransferRpc);
+  const [selected, setSelected] = useState<AgentRow | null>(null);
+  const [reason, setReason] = useState("");
   const toast = useToast();
   const [agents, setAgents] = useState<AgentRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,6 +47,8 @@ export function BindAgentModal({ open, onClose, theme, data, links, onBound, bac
     setError(null);
     setBindingId("");
     setQuery("");
+    setSelected(null);
+    setReason("");
     void (async () => {
       try {
         const result = await paseo.agents.list({
@@ -95,7 +102,8 @@ export function BindAgentModal({ open, onClose, theme, data, links, onBound, bac
     if (!data.workspaceId) { toast.error("单据项目未知，请刷新详情后重试。"); return; }
     setBindingId(agent.id);
     try {
-      const { link } = await claim({ kind: data.kind, id: data.id, workspaceId: data.workspaceId, agentId: agent.id, confirmed: true });
+      const target = { kind: data.kind, id: data.id, workspaceId: data.workspaceId, confirmed: true as const };
+      const { link } = transferFrom?.responsibility ? await transfer({ ...target, targetAgentId: agent.id, expectedOwnerAgentId: transferFrom.agentId, expectedRevision: transferFrom.responsibility.revision, reason }) : await claim({ ...target, agentId: agent.id });
       onBound(link);
       toast.show(`已指派「${agent.title}」，未启动执行`, { variant: "success" });
       onClose();
@@ -136,9 +144,9 @@ export function BindAgentModal({ open, onClose, theme, data, links, onBound, bac
   }), [theme]);
 
   return (
-    <Modal theme={theme} pending={!!bindingId} onBack={backToDetail ? onClose : undefined} title={`绑定 Agent · #${data.id}`} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Modal theme={theme} pending={!!bindingId} onBack={backToDetail ? onClose : undefined} title={`${transferFrom ? "转交" : "绑定"} Agent · #${data.id}`} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Modal.Content>
-        <Text style={styles.hint}>选择已有 Agent 负责这张单据；只建立承担关系，不发送消息或启动执行。</Text>
+        <Text style={styles.hint}>{transferFrom ? `从「${transferFrom.agentTitle || transferFrom.agentId}」转交给所选 Agent；确认后原子替换负责人。` : "选择已有 Agent 负责这张单据；只建立承担关系，不发送消息或启动执行。"}</Text>
         <TextInput
           style={styles.input}
           placeholder="搜索 Agent（标题 / 模型 / ID）"
@@ -165,7 +173,7 @@ export function BindAgentModal({ open, onClose, theme, data, links, onBound, bac
                 accessibilityRole="button"
                 style={styles.row}
                 disabled={bound || bindingId.length > 0}
-                onPress={() => void bind(agent)}
+                onPress={() => setSelected(agent)}
               >
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text style={styles.rowTitle} numberOfLines={1}>{agent.title}</Text>
@@ -185,6 +193,11 @@ export function BindAgentModal({ open, onClose, theme, data, links, onBound, bac
             );
           })
         )}
+        {selected ? <View style={{ gap: 12 }}>
+          <Text style={styles.hint}>确认{transferFrom ? "转交" : "指派"}给「{selected.title}」？不会启动执行。</Text>
+          {transferFrom ? <TextInput accessibilityLabel="转交原因" style={styles.input} placeholder="简短说明转交原因（不填写正文或凭据）" value={reason} onChangeText={setReason} maxLength={500} /> : null}
+          <Pressable accessibilityRole="button" accessibilityLabel={transferFrom ? "确认转交" : "确认指派"} disabled={!!bindingId || (!!transferFrom && !reason.trim())} onPress={() => void bind(selected)} style={dialogFormStyles(theme).primaryButton}><Text style={dialogFormStyles(theme).primaryLabel}>{transferFrom ? "确认转交" : "确认指派"}</Text></Pressable>
+        </View> : null}
       </Modal.Content>
     </Modal>
   );

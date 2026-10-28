@@ -126,7 +126,7 @@ A completed TAPD write remains successful even when a later cancellation, serial
 
 随插件提供 `paseo-tapd` skill，指导查询、接手绑定、阶段推进与验收；需要由目标 Agent provider 的技能发现机制加载，不由插件自动注入现有会话。工具新增 Agent/仓库/模型候选读取、静默绑定和派发：Agent 工具只能接手当前 Agent，用户可从界面静默指派其他 Agent，或新建 worktree 与 Agent、保存关联后发送获批提示词。绑定不修改 TAPD 处理人和状态；派发会将提示词发送给选定 provider，并可能产生费用。部分失败返回已有资源 ID 和阶段，不自动重试或删除资源。
 
-工具关联以原子文件保存在 daemon 本机 `plugin-data/tapd-workbench/agent-links.json`（相对 PASEO_HOME），包含单据类型/编号、实际 TAPD 项目、API 地址及 Paseo 工作区/Agent 引用，不保存凭据或任务提示词，不参与 Git 设置同步。界面每两秒通过本机 RPC 读取并合并旧关联，支持移除工具关联；旧设置记录保留。工具候选读取只访问 Paseo 本机 API，目标单据验证仅访问已配置 TAPD API；阶段评论通过显式授权的评论工具执行。不新增网络目的地。
+工具关联以原子文件保存在 daemon 本机 `plugin-data/tapd-workbench/agent-links.json`（相对 PASEO_HOME），包含单据类型/编号、实际 TAPD 项目、API 地址及 Paseo 工作区/Agent 引用，不保存凭据或任务提示词，不参与 Git 设置同步。界面每两秒通过本机 RPC 读取服务端生效的关联，已确认承担关系通过带原因与修订号的退出操作释放；旧设置记录保留，已转交或退出的关联受本机抑制记录保护。工具候选读取只访问 Paseo 本机 API，目标单据验证仅访问已配置 TAPD API；阶段评论通过显式授权的评论工具执行。不新增网络目的地。
 
 会话卡片统一突出标题与状态，使用主题色边条、状态徽标和次要单号/处理人信息；批量条目和侧栏列表保持一致。此展示调整不新增数据读取、存储或网络访问。
 
@@ -149,7 +149,7 @@ The controlled field RPCs/tools use only configured `/stories/get_fields_info` a
 
 This fork checks the `hulkzzhou1/tapd-workbench` registry record and its own source repository for updates; the community listing remains subject to registry review.
 
-单据已有 Agent 关联时，详情隐藏「绑定 Agent」「派给 Agent」，解除关联后恢复；「关联任务」区块置于描述前，方便先查看负责处理的 Agent。
+单据已有 Agent 关联时，详情隐藏「绑定 Agent」「派给 Agent」，明确退出后恢复；「关联任务」区块置于描述前，方便先查看负责处理的 Agent。
 
 ## Task responsibility and board data flow
 
@@ -158,6 +158,10 @@ This fork checks the `hulkzzhou1/tapd-workbench` registry record and its own sou
 Existing local link records remain readable. New records add configured site and confirmation time, actor and relationship revision; absent confirmation is a historical candidate, not an assigned task. Historical tool and settings associations conservatively block new claims, including own re-adds; the pending-ownership UI explicitly resolves them into one owner. No bodies, comments, credentials or prompts are written to this store; it is not Git-synced. Corrupt files fail closed and are never overwritten with an empty list.
 
 Board reads only configured TAPD endpoints: direct item summary lists, project status field metadata and `/workflows/last_steps`. It never trusts stored endpoints to choose a network destination. Requirement/bug classification requires valid terminal metadata and known project status options; tasks recognize verified built-in open/progressing/done. Unknown workflow and read failures retain responsibility outside definitive unfinished/completed counts. No label, turn outcome, translated status text or local task state determines completion. Opening/manual refresh reads summaries; reading details still loads full detail on demand. Latest successful timestamps and partial warnings are visible to Agent callers. No new remote destination or TAPD write is introduced.
+
+Ownership proposals (`tapd_delegate_task`) persist only scoped item identity, caller, target, expected owner/revision, time and a short reason. They do not send messages or start execution. `tapd_accept_task` derives authority from the calling Agent and a durable offer addressed to that same Agent; acceptance compares the original owner/revision inside the existing store transaction. User transfer (`tapd.task.transfer`) and release (`tapd.task.release`) are separate UI RPCs reached through visible confirmation and reason fields. Tool release (`tapd_leave_task`) can release only its caller. Archived targets cannot receive new ownership; archived owners remain reserved. Missing/deleted Agents and stale revisions fail explicitly pending authoritative reconciliation.
+
+Transfer/release replace responsibility and suppress equivalent historical associations in one durable write. Local history and self-release require only local scoped ownership and remain available when TAPD reads fail. Local history (`tapd_task_history`) records actor/time/reason and affected relationship revisions; it contains no item body, comments, credentials or prompt and is never Git synced or posted to TAPD. Completed acceptance/transfer/release retries are idempotent while the resulting relationship still matches; stale requests do not overwrite later changes. Dispatch checks ownership before resources, binds durably, then serializes a live-target and revision check with prompt send; failures retain created resources and report whether send was not attempted or uncertain. No automatic retry, deletion, business comment, TAPD status/people/label write, or new network destination is introduced.
 
 ## Historical ownership migration
 

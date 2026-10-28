@@ -1,9 +1,9 @@
 import { createOwnershipMigration } from "./server/ownership-migration";
 import { migrationListRpc, migrationConfirmRpc } from "./shared/ownership-migration";
-import { createAgentLinks } from "./server/agent-links";
+import { createAgentLinks, sameTask, suppressTask } from "./server/agent-links";
 import { createAssignmentService, createAssignmentTools } from "./server/agent-assignment";
 import { createTaskBoard } from "./server/task-board";
-import { taskBoardRpc, taskClaimRpc, taskDispatchRpc } from "./shared/task-board";
+import { taskBoardRpc, taskClaimRpc, taskDispatchRpc, taskReleaseRpc, taskTransferRpc } from "./shared/task-board";
 import { labelsRpc, itemLabelsRpc, createLabelRpc, updateLabelsRpc } from "./shared/labels";
 import { agentLinksRpc, removeAgentLinkRpc } from "./shared/agent-links";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
@@ -37,6 +37,8 @@ export default function contribute(server: PluginServerContext) {
   server.handle(taskBoardRpc, ({ agentId }, context) => taskBoard.read(agentId, context));
   server.handle(taskClaimRpc, (input, context) => assignments.claim(input, context, "user", true));
   server.handle(taskDispatchRpc, (input, context) => assignments.dispatch(input, context, "user"));
+  server.handle(taskTransferRpc, (input, context) => assignments.transfer(input, context));
+  server.handle(taskReleaseRpc, (input, context) => assignments.release(input, context, "user", input.agentId));
   const visibleLinks = async () => {
     const values = await getValues(), config = resolveConfig(values);
     const result = (await agentLinks.list()).filter(link => link.apiEndpoint === config.endpoint && (!link.siteUrl || link.siteUrl === config.site) && config.workspaceIds.includes(link.tapdWorkspaceId));
@@ -44,7 +46,11 @@ export default function contribute(server: PluginServerContext) {
     return result;
   };
   server.handle(agentLinksRpc, async () => ({ links: await visibleLinks(), pendingAgents: await migration.pendingAgents() }));
-  server.handle(removeAgentLinkRpc, async link => { await agentLinks.remove(link); return { ok: true as const }; });
+  server.handle(removeAgentLinkRpc, link => agentLinks.stateTransaction(async state => {
+    const matches = (item: typeof link) => sameTask(item, link) && item.agentId === link.agentId;
+    if (state.links.some(item => matches(item) && item.responsibility)) throw new Error("已确认承担关系请使用退出操作并填写原因。");
+    return { state: { ...suppressTask(state, link, "user"), links: state.links.filter(item => !matches(item)) }, result: { ok: true as const } };
+  }));
   const handlers = createHandlers(getValues);
   server.handle(labelsRpc, handlers.labels);
   server.handle(itemLabelsRpc, handlers.itemLabels);

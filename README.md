@@ -160,6 +160,13 @@ PASEO_APP_DIR=/path/to/paseo/packages/app npm run test:ui
 
 检查使用模拟 RPC，不读取真实 TAPD 数据或执行真实写入。需先准备 Playwright Chromium 及运行所需的系统库。
 
+设置升级与保存检查使用独立 Linux 用户/挂载命名空间、临时 home 和真实 daemon 设置 RPC。它从合成旧设置升级，实际点击设置 UI，验证字段保留、并发修订冲突、旧同步入口不可用及保存/重载后无 Git 备份子进程；不接触当前安装或真实备份。需可信且已构建的兼容 Paseo checkout，以及其中 app 的 Playwright Chromium：
+
+```bash
+PASEO_RUNTIME_DIR=/path/to/trusted/paseo-main npm run test:settings
+```
+
+
 ## 许可证
 
 MIT

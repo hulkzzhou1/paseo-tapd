@@ -10,7 +10,7 @@ import { ActivityIndicator, Pressable, ScrollView, Text, View, useWindowDimensio
 import { agentStatusRpc, entityRpc, type EntityKind, type TapdLink } from "../../shared/contracts";
 import { Chip, agentStatusColor, formatTime, formatIsoTime, type WorkbenchTheme } from "./bits";
 import { priorityTone, statusTone, toneColor } from "./status-tones";
-import { StatusDropdown } from "./EntityWriteBack";
+import { StatusDropdown, type StatusChangeTarget } from "./EntityWriteBack";
 
 export interface DetailTarget {
   kind: EntityKind;
@@ -36,6 +36,7 @@ export interface DetailExtras {
   onDispatch?: (data: EntityDetailData) => void;
   onComment?: (data: EntityDetailData) => void;
   onStatusDone?: () => void;
+  onTransition?: (target: StatusChangeTarget) => void;
   /** 需求详情：一键创建挂在该需求下的任务/缺陷 */
   onCreateChild?: (data: EntityDetailData, childKind: EntityKind) => void;
   /** 在详情面板中打开另一个单据（点击需求下的任务/缺陷行） */
@@ -283,6 +284,7 @@ function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarge
           workspaceId={data.workspaceId}
           current={data.status}
           currentLabel={data.statusLabel}
+          onTransition={extras.onTransition}
           onDone={() => {
             void detail.refetch();
             extras.onStatusDone?.();

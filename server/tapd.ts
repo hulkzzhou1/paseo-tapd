@@ -644,6 +644,63 @@ async function writeTargetProject(config: TapdConfig, workspaceId: string, kind:
   throw new TapdApiError("未找到可核实的写入目标，未提交。");
 }
 
+export interface TransitionField extends CreateFieldInfo { value: string; supported: boolean }
+export interface BugTransition extends FilterOption { fields: TransitionField[]; supported: boolean }
+
+/** Project status labels are not the set of edges reachable from an actual defect. */
+export async function fetchBugTransitions(config: TapdConfig, workspaceId: string, id: string) {
+  writeProject(config, workspaceId);
+  if (!/^\d{1,100}$/.test(id)) throw new TapdApiError("缺陷编号无效，未提交。");
+  const fresh = { ...config, freshReads: true };
+  const rows = await requestJson(fresh, "/bugs", { workspace_id: workspaceId, id, limit: 1 }, 0);
+  if (!Array.isArray(rows) || rows.length !== 1) throw new TapdApiError("缺陷目标不可核实，未提交。");
+  const row = unwrapRow(rows[0], ["Bug"]);
+  if (!row || String(row.id) !== id || String(row.workspace_id ?? "") !== workspaceId || (row.entity_type !== undefined && row.entity_type !== "bug")) throw new TapdApiError("缺陷类型、项目或编号不匹配，未提交。");
+  const current = candidateText(row.status);
+  if (!current) throw new TapdApiError("缺陷当前状态不可核实，未提交。");
+  const [raw, metadata] = await Promise.all([
+    requestJson(fresh, "/workflows/all_transitions", { workspace_id: workspaceId, system: "bug" }, 0),
+    requestJson(fresh, "/bugs/get_fields_info", { workspace_id: workspaceId }, 0),
+  ]);
+  const rules = Array.isArray(raw) ? raw : (raw && typeof raw === "object" && raw.Name ? [raw] : null);
+  if (!rules || rules.length > 1000 || !metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw new TapdApiError("缺陷流转规则不完整，请在 TAPD 原站核对。");
+  const transitions: BugTransition[] = [];
+  for (const item of rules) {
+    const rule = unwrapRow(item, ["Workflow", "WorkflowTransition"]);
+    if (!rule || !candidateText(rule.StepPrevious) || !candidateText(rule.StepNext)) throw new TapdApiError("缺陷流转规则无法识别，请在 TAPD 原站核对。");
+    if (rule.StepPrevious !== current || rule.StepNext === current) continue;
+    const value = candidateText(rule.StepNext)!;
+    if (transitions.some(option => option.value === value) || !Array.isArray(rule.Appendfield) || rule.Appendfield.length > 50) throw new TapdApiError("缺陷流转附加字段不完整，请在 TAPD 原站核对。");
+    const fields: TransitionField[] = [];
+    for (const spec of rule.Appendfield) {
+      const key = spec?.FieldName;
+      if (typeof key !== "string" || !/^[a-zA-Z][a-zA-Z0-9_]{0,99}$/.test(key) || !["yes", "no"].includes(spec.Notnull) || fields.some(field => field.key === key)) throw new TapdApiError("缺陷流转附加字段无法识别，请在 TAPD 原站核对。");
+      const info = metadata[key];
+      const mapped = key === "remarks" ? { kind: "text" as const, single: true } : mapHtmlType(String(info?.html_type ?? ""));
+      const supported = spec.DBModel === "Bug" && !["id", "workspace_id", "status", "v_status", "description", "title", "name", "workitem_type_id", "story_id", "parent_id"].includes(key)
+        && !!mapped && (key === "remarks" || !!info && [0, "0", false].includes(info.readonly));
+      const label = key === "remarks" ? "流转评论" : String(info?.label ?? key).slice(0, 500);
+      const options = info?.options && typeof info.options === "object" && !Array.isArray(info.options)
+        ? Object.entries(info.options).map(([value, label]) => ({ value, label: String(label).slice(0, 200) })) : [];
+      let defaultValue = "";
+      if (Array.isArray(spec.DefaultValue) && spec.DefaultValue.length === 1) {
+        const entry = spec.DefaultValue[0];
+        if (entry.Type === "default_value" && typeof entry.Value === "string") defaultValue = entry.Value;
+        else if (entry.Type === "record_value" && entry.DBModel === "Bug" && typeof entry.Field === "string" && Object.hasOwn(row, entry.Field) && typeof row[entry.Field] === "string") defaultValue = row[entry.Field];
+      }
+      if (defaultValue.length > 50_000) throw new TapdApiError("流转字段值过长，未提交。");
+      fields.push({ key, label, required: spec.Notnull === "yes", supported, value: defaultValue,
+        inputKind: key === "remarks" || /textarea|rich_edit/.test(String(info?.html_type)) ? "textarea" : mapped?.kind === "enum" ? "enum" : mapped?.kind === "user" ? "user" : mapped?.kind === "date" ? "date" : "text",
+        single: mapped?.single ?? true, options });
+    }
+    const label = candidateText(metadata.status?.options?.[value]) ?? value;
+    transitions.push({ value, label, fields, supported: fields.every(field => field.supported) });
+  }
+  const result = { current, options: transitions.map(({ value, label }) => ({ value, label })), transitions };
+  protectFieldData(config, result);
+  return result;
+}
+
 /** 状态流转：核实实际单据项目后写入；未指定项目时查询已配置项目。 */
 export async function updateEntityStatus(
   config: TapdConfig,
@@ -651,9 +708,32 @@ export async function updateEntityStatus(
   kind: EntityKind,
   id: string,
   status: string,
+  transitionFields: Record<string, string> = {},
+  expectedStatus?: string,
 ): Promise<string> {
+  protectFieldData(config, [status, transitionFields, expectedStatus]);
   const resolved = await writeTargetProject(config, workspaceId, kind, id);
-  await requestPost(config, LIST_PATH[kind], { workspace_id: resolved, id, status });
+  const params: Record<string, QueryValue> = { workspace_id: resolved, id, status };
+  if (kind === "bug") {
+    const workflow = await fetchBugTransitions(config, resolved, id);
+    if (expectedStatus !== undefined && workflow.current !== expectedStatus) throw new TapdApiError("缺陷状态已变化，请刷新流转规则后再确认，未提交。");
+    const transition = workflow.transitions.find(option => option.value === status);
+    if (!transition) throw new TapdApiError("当前状态不能流转到所选状态，请刷新核对，未提交。");
+    if (!transition.supported) throw new TapdApiError("此次流转含不支持或权限未知的字段，请在 TAPD 原站操作，未提交。");
+    if (Object.keys(transitionFields).some(key => !transition.fields.some(field => field.key === key))) throw new TapdApiError("包含未声明的流转字段，未提交。");
+    for (const field of transition.fields) {
+      const value = transitionFields[field.key] ?? (field.key === "remarks" ? "" : field.value);
+      if (typeof value !== "string" || value.length > 50_000 || (field.required && !value.trim())) throw new TapdApiError("请补齐流转必填字段，未提交。");
+      if (field.inputKind === "enum" && value) {
+        const selected = field.single ? [value] : value.split(";").filter(Boolean);
+        if (!selected.length || selected.some(item => !field.options.some(option => option.value === item))) throw new TapdApiError("流转字段候选值无效，未提交。");
+      }
+      if (field.inputKind === "date" && value && !/^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}:\d{2})?$/.test(value)) throw new TapdApiError("流转日期格式无效，未提交。");
+      if (value || Object.hasOwn(transitionFields, field.key)) params[field.key] = value;
+    }
+  } else if (Object.keys(transitionFields).length) throw new TapdApiError("当前类型不支持附加流转字段，未提交。");
+  protectFieldData(config, params);
+  await requestPost(config, LIST_PATH[kind], params);
   clearTapdCache();
   return resolved;
 }

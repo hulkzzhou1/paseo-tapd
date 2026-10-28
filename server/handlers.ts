@@ -23,6 +23,7 @@ import {
   fetchMe,
   fetchMembers,
   fetchStatusOptions,
+  fetchBugTransitions,
   fetchMyCommentedIds,
   fetchCreateFields,
   fetchChildHierarchy,
@@ -193,6 +194,7 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
 
     async statusOptions(input: RpcInput<typeof statusOptionsRpc>): Promise<RpcOutput<typeof statusOptionsRpc>> {
       const { config } = await requireConfig();
+      if (input.kind === "bug" && input.id) return protectedResult(config, await fetchBugTransitions(config, input.workspaceId, input.id));
       return protectedResult(config, { options: await fetchStatusOptions(config, input.kind, input.workspaceId) });
     },
 
@@ -248,7 +250,7 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
       protectFieldData(config, input);
       const status = input.status.trim();
       if (!status) throw new Error("状态不能为空");
-      const workspaceId = await updateEntityStatus(config, input.workspaceId ?? "", input.kind, input.id, status);
+      const workspaceId = await updateEntityStatus(config, input.workspaceId ?? "", input.kind, input.id, status, input.transitionFields, input.expectedStatus);
       invalidateTaskBoards(config);
       try {
         const actual = await fetchEntitySummary({ ...config, freshReads: true }, input.kind, input.id, workspaceId);

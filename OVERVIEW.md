@@ -236,3 +236,13 @@ Card presentation keeps durable records and stable card IDs. A newly persisted r
 
 
 Saved conversation RPC outputs and every new/recovery timeline append recheck the current protected-values set, including credentials changed after the snapshot was recorded. Unsafe saved data returns a fixed failure and is never republished; durable records and historical scopes are not rewritten or deleted, and restoring a safe configuration permits recovery of the original stable card. All assignment settings parsers preserve a still-readable retired credential only in execution-local protection, so prompt guards and SDK metadata checks run before resource creation/send or persistence. Existing-item write targets also reject an explicitly contradictory entity_type even when wrapper, project and ID otherwise match. No new storage, network destination or automatic retry is added.
+
+## Defect transition validation / 缺陷流转校验
+
+Defect status options with an item ID freshly read the exact configured project/item through `GET /bugs`, then `GET /workflows/all_transitions` (`system=bug`) and `GET /bugs/get_fields_info`. Only current outgoing non-self transitions are presented. Project-only status reads remain unchanged for filtering; story/task status paths are unchanged. Workflow metadata may expose declared field labels, candidates and defaults to the action page/Agent tool, after credential guards; no new destination or local store is added.
+
+UI and registered tools share fresh write-time validation of actual project/type/ID, current status, reachable edge, supported writable fields, mandatory values and enum/date formats. Unknown rules, fields, readonly metadata and undeclared input stop before POST. `expectedStatus` rejects a changed current state when supplied; remote TAPD remains authoritative for roles and concurrently changing workflow/state (this is not an atomic remote compare-and-set). Explicit `transitionFields.remarks` travels in the same `POST /bugs` as status; the plugin never creates a separate `/comments` write to satisfy it or silently posts a remote default remark.
+
+The existing detail experience switches to a field page when needed, preserving reader position and draft/discard confirmation. Field-free choices keep the existing immediate action. Failed or uncertain field-page submissions retain the draft and block direct repeat; accepted writes with failed/mismatching fresh readback stay accepted/unverified and never replay. Only a verified readback is reported as verified. No actual TAPD write is part of automated tests.
+
+缺陷流转读取实际单据及当前规则，仅展示可达状态；附加必填字段（含流转评论）在确认页填写，写入前在共用服务端边界重新校验，以一次状态请求提交，不新增普通评论。规则不完整或字段不支持时停止并引导原站；权限仍由 TAPD 决定。写入失败保留输入，未知或未核实结果不直接重试。

@@ -34,7 +34,7 @@ description: 在 Paseo 中通过 TAPD 工具查询、接手、创建单据，记
 完成阶段后，用实际成果决定下一步：
 
 - 区分实现完成、测试通过、待验收、验收通过和阻塞；附上相关验证证据及未完成项。
-- 需要推进状态时，读取 `tapd_entity` 和该实际项目/类型的 `tapd_status_options`，选用真实状态 key，不硬编码「已解决」「完成」或把筛选选项当可写状态。
+- 需要推进状态时，读取 `tapd_entity` 和该实际项目/类型的 `tapd_status_options`（缺陷必须带 `id`），选用真实状态 key，不硬编码「已解决」「完成」或把筛选选项当可写状态。
 - 只有验收通过才建议完成/关闭；阶段完成通常先进入项目对应的待测试或待验收状态。没有匹配状态或语义不清时说明并询问，不猜。
 - 已有明确授权覆盖目标、动作及写入内容就执行；否则展示具体变更供用户确认。授权实施代码不自动授权 TAPD 评论或状态变更。
 
@@ -45,7 +45,7 @@ description: 在 Paseo 中通过 TAPD 工具查询、接手、创建单据，记
 | 意图 | 工具与准备 |
 | --- | --- |
 | 建需求、任务、缺陷 | 先用 `tapd_create_fields` 读取目标项目/类型的必填字段和可选值，再用 `tapd_create`。子任务或子缺陷先读取父需求，用其实际项目及 `storyId`；子需求先用 `tapd_child_types` 取得双方允许的类别，再显式提供 `parentStoryId` 和 `workitemTypeId`；不要静默选首个项目或猜必填值。 |
-| 改状态 | 先读详情及项目状态，再用 `tapd_update_status` 提交状态 key；`unchanged: true` 表示没有发生变更。 |
+| 改状态 | 先读详情；缺陷用实际项目、类型及 `id` 读取 `tapd_status_options` 的 `current`、`transitions` 和 `fields`，只选支持的当前可达目标。获批字段（包括必填 `remarks`）放入 `transitionFields`，以 `expectedStatus: current` 调用 `tapd_update_status`；不能用另发普通评论代替流转评论，也不能猜字段值。不带 `id` 的项目候选仅供筛选。需求/任务沿用项目状态路径；`unchanged: true` 表示没有发生变更。 |
 | 更新需求方案字段 | 用 `tapd_field_definitions` 按 label 确认实际 key，再用 `tapd_read_field` 读原文；保留人工内容，展示旧值与完整新值后，以 `tapd_update_field` 提交。 |
 | 查询、创建项目标签 | `tapd_labels` 读取项目定义，满页按 `nextPage` 继续；`name` 是模糊筛选。明确授权完整项目、名称及可选颜色后用 `tapd_create_label`，仅创建定义、不附加单据；同名不写入或改色。 |
 | 增删单据标签 | 先用 `tapd_item_labels` 实时取得原始 `value`，以其作为 `expectedValue`，通过 `tapd_update_labels` 仅提交获批的 `add` / `remove` 名称；其他标签由工具保留，无需重拼新集合。 |

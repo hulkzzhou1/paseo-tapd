@@ -228,7 +228,14 @@ export async function readCacheKey(config: TapdConfig, request: unknown): Promis
 }
 
 const DEFAULT_CACHE_TTL_MS = 20_000;
-const responseCache = new Map<string, { at: number; value: unknown }>();
+const RESPONSE_CACHE_LIMIT = 500;
+const responseCache = new Map<string, { at: number; expiresAt: number; value: unknown }>();
+function pruneCache<T extends { expiresAt: number }>(cache: Map<string, T>, limit: number): void {
+  const now = Date.now();
+  for (const [key, entry] of cache) if (entry.expiresAt <= now) cache.delete(key);
+  while (cache.size > limit) cache.delete(cache.keys().next().value!);
+}
+
 const inflightRequests = new Map<string, Promise<unknown>>();
 let cacheGeneration = 0;
 
@@ -236,8 +243,17 @@ let cacheGeneration = 0;
 // 看板整体缓存（SWR）：过期先回旧数据 + 后台刷新，避免进工作台全量重拉白屏
 // ---------------------------------------------------------------------------
 const BOARD_CACHE_TTL_MS = 90_000;
-const boardCache = new Map<string, { at: number; result: unknown }>();
+const BOARD_CACHE_MAX_AGE_MS = 30 * 60_000;
+const BOARD_CACHE_LIMIT = 50;
+const boardCache = new Map<string, { at: number; expiresAt: number; result: unknown }>();
 const boardRefreshes = new Map<string, Promise<unknown>>();
+
+function storeBoardResult(key: string, result: unknown): void {
+  const at = Date.now();
+  boardCache.delete(key);
+  boardCache.set(key, { at, expiresAt: at + BOARD_CACHE_MAX_AGE_MS, result });
+  pruneCache(boardCache, BOARD_CACHE_LIMIT);
+}
 
 export function clearTapdCache(): void {
   cacheGeneration++;
@@ -259,11 +275,12 @@ export async function boardWithCache<T extends Record<string, unknown>>(
   force: boolean,
 ): Promise<StaleBoardResult<T>> {
   const generation = cacheGeneration;
+  pruneCache(boardCache, BOARD_CACHE_LIMIT);
   const cached = boardCache.get(key) as { at: number; result: T } | undefined;
   if (force || !cached) {
     const result = await fetcher();
     if (generation !== cacheGeneration) throw invalidatedRead();
-    boardCache.set(key, { at: Date.now(), result });
+    storeBoardResult(key, result);
     return { ...result, stale: false, cachedAt: "" };
   }
   if (Date.now() - cached.at < BOARD_CACHE_TTL_MS) {
@@ -274,7 +291,7 @@ export async function boardWithCache<T extends Record<string, unknown>>(
   if (!running) {
     running = fetcher()
       .then((result) => {
-        if (generation === cacheGeneration) boardCache.set(key, { at: Date.now(), result });
+        if (generation === cacheGeneration) storeBoardResult(key, result);
         return result;
       })
       .catch(() => null)
@@ -311,6 +328,7 @@ async function requestJson(
   const url = `${config.endpoint}${path}${query ? `?${query}` : ""}`;
   const key = await readCacheKey(config, url);
   if (generation !== cacheGeneration) throw invalidatedRead();
+  pruneCache(responseCache, RESPONSE_CACHE_LIMIT);
   const cached = responseCache.get(key);
   if (!fresh && cached && Date.now() - cached.at < ttlMs) return cached.value;
   const pending = fresh ? undefined : inflightRequests.get(key);
@@ -337,7 +355,12 @@ async function requestJson(
       try { payload = await response.json(); } catch { throw requestFailure("read", "invalid_response", response.status); }
       if (!payload || typeof payload !== "object" || payload.status !== 1) throw requestFailure("read", "api_rejected", response.status);
       if (generation !== cacheGeneration) throw invalidatedRead();
-      if (!fresh) responseCache.set(key, { at: Date.now(), value: payload.data });
+      if (!fresh && ttlMs > 0) {
+        const at = Date.now();
+        responseCache.delete(key);
+        responseCache.set(key, { at, expiresAt: at + ttlMs, value: payload.data });
+        pruneCache(responseCache, RESPONSE_CACHE_LIMIT);
+      }
       return payload.data;
     } catch (error) {
       if (error instanceof TapdApiError) throw error;

@@ -45,8 +45,8 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
   let bootstrapPromise: Promise<void> | undefined;
   let livePaseo: Paseo | undefined;
   const releases: (() => void)[] = [];
-  const recovered = new Map<string, string>();
-  let presentationQueue = Promise.resolve();
+  const recovered = new Map<string, Set<string>>();
+  const presentationQueues = new Map<string, Promise<void>>();
   const messages = createMessageObserver(getValues, {
     collect: async (paseo, agentId, entities, sourceId) => {
       if (closed) return;
@@ -149,9 +149,8 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
   async function restore(paseo: Paseo, agentId: string) {
     const key = JSON.stringify([hostId(paseo, agentId), agentId]);
     const stored = (await load()).records.find(item => item.hostId === hostId(paseo, agentId) && item.agentId === agentId);
-    const fingerprint = JSON.stringify(stored?.cards.map(card => card.id) ?? []);
-    if (recovered.get(key) === fingerprint) return;
-    if (!stored?.cards.length) { recovered.set(key, fingerprint); return; }
+    if (stored?.cards.every(card => recovered.get(key)?.has(card.id))) return;
+    if (!stored?.cards.length) { recovered.set(key, new Set()); return; }
     const timeline = paseo.agents.ref(agentId).timeline;
     const present = new Set<string>();
     let cursor;
@@ -163,13 +162,33 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
       if (!page.startCursor || JSON.stringify(cursor) === JSON.stringify(page.startCursor)) throw new Error(storageError);
       cursor = page.startCursor;
     }
-    for (const card of stored.cards) if (!present.has(card.id)) await timeline.append({ type: "plugin", id: card.id, kind: "entities" in card ? "tapd-batch-result" : "tapd-entity-result", version: 1, data: card.data });
-    recovered.set(key, fingerprint);
+    for (const card of stored.cards) if (!present.has(card.id)) {
+      await timeline.append({ type: "plugin", id: card.id, kind: "entities" in card ? "tapd-batch-result" : "tapd-entity-result", version: 1, data: card.data });
+      present.add(card.id);
+    }
+    recovered.set(key, present);
+  }
+  function presentSerial(paseo: Paseo, agentId: string, present: () => Promise<void>) {
+    const key = JSON.stringify([hostId(paseo, agentId), agentId]);
+    const work = (presentationQueues.get(key) ?? Promise.resolve()).then(present);
+    const settled = work.then(() => {}, () => {});
+    presentationQueues.set(key, settled);
+    void settled.then(() => { if (presentationQueues.get(key) === settled) presentationQueues.delete(key); });
+    return work;
   }
   function restoreSerial(paseo: Paseo, agentId: string) {
-    const work = presentationQueue.then(() => restore(paseo, agentId));
-    presentationQueue = work.then(() => {}, () => {});
-    return work;
+    return presentSerial(paseo, agentId, () => restore(paseo, agentId));
+  }
+  function presentCard(context: ConversationContext, card: Record["cards"][number], isNew: boolean) {
+    return presentSerial(context.paseo, context.agentId, async () => {
+      if (!isNew) { await restore(context.paseo, context.agentId); return; }
+      const key = JSON.stringify([hostId(context.paseo, context.agentId), context.agentId]);
+      if (recovered.get(key)?.has(card.id)) return;
+      await context.paseo.agents.ref(context.agentId).timeline.append({ type: "plugin", id: card.id, kind: "entities" in card ? "tapd-batch-result" : "tapd-entity-result", version: 1, data: card.data });
+      const present = recovered.get(key) ?? new Set<string>();
+      present.add(card.id);
+      recovered.set(key, present);
+    });
   }
   async function initialize(paseo: Paseo) {
     livePaseo = paseo;
@@ -240,16 +259,16 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
     const data = entityResultSchema.parse(raw);
     await validate([data.entity], data.warnings);
     if (!await reconcile(context.paseo, context.agentId)) throw new Error(storageError);
-    await change(next => {
+    const saved = await change(next => {
       const target = record(next, context);
       const previous = target.cards.find(item => item.id === sourceId);
-      if (previous) return previous;
+      if (previous) return { card: previous, isNew: false };
       const item = { id: z.string().min(1).max(200).parse(sourceId), data };
       target.cards.push(item);
       collectInto(target, [data.entity], `card:${sourceId}`);
-      return item;
+      return { card: item, isNew: true };
     });
-    await restoreSerial(context.paseo, context.agentId);
+    await presentCard(context, saved.card, saved.isNew);
   }
   async function recordBatch(context: ConversationContext, raw: z.input<typeof batchResultSchema>, entities: ConversationEntity[]) {
     await bootstrap(context);
@@ -258,11 +277,15 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
     if (data.returned !== parsed.length || parsed.some(entity => entity.siteUrl !== data.siteUrl || entity.apiEndpoint !== data.apiEndpoint)) throw new Error(storageError);
     if (Buffer.byteLength(JSON.stringify(data), "utf8") > 64000) throw new Error(storageError);
     if (!await reconcile(context.paseo, context.agentId)) throw new Error(storageError);
-    await change(next => {
+    const saved = await change(next => {
       const target = record(next, context);
-      if (!target.cards.some(card => card.id === data.batchId)) target.cards.push({ id: data.batchId, data, entities: parsed.map(entity => batchEntitySchema.parse(entity)) });
+      const previous = target.cards.find(card => card.id === data.batchId);
+      if (previous) return { card: previous, isNew: false };
+      const card = { id: data.batchId, data, entities: parsed.map(entity => batchEntitySchema.parse(entity)) };
+      target.cards.push(card);
+      return { card, isNew: true };
     });
-    await restoreSerial(context.paseo, context.agentId);
+    await presentCard(context, saved.card, saved.isNew);
   }
   async function batchPage(context: ConversationContext, input: { batchId: string; siteUrl: string; apiEndpoint: string; offset: number }) {
     await bootstrap(context);

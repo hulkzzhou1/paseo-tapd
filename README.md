@@ -352,3 +352,7 @@ TAPD 工具与界面 RPC 共用凭据保护：完整详情含受保护内容时�
 Creation, status and comment writes share configured-project validation. Existing-item writes freshly verify the item type, number and actual project; unavailable or mismatched targets stop before sending. Only standalone creation without a specified project defaults to the first configured project.
 
 建单、改状态与评论共用配置项目校验。现有单据写入前实时核实类型、编号及实际项目；目标无法读取或不匹配时停止，不猜测写入。仅未指定项目的独立建单默认使用首个配置项目。
+
+New single-item and batch result cards are saved locally before direct timeline append. Long conversations do not rescan their entire history for each new card; restart, reconnect and timeline replacement still restore missing cards without repeating TAPD writes. One Agent's presentation recovery does not block another Agent's new cards.
+
+单张与批量结果卡片先保存本机，再直接追加到时间线，长会话不会因每张新卡片重扫全部历史；重启、重连和时间线替换仍可恢复缺失卡片，不重复 TAPD 写入。某个 Agent 的展示恢复不会阻塞其他 Agent 的新卡片。

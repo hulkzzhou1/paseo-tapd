@@ -18,3 +18,12 @@ export const taskBoardRpc = defineRpc({ name: "tapd.task-board", input: z.object
 export const taskClaimRpc = defineRpc({ name: "tapd.task.claim", input: taskClaimSchema.required({ agentId: true }), output: z.object({ ok: z.literal(true), changed: z.boolean(), link: toolLinkSchema }) });
 export const taskDispatchSchema = taskTargetSchema.extend({ repoPath: z.string().min(1).max(4096), provider: z.string().min(1).max(300), branchName: z.string().min(1).max(200), prompt: z.string().trim().min(1).max(50_000), confirmed: z.literal(true) });
 export const taskDispatchRpc = defineRpc({ name: "tapd.task.dispatch", input: taskDispatchSchema, output: z.object({ ok: z.boolean(), partial: z.boolean().optional(), phase: z.string().optional(), workspaceId: z.string().optional(), agentId: z.string().optional(), bound: z.boolean(), promptSent: z.union([z.boolean(), z.literal("unknown")]), warning: z.string().optional(), link: toolLinkSchema.optional() }) });
+
+const reason = z.string().trim().min(1).max(500);
+const revision = z.string().min(1).max(200);
+export const taskDelegateSchema = taskTargetSchema.extend({ targetAgentId: z.string().min(1).max(200), expectedOwnerAgentId: z.string().min(1).max(200).optional(), expectedRevision: revision.optional(), reason, confirmed: z.literal(true) });
+export const taskAcceptSchema = taskTargetSchema.extend({ offerId: revision, reason, confirmed: z.literal(true) });
+export const taskTransferSchema = taskDelegateSchema.required({ expectedOwnerAgentId: true, expectedRevision: true });
+export const taskReleaseSchema = taskTargetSchema.extend({ expectedRevision: revision, reason, confirmed: z.literal(true) });
+export const taskReleaseRpc = defineRpc({ name: "tapd.task.release", input: taskReleaseSchema.extend({ agentId: z.string().min(1).max(200) }), output: z.object({ ok: z.literal(true), changed: z.boolean() }) });
+export const taskTransferRpc = defineRpc({ name: "tapd.task.transfer", input: taskTransferSchema, output: z.object({ ok: z.literal(true), changed: z.boolean(), link: toolLinkSchema }) });

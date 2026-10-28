@@ -42,10 +42,10 @@ function setup(t, respond = () => []) {
 }
 function entityApi({ url, init, body }) {
   if (init.method === "POST") return { [url.pathname === "/tasks" ? "Task" : "Story"]: { id: body.get("id") || "11111111" } };
-  if (url.pathname.endsWith("get_fields_info")) return { status: { options: { open: "待处理", done: "已完成" } } };
+  if (url.pathname.endsWith("get_fields_info")) return { name: { required: 1, readonly: 0, html_type: "text" }, status: { options: { open: "待处理", done: "已完成" } } };
   if (url.pathname === "/users/info") return { User: { nick: "example-user" } };
   if (url.pathname === "/stories" && url.searchParams.get("id") && url.searchParams.get("workspace_id") === "87654321") {
-    return [{ Story: { id: url.searchParams.get("id"), name: "示例需求", status: "open", description: "<p>完整正文</p>" } }];
+    return [{ Story: { id: url.searchParams.get("id"), workspace_id: "87654321", name: "示例需求", status: "open", description: "<p>完整正文</p>" } }];
   }
   return [];
 }
@@ -290,7 +290,7 @@ test("single entity tool appends a bounded actual-project card without copying c
   assert.equal(rows[0].data.operation, "read");
   assert.equal(JSON.stringify(rows).includes("完整正文"), false);
   assert.equal(JSON.stringify(rows).includes(initial.token), false);
-  assert.equal(requests.filter(({ url }) => url.pathname === "/stories").length, 2);
+  assert.equal(requests.filter(({ url }) => url.pathname === "/stories" && url.searchParams.has("id") && !url.searchParams.has("fields")).length, 2, "full detail lookup is not repeated for presentation");
 });
 
 test("single entity keeps read success when presentation fails, and a failed read never appends success", async (t) => {

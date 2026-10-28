@@ -27,6 +27,7 @@ export function contributeConversationAccess(client: PluginClientContext) {
   let serverBoardRevision=0;
   let pendingAgents: {agentId:string;workspaceId:string}[] = [];
   const refreshRequests = new Map<string, number>();
+  const explicitOpenRequests = new Map<string, number>();
   let stopped = false;
   let pending = false;
   let again = false;
@@ -100,6 +101,7 @@ export function contributeConversationAccess(client: PluginClientContext) {
     const { params: { agentId }, workspaceId, theme } = props;
     const conversations = useSyncExternalStore(subscribe, snapshot);
     const requested = useSyncExternalStore(subscribe, () => refreshRequests.get(agentId) ?? 0);
+    const explicitRequested=useSyncExternalStore(subscribe,()=>explicitOpenRequests.get(agentId)??0);
     const [recent, setRecent] = useState(false);
     const [migrationOpen, setMigrationOpen] = useState(false);
     const [migrationGroups, setMigrationGroups] = useState<MigrationGroup[]>([]);
@@ -134,8 +136,8 @@ export function contributeConversationAccess(client: PluginClientContext) {
     useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
     useEffect(()=>{
       if(boardVisible)run.current();
-      else if(Platform.OS!=="web"&&lastNativeRequest.current!==requested){lastNativeRequest.current=requested;run.current(true);}
-    },[agentId,workspaceId,boardVisible,requested,revision,serverBoardRevision]);
+      else if(Platform.OS!=="web"&&explicitRequested>0&&lastNativeRequest.current!==explicitRequested){lastNativeRequest.current=explicitRequested;run.current(true);}
+    },[agentId,workspaceId,boardVisible,requested,explicitRequested,revision,serverBoardRevision]);
     useEffect(()=>{
       if(!boardVisible)return;
       const timer=setInterval(()=>run.current(),30_000);
@@ -164,7 +166,7 @@ export function contributeConversationAccess(client: PluginClientContext) {
       const old = pills.get(agentId);
       if (old && old.workspaceId !== workspaceId) { old.pill.remove(); pills.delete(agentId); }
       const button = { title: `TAPD 任务看板（${owned}）`, label: `TAPD · ${owned}`, icon: "ClipboardList",
-        behavior: { kind: "action" as const, onPress: () => { refreshRequests.set(agentId, (refreshRequests.get(agentId) ?? 0) + 1); client.openPanel(listId, { workspaceId, agentId, location }); for (const listener of listeners) listener(); } } };
+        behavior: { kind: "action" as const, onPress: () => { explicitOpenRequests.set(agentId,(explicitOpenRequests.get(agentId)??0)+1); refreshRequests.set(agentId, (refreshRequests.get(agentId) ?? 0) + 1); client.openPanel(listId, { workspaceId, agentId, location }); for (const listener of listeners) listener(); } } };
       const entry = pills.get(agentId);
       if (entry) entry.pill.update(button);
       else pills.set(agentId, { workspaceId, pill: client.addComposerPill({ id: "tapd-conversation", workspaceId, agentId, button }) });

@@ -110,3 +110,30 @@ test('an accepted status tool write immediately invalidates boards even if card 
  const after=await s.rpc('tapd.agent-links',{});assert.equal(after.boardRevision,before.boardRevision+1);
  const board=(await s.call('tapd_task_board',{})).structuredContent;assert.equal(board.items[0].classification,'completed');assert.equal(board.items[0].entity.status,'done');assert.equal(board.items[0].stale,false);assert.equal(s.writes(),1);
 });
+
+test('user RPC transfer and release compare revisions, preserve unrelated tasks and never start execution',async t=>{
+ const s=await setup(t);
+ const first=await s.rpc('tapd.task.claim',{...target,agentId:'example-agent'});
+ await s.rpc('tapd.task.claim',{...target,id:'22222222',agentId:'example-other'});
+ const transfer={...target,targetAgentId:'example-other',expectedOwnerAgentId:'example-agent',expectedRevision:first.link.responsibility.revision,reason:'User approved reassignment'};
+ await assert.rejects(s.rpc('tapd.task.transfer',{...transfer,expectedRevision:'stale'}));
+ s.agents.get('example-other').archivedAt='2026-01-01';
+ await assert.rejects(s.rpc('tapd.task.transfer',transfer));
+ s.agents.get('example-other').archivedAt=null;
+ const results=await Promise.allSettled([s.rpc('tapd.task.transfer',transfer),s.call('tapd_take_task',target,'example-other')]);
+ const moved=results[0].value;assert.equal(moved.link.agentId,'example-other');
+ assert.equal((await s.rpc('tapd.task.transfer',transfer)).changed,false,'same completed request is idempotent');
+ assert.equal((await s.call('tapd_task_board',{agentId:'example-agent'})).structuredContent.items.length,0);
+ await assert.rejects(s.rpc('tapd.task.release',{...target,agentId:'example-other',expectedRevision:'stale',reason:'Exit'}));
+ await assert.rejects(s.rpc('tapd.remove-agent-link',moved.link),'old permissive RPC cannot bypass confirmed release');
+ await assert.rejects(s.rpc('tapd.remove-agent-link',{...moved.link,responsibility:undefined}),'omitting confirmation metadata cannot bypass stored ownership');
+ const release={...target,agentId:'example-other',expectedRevision:moved.link.responsibility.revision,reason:'User approved exit'};
+ assert.equal((await s.rpc('tapd.task.release',release)).changed,true);
+ assert.equal((await s.rpc('tapd.task.release',release)).changed,false);
+ assert.deepEqual((await s.call('tapd_task_board',{agentId:'example-other'})).structuredContent.items.map(item=>item.entity.id),['22222222']);
+ s.values.links=[{key:'story-11111111',kind:'story',id:'11111111',workspaceId:'example-workspace',agentId:'example-agent',agentTitle:'Legacy',workspaceTitle:'',createdAt:''}];
+ s.restart();
+ assert.deepEqual((await s.call('tapd_task_board',{agentId:'example-agent'})).structuredContent.items,[],'legacy settings cannot resurrect exited or transferred ownership');
+ assert.equal((await s.call('tapd_take_task',target,'example-agent')).structuredContent.ok,true,'a new explicit acceptance remains possible after release');
+ assert.equal(s.writes(),0);assert.equal(s.sends.length,0);assert.equal(s.creates.length,0);
+});

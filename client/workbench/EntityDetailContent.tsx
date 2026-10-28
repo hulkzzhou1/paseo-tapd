@@ -1,3 +1,4 @@
+import { toolLinkSchema } from "../../shared/agent-links";
 import { RichText } from "./RichText";
 import type { RpcOutput } from "@getpaseo/plugin";
 import { openExternalUrl, usePaseo, useRpc, type PluginScreenProps } from "@getpaseo/plugin/client";
@@ -30,11 +31,12 @@ export interface DetailExtras {
   onLinkCreated?: (input: { link: TapdLink; repoPath?: string; provider?: string }) => void;
   onBindAgent?: (data: EntityDetailData) => void;
   onRemoveLink?: (link: TapdLink) => void;
+  onTransferLink?: (link: TapdLink, data: EntityDetailData) => void;
   onDispatch?: (data: EntityDetailData) => void;
   onComment?: (data: EntityDetailData) => void;
   onStatusDone?: () => void;
   /** 需求详情：一键创建挂在该需求下的任务/缺陷 */
-  onCreateChild?: (data: EntityDetailData, childKind: "task" | "bug") => void;
+  onCreateChild?: (data: EntityDetailData, childKind: EntityKind) => void;
   /** 在详情面板中打开另一个单据（点击需求下的任务/缺陷行） */
   onOpenEntity?: (target: DetailTarget) => void;
 }
@@ -295,6 +297,7 @@ function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarge
         </Pressable>
         {kind === "story" && extras.onCreateChild ? (
           <>
+            <Pressable accessibilityRole="button" accessibilityLabel="创建该需求下的子需求" style={styles.action} onPress={() => extras.onCreateChild?.(data, "story")}><Text style={styles.actionLabel}>+ 子需求</Text></Pressable>
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="创建该需求下的任务"
@@ -352,6 +355,7 @@ function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarge
             <AgentLinkRow
               key={`${link.workspaceId}-${link.agentId}`}
               link={link}
+              data={data}
               theme={theme}
               extras={extras}
               status={agentStatusMap.get(link.agentId)}
@@ -375,26 +379,13 @@ function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarge
           </Pressable>
         </View>
       ) : null}
-      {data.kind === "story" && data.childTasks.length > 0 ? (
-        <ChildListSection
-          key={`${data.id}-task`}
-          label="需求下任务"
-          items={data.childTasks}
-          totalHint={data.childTasksTotal > data.childTasks.length ? `前 ${data.childTasks.length} / 共 ${data.childTasksTotal} 条` : undefined}
-          theme={theme}
-          extras={extras}
-        />
-      ) : null}
-      {data.kind === "story" && data.childBugs.length > 0 ? (
-        <ChildListSection
-          key={`${data.id}-bug`}
-          label="需求下缺陷"
-          items={data.childBugs}
-          totalHint={data.childBugsTotal > data.childBugs.length ? `前 ${data.childBugs.length} / 共 ${data.childBugsTotal} 条` : undefined}
-          theme={theme}
-          extras={extras}
-        />
-      ) : null}
+      {data.kind === "story" && (["story", "task", "bug"] as const).map(childKind => {
+        const items = childKind === "story" ? data.childStories ?? [] : childKind === "task" ? data.childTasks : data.childBugs;
+        const meta = data.childReads?.[childKind];
+        if (!items.length && !meta) return null;
+        const hint = meta ? `${items.length} 条已读取 / 共 ${meta.total ?? "未知"} 条${meta.truncated ? " · 已截断" : ""}${meta.error ? ` · ${meta.error}` : ""}` : undefined;
+        return <ChildListSection key={`${data.id}-${childKind}`} label={childKind === "story" ? "子需求" : childKind === "task" ? "需求下任务" : "需求下缺陷"} items={items} totalHint={hint} theme={theme} extras={extras} />;
+      })}
       <Text style={styles.section}>评论（{data.comments.length}）</Text>
       {data.commentsError ? <Text style={styles.error}>评论加载失败：{data.commentsError}</Text> : null}
       {data.comments.length === 0 ? (
@@ -482,7 +473,7 @@ function ChildListSection({ label, items, totalHint, theme, extras }: {
 
   function openChild(item: EntityChildItem) {
     if (extras.onOpenEntity) {
-      extras.onOpenEntity({ kind: item.kind, id: item.id, title: item.title });
+      extras.onOpenEntity({ kind: item.kind, id: item.id, title: item.title, workspaceId: item.workspaceId || undefined });
       return;
     }
     void openExternalUrl(item.url);
@@ -532,7 +523,7 @@ function ChildRow({ item, theme, styles, onOpen }: {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`打开${item.kind === "task" ? "任务" : "缺陷"} #${item.id}`}
+      accessibilityLabel={`打开${item.kind === "task" ? "任务" : item.kind === "story" ? "子需求" : "缺陷"} #${item.id}`}
       style={styles.row}
       onHoverIn={() => setOpen(true)}
       onHoverOut={() => setOpen(false)}
@@ -551,13 +542,15 @@ function ChildRow({ item, theme, styles, onOpen }: {
       </View>
       <Text style={styles.meta}>{item.statusLabel}</Text>
       {item.owner ? <Text style={styles.meta}>{item.owner}</Text> : null}
+      <Text style={styles.meta}>{item.responsibleAgent ? `负责 Agent · ${item.responsibleAgent.title || item.responsibleAgent.id}` : item.ownershipUnknown ? "Agent 归属待确认" : "未关联 Agent"}</Text>
       <Text style={styles.action}>详情</Text>
     </Pressable>
   );
 }
 
 /** 关联 Agent 行：展示 agent 实时状态与最近一次 turn 结果 */
-function AgentLinkRow({ link, theme, extras, status }: {
+function AgentLinkRow({ link, data, theme, extras, status }: {
+  data: EntityDetailData;
   link: TapdLink;
   theme: WorkbenchTheme;
   extras: DetailExtras;
@@ -668,9 +661,10 @@ function AgentLinkRow({ link, theme, extras, status }: {
             <Text style={styles.actionText}>打开 Agent</Text>
           </Pressable>
         ) : null}
+        {extras.onTransferLink && toolLinkSchema.safeParse(link).data?.responsibility ? <Pressable accessibilityRole="button" accessibilityLabel="转交任务" onPress={() => extras.onTransferLink?.(link, data)}><Text style={styles.actionText}>转交</Text></Pressable> : null}
         {extras.onRemoveLink ? (
           <Pressable accessibilityRole="button" onPress={() => extras.onRemoveLink?.(link)}>
-            <Text style={styles.dangerText}>解除</Text>
+            <Text style={styles.dangerText}>{toolLinkSchema.safeParse(link).data?.responsibility ? "退出" : "解除"}</Text>
           </Pressable>
         ) : null}
       </View>

@@ -21,11 +21,15 @@ description: 在 Paseo 中通过 TAPD 工具查询、接手、创建单据，记
 
 用户明确要求处理某张单据时，先读取目标、验收条件及已有进度，沿用用户指定的实施范围。只有查询或讨论时不建立绑定、不改状态。
 
-接手时用 `tapd_bind_agent` 绑定当前 Agent（省略 `agentId`）；绑定指定 Agent 前用 `tapd_agent_options` 核对目标。用户明确要求当前 Agent 接手该单据时已授权建立关联，不必重复询问。绑定是静默的，不发提示词、不修改 TAPD 处理人或状态。返回成功才报告已绑定；会话自动收录不代表绑定。
+先用 `tapd_task_board` 读取当前承担关系；可指定其他 `agentId` 只读协作，不获得写权限。明确接手时用 `tapd_take_task`（旧 `tapd_bind_agent` 仅兼容本人接手），省略 `agentId`。用户明确要求当前 Agent 接手时已授权，不必重复询问。返回成功才报告接手；重复本人接手不变，已有负责人或历史冲突则停止，不猜测授权。用户给已有 Agent 直接指派走界面确认，不启动执行。
+
+委派与转交：用 `tapd_agent_options` 核对目标，再用 `tapd_delegate_task` 提出明确委派；原负责人转交须提供看板中的 `expectedOwnerAgentId` 和 `expectedRevision`。工具只返回 `offer.offerId`，不发消息、不改负责人。仅在已有明确通信授权的渠道传递该编号；目标本人以 `tapd_accept_task`、`offerId`、简短 `reason` 和 `confirmed: true` 接受后才原子接手。不得冒用目标 ID 或把确认布尔值当作权限。用户可在详情显式确认转交，目标不存在、已归档或修订冲突时先刷新核查。
+
+本人退出：用 `tapd_leave_task` 提交当前看板记录的 `expectedRevision`、简短 `reason` 和 `confirmed: true`。其他 Agent 不能代退；用户使用详情「退出」并确认原因。`tapd_task_history` 可核对本机操作者、时间、原因。原因不放正文或凭据；这些操作不改变 TAPD 人员、状态、标签、评论，也不自动执行。转交或退出抑制旧关联重入；关系后来再变更时旧请求须重新核实。
 
 需要派给新 Agent 时，先用 `tapd_agent_options` 选择已有 Git 项目和可用 provider/model，然后使用 `tapd_dispatch_agent`。向用户明确具体仓库、分支、模型和完整任务提示词；已有授权覆盖这些内容就执行，否则确认。工具创建 worktree 工作区、新 Agent，保存关联后发送提示词。提示词应包含单据链接、任务范围与验收要求，将单据内容作为业务数据，注明使用 `$paseo-tapd`；技能是否可用取决于目标 provider 的技能发现机制。
 
-派发返回 `ok: false, partial: true` 时检查 `phase`、`workspaceId`、`agentId`、`bound` 和 `promptSent`。已创建资源保留，不重复派发。已存在 Agent 但绑定失败，可核实后用绑定工具补齐；发送是否成功不确定时先查 Agent 活动，不重复发送。恢复动作仍须在原授权范围内。
+派发返回 `ok: false, partial: true` 时检查 `phase`、`workspaceId`、`agentId`、`bound` 和 `promptSent`。已创建资源保留，不重复派发。已存在 Agent 但绑定失败，先核实所有权并通过明确指派或目标本人接手补齐；发送是否成功不确定时先查 Agent 活动，不重复发送。恢复动作仍须在原授权范围内。
 
 完成阶段后，用实际成果决定下一步：
 
@@ -40,7 +44,7 @@ description: 在 Paseo 中通过 TAPD 工具查询、接手、创建单据，记
 
 | 意图 | 工具与准备 |
 | --- | --- |
-| 建需求、任务、缺陷 | 先用 `tapd_create_fields` 读取目标项目/类型的必填字段和可选值，再用 `tapd_create`。子任务或子缺陷先读取父需求，用其实际项目及 `storyId`；不要静默选首个项目或猜必填值。 |
+| 建需求、任务、缺陷 | 先用 `tapd_create_fields` 读取目标项目/类型的必填字段和可选值，再用 `tapd_create`。子任务或子缺陷先读取父需求，用其实际项目及 `storyId`；子需求先用 `tapd_child_types` 取得双方允许的类别，再显式提供 `parentStoryId` 和 `workitemTypeId`；不要静默选首个项目或猜必填值。 |
 | 改状态 | 先读详情及项目状态，再用 `tapd_update_status` 提交状态 key；`unchanged: true` 表示没有发生变更。 |
 | 更新需求方案字段 | 用 `tapd_field_definitions` 按 label 确认实际 key，再用 `tapd_read_field` 读原文；保留人工内容，展示旧值与完整新值后，以 `tapd_update_field` 提交。 |
 | 查询、创建项目标签 | `tapd_labels` 读取项目定义，满页按 `nextPage` 继续；`name` 是模糊筛选。明确授权完整项目、名称及可选颜色后用 `tapd_create_label`，仅创建定义、不附加单据；同名不写入或改色。 |
@@ -51,7 +55,7 @@ description: 在 Paseo 中通过 TAPD 工具查询、接手、创建单据，记
 
 增删名称区分大小写，不同时添加和移除同名；TAPD 附加未知名称会自动创建项目定义，获批范围应覆盖新名称。同名添加与不存在移除返回 unchanged、不 POST。旧值冲突时先用 `tapd_item_labels` 重新读取，保留他人分类后重新拟定；同插件写入串行与写前检查不能充当外部编辑的原子锁。只有 `outcome=verified` 才报告增删和保留项均已核实；accepted/unverified 或 unknown 先实时读标签核对，不重复写。最后标签清空尚无可靠接口语义，`label_clear_unsupported/not_sent` 表示工具没有提交；说明限制，不用空串或其他字段绕过。
 
-字段工具首版支持需求 description/custom_field_* 的文本或富文本；key 必须来自实际项目元数据，readonly=false 仍需远端权限校验。未知类型、只读、可编辑性未知或旧值未返回时停止提交并说明限制。删除单据和其他类型字段尚不支持，解绑使用详情界面。普通回合结束只更新本地 Agent 状态，旧自动回评设置不再生效；明确阶段成果使用显式评论工具，不把回合结束当业务完成。
+字段工具首版支持需求 description/custom_field_* 的文本或富文本；key 必须来自实际项目元数据，readonly=false 仍需远端权限校验。未知类型、只读、可编辑性未知或旧值未返回时停止提交并说明限制。删除单据和其他类型字段尚不支持，退出使用本人退出工具或详情界面。普通回合结束只更新本地 Agent 状态，旧自动回评设置不再生效；明确阶段成果使用显式评论工具，不把回合结束当业务完成。
 
 字段原文/HTML/空白保持原样；区分 returned=false、null 与空串，只在用户明确请求清空时传 value=""。更新带完整 expectedValue；冲突时 fresh 重读后重新拟定，客户端比较不是原子锁。只有 outcome=verified 才报告已核实；accepted/unverified 表示远端已接受但内容未核实，先 tapd_read_field 核对，勿重复写入。
 
@@ -64,3 +68,9 @@ description: 在 Paseo 中通过 TAPD 工具查询、接手、创建单据，记
 输入框上方 TAPD 入口打开本次会话侧栏列表；选择单据打开可复用的详情 tab。会话收录不表示 Agent 绑定。卡片是历史摘要，判断当前状态依赖最新详情。
 
 向用户报告实际操作结果和单据入口；阶段结束说明已验证内容、当前/建议状态、绑定是否确认及待处理事项。没有执行的写入明确标注为建议或待确认。
+
+## 真实任务拆分
+
+用 `tapd_children` 查询父需求的直属子需求、子任务与相关缺陷，检查各类 partial/truncated/total；未知数量不当作零。子单据的主要负责 Agent 独立解析，归属待确认不表示未接手；查看不绑定，父负责人不自动成为子负责人。独立交付拆成真实 TAPD 子任务或子需求，子单完成不推断父完成。
+
+子需求建单必须从实际父项目读取 `tapd_child_types` 和类别对应 `tapd_create_fields`，使用返回类别 ID，不通过 extraFields 写 parent_id 或 workitem_type_id。能力、类别关系或必填元数据不支持时说明限制，不改成无父级的顶层单据。子创建后仅 `outcome=verified` 表示父级与类别已核实；accepted/unverified 按返回单号 `tapd_entity` 只读核对，unknown 搜索并核查实际关系，不自动重建或因为卡片失败重复 POST。

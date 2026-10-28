@@ -67,6 +67,11 @@
 49. As a user, I want timeouts, partial dispatch and presentation failures not to replay writes, so that recovery avoids duplicate work.
 50. As a user, I want task and label tools documented in the plugin workflow skill, so that Agents use the new capabilities correctly.
 
+51. As a user, I want real TAPD labels on task cards, so that I can see additional workflow context at a glance.
+52. As a user, I want at most two labels and a +N indicator on compact cards, so that many labels do not expand every card.
+53. As a user, I want full labels in item details, so that I can inspect all context without a label editor.
+54. As a user, I want missing labels distinguished from confirmed empty labels, so that unavailable data does not silently look unlabelled.
+
 ## Implementation Decisions
 
 ### Business model and authority
@@ -115,6 +120,13 @@
 - Closing windows/conversations and daemon restart preserve boards. Archiving retains associations/history; restoration restores access. Deleting the owning Agent conversation cleans its board, responsibility and owned local history, without TAPD writes or deletion of other Agents' work.
 - Other existing parent/child views resolve the item as unassigned after owner deletion, not completed. Deletion reconciliation requires an authoritative lifecycle result; timeout, permission failure or disconnected host is not evidence of deletion. Recovery must reconcile deletion before presenting a new owner.
 - Corrupt storage or migration failure yields a useful recoverable error; do not replace unreadable data with an empty store or mass-release ownership. Preserve atomic file update and existing secret-sanitization guarantees.
+
+### Read-only card labels (user-confirmed implementation amendment)
+
+- Fetch real label data with existing summary/detail reads rather than one extra label call per card. Show at most two compact labels and +N on cards, with safe truncation of long names; full detail shows all available labels.
+- Reuse display in shared result cards when payload labels are available, without retroactively fetching or rewriting historical cards. Confirmed empty labels consume no empty row; unavailable/missing label values are identified as unknown, not cleared.
+- Display does not create an editor, infer completion, take responsibility or write labels. Next fresh reads after label edits must show current labels. Keep responsive geometry and existing child/refresh behavior.
+- This addition was explicitly confirmed during implementation and is tracked by the supplemental child ticket; final integration acceptance includes it.
 
 ### Generic label tools
 

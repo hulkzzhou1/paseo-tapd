@@ -81,9 +81,13 @@ test("reading a discovered story field preserves whitespace and distinguishes nu
   assert.ok(reads.every(x => x.url.searchParams.get("fields").includes(target.fieldKey)));
 });
 
-test("approved field replacement preserves rich text, checks old value and verifies explicit clearing", async t => {
+for (const htmlType of ["rich_edit", "rich_text"]) test(`approved ${htmlType} replacement preserves rich text, checks old value and verifies explicit clearing`, async t => {
   const { call, state } = fixture(t);
-  state.fields.custom_field_one.html_type = "rich_edit";
+  state.fields.custom_field_one.html_type = htmlType;
+  const discovered = await call("tapd_field_definitions", { kind: target.kind, workspaceId: target.workspaceId });
+  const field = discovered.structuredContent.fields.find(field => field.key === target.fieldKey);
+  assert.equal(field.htmlType, htmlType);
+  assert.equal(field.supported, true);
   const value = "  <p>人工段落 &amp; 新方案</p>\n";
   const input = { ...target, expectedValue: state.value, value, confirmed: true };
   const written = await call("tapd_update_field", input);

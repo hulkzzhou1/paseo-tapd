@@ -1004,7 +1004,7 @@ export async function fetchFieldDefinitions(config: TapdConfig, kind: string, wo
     fields.push({ key, label: typeof info.label === "string" ? info.label.slice(0, 500) : "", htmlType,
       readonly: info.readonly === true || info.readonly === 1 || info.readonly === "1" ? true
         : info.readonly === false || info.readonly === 0 || info.readonly === "0" ? false : null,
-      supported: ["text", "input", "textarea", "rich_edit"].includes(htmlType),
+      supported: ["text", "input", "textarea", "rich_edit", "rich_text"].includes(htmlType),
     });
   }
   protectFieldData(config, fields);

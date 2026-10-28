@@ -269,7 +269,7 @@ The bundled [paseo-tapd skill](skills/paseo-tapd/SKILL.md) guides reads, taking 
 
 ### Controlled story fields / 受控需求字段
 
-先用 `tapd_field_definitions` 读取实际项目元数据，按 label 找到确切 key，再用 `tapd_read_field` 读取原文。首版仅支持需求的 `description` 及元数据返回的 `custom_field_*` 文本/富文本字段；保留类型、只读标记和未知可编辑性，不硬编码业务 key。不支持的类型、只读、可编辑性未知或旧值未返回均不能提交；元数据可写也不保证当前账号拥有单据写权限。
+先用 `tapd_field_definitions` 读取实际项目元数据，按 label 找到确切 key，再用 `tapd_read_field` 读取原文。首版仅支持需求的 `description` 及元数据返回的 `custom_field_*` 文本/富文本字段（识别 `rich_edit` 与 `rich_text`）；保留类型、只读标记和未知可编辑性，不硬编码业务 key。不支持的类型、只读、可编辑性未知或旧值未返回均不能提交；元数据可写也不保证当前账号拥有单据写权限。
 
 `tapd_update_field` 要求实际项目、单据、字段、完整 `expectedValue`、新 `value` 和 `confirmed: true`。原文/HTML/空白不转换；`returned: false`、显式 `null` 和空字符串不同，只有显式 `value: ""` 才请求清空。先核对旧值，只发送目标字段，写后 fresh 回读并逐字比较。冲突时保留人工内容、重读后重新拟定；这是客户端检查，不能阻止检查与提交之间的并发编辑。
 
@@ -277,4 +277,4 @@ The bundled [paseo-tapd skill](skills/paseo-tapd/SKILL.md) guides reads, taking 
 
 字段工具复用现有 RPC、会话卡片与本机恢复，不提供通用字段表单。公开 API 契约与受控测试不证明目标部署兼容；实际 key、权限、清空/HTML 规范化行为需部署验收，见 [验证与限制](docs/design-fields-validation.md)。
 
-Story field tools discover actual project keys, preserve raw text/HTML and distinguish absent, null and empty values. Updates require the exact old/new values and approval, write one field, then bypass cached and in-flight reads to verify it. The comparison is not atomic concurrency control. An accepted but unverified result requires a fresh read, never an automatic retry. Ordinary ended turns only update local Agent state; legacy auto-report settings no longer post comments. Explicit authorized stage comments remain available. Real deployment permissions and notification chains have not been tested.
+Story field tools recognize both `rich_edit` and `rich_text`, discover actual project keys, preserve raw text/HTML and distinguish absent, null and empty values. Updates require the exact old/new values and approval, write one field, then bypass cached and in-flight reads to verify it. The comparison is not atomic concurrency control. An accepted but unverified result requires a fresh read, never an automatic retry. Ordinary ended turns only update local Agent state; legacy auto-report settings no longer post comments. Explicit authorized stage comments remain available. Real deployment permissions and notification chains have not been tested.

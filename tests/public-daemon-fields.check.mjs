@@ -93,7 +93,7 @@ async function runIsolated() {
       } else {
         reads.push(url.pathname);
         data = url.pathname.endsWith('get_fields_info')
-          ? { [target.fieldKey]: { label: '示例方案', html_type: 'rich_edit', readonly: 0 } }
+          ? { [target.fieldKey]: { label: '示例方案', html_type: 'rich_text', readonly: 0 } }
           : [{ Story: { id: target.id, workspace_id: target.workspaceId, name: '示例需求', [target.fieldKey]: value } }];
       }
       response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ status: 1, data }));

@@ -129,7 +129,7 @@ TAPD 卡片压缩上下留白与行间距，保持标题字号、状态层次和
 
 ## 需求字段与写入恢复
 
-新增 `tapd.field_definitions`、`tapd.read_field`、`tapd.update_field` RPC 及同名下划线 Agent 工具，输入/输出经共享 schema 约束。仅向已配置 API 的 `/stories/get_fields_info`、`/stories` 发送请求，项目须已配置、类型须为需求。发现返回实际 description/custom key、label、原始 html_type、readonly 三态及 supported；支持 text/input/textarea/rich_edit，不将元数据只读标记当作账号授权证明。其他字段类型仅展示为不支持。
+新增 `tapd.field_definitions`、`tapd.read_field`、`tapd.update_field` RPC 及同名下划线 Agent 工具，输入/输出经共享 schema 约束。仅向已配置 API 的 `/stories/get_fields_info`、`/stories` 发送请求，项目须已配置、类型须为需求。发现返回实际 description/custom key、label、原始 html_type、readonly 三态及 supported；支持 text/input/textarea/rich_edit/rich_text，不将元数据只读标记当作账号授权证明。其他字段类型仅展示为不支持。
 
 单字段读取显式请求目标列，不依赖丢弃自定义字段的旧详情投影；区分未返回、null 和空串，最多 50,000 字符，原始 HTML 和空白保持原样。读写数据若包含已配置凭据字面值则拒绝，避免脱敏后的旧值造成覆盖。更新要求 `confirmed: true` 和完整旧值，只 POST 项目、编号及一个目标字段；空串显式发送以请求清空。只读/未知可编辑性/旧值未返回/冲突均在 POST 前拒绝。旧值检查并非原子 CAS，检查与写入之间仍可能存在并发修改。
 

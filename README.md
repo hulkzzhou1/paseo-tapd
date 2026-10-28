@@ -1,6 +1,6 @@
 # Paseo TAPD Workbench
 
-A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo workspace: a three-column board, reusable views, agent dispatch, comment/status write-back, and conversation-scoped shortcuts with recoverable tool cards.
+A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo workspace: a three-column board, reusable views, agent dispatch, comment/status write-back, and Agent task boards, recent viewing and recoverable tool cards.
 
 ![TAPD workbench](assets/screenshots/workbench-v2.png)
 
@@ -185,6 +185,8 @@ Iteration options and the selected summary mark current iterations using the cli
 
 ## Agent tools / Agent 工具
 
+插件当前注册 31 个 schema 校验工具（包含下方查询/写入以及任务承担工具）；工具清单以当前 Agent 的已注册 schema 为准。`tapd_task_board` 查询承担的任务，`tapd_board` 查询普通工作台单据，两者不混用。
+
 The current published compatible SDK is `@getpaseo/plugin@0.14.0-beta.1`, pinned in the lockfile. Run `npm ci --include=dev --ignore-scripts` before typechecking/testing. Stable npm 0.13.2 lacks the required agent-tool API. For local mainline development only, `npm run sdk:main -- /path/to/paseo-main` can replace the local SDK with a matching trusted build; the daemon supplies the runtime SDK. The existing local main build was verified at commit `6b7d49f0d8d21d01565f9517a8c2a30e2a587e2a`.
 
 当前公开兼容版本为 `0.14.0-beta.1`，锁文件固定对应 SDK；开发安装依赖后即可检查。稳定版 `0.13.2` 缺少工具 API。只有开发本地主线构建时才需要可选的 `sdk:main`，它不修改插件设置。
@@ -220,15 +222,15 @@ Tool inputs are bounded by UTF-8 byte length. Result `warnings` flag tolerated r
 
 ### Conversation TAPD shortcuts / 会话 TAPD 入口
 
-The `TAPD · N` composer action opens the current Agent task board (N confirmed responsibilities) in the Explorer sidebar, using the same public panel navigation as Progress. Selecting an item opens a separate detail tab; selecting it again reuses its tab. Native mobile uses workspace tabs because Explorer is unavailable there. Empty conversations hide the entry. References remain recent-first and removable even when the item cannot be read. List panels are scoped by host, workspace and Agent; item tabs also distinguish connection, project, kind and ID. Agents without a workspace retain timeline-card access.
+The `TAPD · N` composer action opens the current Agent task board (N confirmed responsibilities) in the Explorer sidebar, using the same public panel navigation as Progress. Selecting an item opens a separate detail tab; selecting it again reuses its tab. Native mobile uses workspace tabs because Explorer is unavailable there. The entry is hidden when there are no responsibilities, pending associations or recent references. Recent-viewing references remain recent-first and removable even when the item cannot be read; removal does not release responsibility. List panels are scoped by host, workspace and Agent; item tabs also distinguish connection, project, kind and ID. Agents without a workspace retain timeline-card access.
 
-输入框上方的 TAPD 按钮打开当前 Agent 任务看板；普通引用位于「最近查看」，不计入正式任务数；点击单据在侧栏新开详情 tab，重复点击复用同一 tab。详情直接内嵌阅读，继续共用工作台的正文、图片与操作页；评论、新建、派发和绑定仍使用原有操作弹窗和草稿确认。手机原生客户端改在工作区打开 tab。列表可以移除单据，不依赖详情读取成功；最后一项移除后显示空态并隐藏顶部入口，已打开详情仍可阅读。会话记录和设置格式不变，本机每两秒刷新引用，不会因此读取 TAPD。单张和批量结果卡片也打开同一套详情 tab；没有工作区的 Agent 保留详情弹窗。
+输入框上方的 TAPD 按钮打开当前 Agent 任务看板；普通引用位于「最近查看」，不计入正式任务数；点击单据在侧栏新开详情 tab，重复点击复用同一 tab。详情直接内嵌阅读，继续共用工作台的正文、图片与操作页；评论、新建、派发和绑定仍使用原有操作弹窗和草稿确认。手机原生客户端改在工作区打开 tab。最近查看可以移除单据，不依赖详情读取成功；移除不会退出正式任务。正式任务通过带原因和修订号的「退出」解除承担。最近查看为空且没有承担或待确认关联时隐藏入口，已打开详情仍可阅读。会话记录和设置格式不变，本机每两秒刷新引用，不会因此读取 TAPD。单张和批量结果卡片也打开同一套详情 tab；没有工作区的 Agent 保留详情弹窗。
 
 Minimal references, short card summaries and replay/removal progress are saved atomically under `PASEO_HOME/plugin-data/tapd-workbench/` (default `~/.paseo/plugin-data/tapd-workbench/`), separately from settings and Git sync. Descriptions, comment bodies, image data and credentials are not saved there. Reopen, reload and restart restore presentation only; archives retain data. Only a successful exact agent lookup proving deletion clears its records. The server contribution has no startup Paseo API: after a worker restart, the root client’s initial local RPC (or the first tool/hook context while offline) starts reconciliation, which completes before shortcuts are presented.
 
 最小引用、短卡片摘要及移除/重放进度独立保存在上述本机插件目录，原子更新、不参与配置同步；不保存正文、评论全文、图片和凭据。关闭、重开、插件重载和 daemon 重启后恢复展示，归档保留，精确确认会话删除后清理。服务端贡献没有启动时的公开 Paseo API，客户端根贡献会通过首次本机 RPC 启动对账；离线时由首个工具或钩子上下文启动，均在展示入口前完成；恢复不会重放 TAPD 操作。
 
-用户和 Agent 普通消息中的明确单据链接也会收录：仅接受当前网页域名和已配置项目，支持 `https://example.com/tapd_fe/12345678/story/detail/11111111` 及 TAPD 旧版详情路径。未知单据先显示编号；打开会话列表后自动补齐标题、状态和处理人，点击单据才读取完整详情。消息扫描本身不调用 TAPD、不修改消息或拦截普通链接；原始工具结果和推理内容不参与扫描。完整历史分页补取、流式更新和重连保留来源进度，旧消息不会恢复已移除入口，切换 API 地址也不会把旧来源映射到新连接；新消息可按当前配置重新收录。
+用户和 Agent 普通消息中的明确单据链接也会收录：仅接受当前网页域名和已配置项目，支持 `https://example.com/tapd_fe/12345678/story/detail/11111111` 及 TAPD 旧版详情路径。未知单据先显示编号；打开最近查看后自动补齐标题、状态和处理人，点击单据才读取完整详情。消息扫描本身不调用 TAPD、不修改消息或拦截普通链接；原始工具结果和推理内容不参与扫描。完整历史分页补取、流式更新和重连保留来源进度，旧消息不会恢复已移除入口，切换 API 地址也不会把旧来源映射到新连接；新消息可按当前配置重新收录。
 
 
 搜索与看板工具返回可恢复的批量结果卡片，默认显示前五条；「展开更多已返回单据」从本机记录分页读取其余结果，不重新查询 TAPD，也不会把整个批次加入会话入口。点击某张才收录并打开完整详情。卡片明确显示已返回数量、已知总数、部分失败、缓存及截断提示；搜索总数未知，空结果与未取得数据分别提示。
@@ -327,3 +329,9 @@ Story field tools recognize both `rich_edit` and `rich_text`, discover actual pr
 从需求详情使用「+ 子需求」选择允许的需求类别，再填写完整表单。工具使用 `tapd_child_types` 发现类别，`tapd_create` 明确传入 `parentStoryId` 和 `workitemTypeId`；任务/缺陷继续使用 `storyId`。共享创建边界实时核对实际父项目、双方类别约束和必填字段，禁止通过扩展字段覆写父级/类别。子创建成功后实时核实新单项目、父级和类别；`accepted/unverified` 需要按返回单号只读核查，不能重复创建。界面遇到此结果或无法判断的创建异常时保留草稿并停止重复提交。类别读取最多 1000 条，缺失、不完整、未启用或不允许的类别明确停止，不静默创建顶层单据。实际部署权限与类别必填元数据仍由远端校验。
 
 任务看板标签随已有摘要 GET 读取，详情随已有完整 GET 读取，不为每张卡片追加标签 RPC；同一展示也用于已带标签的单张/批量结果卡片。标签仅供阅读，不决定工作流完成状态，不自动接手、不创建或修改标签。长标签在卡片内截断，详情保留完整名称。后续刷新读取标签工具修改后的实际值；缺失、null、格式或敏感数据不可用不会伪造成空集合。历史卡片没有标签字段时保持原样，有标签时保持当时快照。
+
+## 任务看板验收与边界
+
+任务流程为明确接手 → 查询任务看板 → 创建真实子任务/子需求并分别分工 → 按已有授权修改 TAPD 状态 → 接受转交或带原因退出。正式看板、最近查看及历史归属确认分开；同一单据在当前主机/连接范围仅一名主要负责 Agent。父子单据状态与负责人独立，标签仅补充信息，不创建第二套任务状态或内置技能标签规则。
+
+自动检查通过注册工具/RPC、实际网页组件和隔离的真实 daemon 进程验证。HTTP 业务写入使用合成 TAPD 夹具，未向生产 TAPD 建单、评论、改状态或标签；真实部署权限、最后标签清空和人工视觉效果不由这些检查证明。网页可见看板每 30 秒刷新，原生客户端仅打开/手动刷新，等待 SDK 提供可靠面板可见性接口。开发 daemon 的主线代码即使保留旧 package 版本，也仅按明确指定的 beta SDK 合同测试，不代表支持稳定 0.13.2。

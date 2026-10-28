@@ -9,6 +9,7 @@ export function usePanelVisibility(){
  const [visible,setVisible]=useState(false);const cleanup=useRef<()=>void>(()=>{});
  const ref=useCallback((node:unknown)=>{
   cleanup.current();setVisible(false);
+  // shortcut: native uses open/manual refresh, upgrade when the SDK exposes reliable active-panel visibility.
   if(!node||Platform.OS!=="web")return;
   const Observer=(globalThis as unknown as {IntersectionObserver?:ObserverConstructor}).IntersectionObserver;
   if(!Observer)return;

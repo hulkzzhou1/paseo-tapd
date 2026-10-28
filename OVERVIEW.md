@@ -87,6 +87,8 @@ Tool inputs are bounded by UTF-8 byte length. Result `warnings` flag tolerated r
 
 看板的读取警告随快照缓存（包括界面先加载及后台刷新），缓存命中不会丢失完整性提示。「我处理的」无法识别当前用户时直接报错，不扩大为全员查询。Board read warnings travel with cached snapshots, including UI-warmed results and background refreshes. If the current user cannot be resolved, a mine query fails rather than broadening to everyone.
 
+读取响应、工作台快照及在途请求按 API/站点、配置项目和凭据作用域隔离；选择缓存前先校验当前连接。缓存作用域只保留凭据的 SHA-256 指纹，不含原始 Token。设置页的连接测试每次重新验证当前草稿凭据，不复用旧用户结果；测试不会保存草稿。
+
 
 Single-item tool queries also append a clickable result card to the calling conversation through the public Paseo timeline API. Card data contains only the item project, kind, ID, bounded title/status/owner, connection identifiers and generic completeness warnings; full descriptions, comment bodies and credentials are excluded. Timeline rows are presented by the daemon; the plugin separately retains compact records to recover them after restart. Opening the card explicitly reads current detail through the configured API after checking the recorded site/API identifiers and project, then uses the same detail/action pages as the workbench. No additional remote destination is introduced. A failed card append leaves the completed TAPD read successful with a presentation warning.
 

@@ -1,5 +1,14 @@
-import { createAgentLinks } from "./server/agent-links";
-import { createAssignmentTools } from "./server/agent-assignment";
+import { createOwnershipLifecycle } from "./server/ownership-lifecycle";
+
+import { childrenRpc, childTypesRpc } from "./shared/contracts";
+import { createOwnershipMigration } from "./server/ownership-migration";
+import { migrationListRpc, migrationConfirmRpc } from "./shared/ownership-migration";
+import {taskBoardRevision} from "./server/task-board-state";
+import { createAgentLinks, sameTask, suppressTask } from "./server/agent-links";
+import { createAssignmentService, createAssignmentTools } from "./server/agent-assignment";
+import { createTaskBoard } from "./server/task-board";
+import { taskBoardRpc, taskClaimRpc, taskDispatchRpc, taskReleaseRpc, taskTransferRpc } from "./shared/task-board";
+import { labelsRpc, itemLabelsRpc, createLabelRpc, updateLabelsRpc } from "./shared/labels";
 import { agentLinksRpc, removeAgentLinkRpc } from "./shared/agent-links";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { updateFieldRpc, readFieldRpc, fieldDefinitionsRpc, imageRpc, addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, syncPullRpc, syncPushRpc, tapdSettings, updateCheckRpc, updateStatusRpc } from "./shared/contracts";
@@ -8,7 +17,7 @@ import { createConversationRuntime } from "./server/conversation";
 import { conversationRefreshRpc, conversationBatchPageRpc, conversationListRpc, conversationFocusRpc, conversationRemoveRpc } from "./shared/conversation";
 import { createTapdTools } from "./server/agent-tools";
 import { recordTurnEnd } from "./server/agent-state";
-import { clearTapdCache, resolveConfig, type TapdConfigInput } from "./server/tapd";
+import { clearTapdCache, resolveConfig, protectFieldData, type TapdConfigInput } from "./server/tapd";
 import { pullSettings, pushSettings, type SyncSettingsAccess } from "./server/git-sync";
 
 export default function contribute(server: PluginServerContext) {
@@ -24,15 +33,39 @@ export default function contribute(server: PluginServerContext) {
   const syncAccess: SyncSettingsAccess = { read: getValues };
 
   const agentLinks = createAgentLinks();
-  const visibleLinks = async () => {
-    const config = resolveConfig(await getValues());
-    return (await agentLinks.list()).filter(link => link.apiEndpoint === config.endpoint && config.workspaceIds.includes(link.tapdWorkspaceId));
+  const ownership = createOwnershipLifecycle(getValues, agentLinks);
+  const migration = createOwnershipMigration(getValues, agentLinks);
+  server.handle(migrationListRpc, ({agentId}, context) => migration.list(agentId, context));
+  server.handle(migrationConfirmRpc, (input, context) => migration.confirm(input, context));
+  const assignments = createAssignmentService(getValues, agentLinks);
+  const taskBoard = createTaskBoard(getValues, agentLinks);
+  server.handle(taskBoardRpc, ({ agentId }, context) => taskBoard.read(agentId, context));
+  server.handle(taskClaimRpc, (input, context) => assignments.claim(input, context, "user", true));
+  server.handle(taskDispatchRpc, (input, context) => assignments.dispatch(input, context, "user"));
+  server.handle(taskTransferRpc, (input, context) => assignments.transfer(input, context));
+  server.handle(taskReleaseRpc, (input, context) => assignments.release(input, context, "user", input.agentId));
+  const visibleLinks = async (context: Parameters<typeof ownership.reconcile>[0]) => {
+    await ownership.reconcile(context);
+    const values = await getValues(), config = resolveConfig(values);
+    const result = (await agentLinks.list()).filter(link => link.apiEndpoint === config.endpoint && (!link.siteUrl || link.siteUrl === config.site) && config.workspaceIds.includes(link.tapdWorkspaceId));
+    protectFieldData(config, result);
+    return result;
   };
-  server.handle(agentLinksRpc, async () => ({ links: await visibleLinks() }));
-  server.handle(removeAgentLinkRpc, async link => { await agentLinks.remove(link); return { ok: true as const }; });
-  const handlers = createHandlers(getValues);
-  const conversations = createConversationRuntime(getValues);
-  const tools = [...createTapdTools(getValues, conversations), ...createAssignmentTools(getValues, agentLinks)];
+  server.handle(agentLinksRpc, async (_input, context) => ({ links: await visibleLinks(context), pendingAgents: await migration.pendingAgents(), boardRevision: taskBoardRevision(resolveConfig(await getValues())) }));
+  server.handle(removeAgentLinkRpc, link => agentLinks.stateTransaction(async state => {
+    const matches = (item: typeof link) => sameTask(item, link) && item.agentId === link.agentId;
+    if (state.links.some(item => matches(item) && item.responsibility)) throw new Error("已确认承担关系请使用退出操作并填写原因。");
+    return { state: { ...suppressTask(state, link, "user"), links: state.links.filter(item => !matches(item)) }, result: { ok: true as const } };
+  }));
+  const handlers = createHandlers(getValues, {}, agentLinks);
+  server.handle(childrenRpc, async (input, context) => { await ownership.reconcile(context).catch(() => {}); return handlers.children(input); });
+  server.handle(childTypesRpc, handlers.childTypes);
+  server.handle(labelsRpc, handlers.labels);
+  server.handle(itemLabelsRpc, handlers.itemLabels);
+  server.handle(createLabelRpc, handlers.createLabel);
+  server.handle(updateLabelsRpc, handlers.updateLabels);
+  const conversations = createConversationRuntime(getValues, ownership);
+  const tools = [...createTapdTools(getValues, conversations, agentLinks), ...createAssignmentTools(getValues, agentLinks)];
   server.handle(conversationBatchPageRpc, (input, context) => conversations.batchPage({ paseo: context.paseo, agentId: input.agentId }, input));
   server.handle(conversationRefreshRpc, ({ agentId, entity }, context) => conversations.refreshEntity({ paseo: context.paseo, agentId }, entity).catch(() => { throw new Error("单据摘要读取失败，请刷新重试。"); }));
   server.handle(conversationListRpc, (_input, context) => conversations.list(context));
@@ -49,7 +82,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(createFieldsRpc, handlers.createFields);
   server.handle(updateStatusRpc, handlers.updateStatus);
   server.handle(addCommentRpc, handlers.addComment);
-  server.handle(entityRpc, handlers.entity);
+  server.handle(entityRpc, async (input, context) => { await ownership.reconcile(context).catch(() => {}); return handlers.entity(input); });
   server.handle(imageRpc, handlers.image);
   server.handle(searchRpc, handlers.search);
   server.handle(filterOptionsRpc, handlers.filterOptions);

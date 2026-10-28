@@ -16,6 +16,7 @@ export interface TapdConfig {
 }
 
 export interface TapdConfigInput {
+  syncGitToken?: string;
   token: string;
   workspaceIds: string;
   apiEndpoint?: string;
@@ -23,6 +24,7 @@ export interface TapdConfigInput {
 }
 
 export interface EntitySummary {
+  labels?: string[] | null;
   kind: EntityKind;
   id: string;
   title: string;
@@ -58,6 +60,8 @@ export interface EntityComment {
 
 /** 需求详情中的子单据行（关联任务/关联缺陷） */
 export interface EntityChildItem {
+  workspaceId: string; status: string; parentId: string;
+  responsibleAgent: { id: string; title: string } | null;
   kind: EntityKind;
   id: string;
   title: string;
@@ -68,6 +72,7 @@ export interface EntityChildItem {
 }
 
 export interface EntityDetailResult {
+  labels: string[] | null;
   kind: EntityKind;
   id: string;
   /** 单据实际所在项目（回写状态/评论必须发到这个项目） */
@@ -88,16 +93,19 @@ export interface EntityDetailResult {
   commentsError: string | null;
   /** 仅需求：该需求下挂的任务（TAPD task.story_id） */
   childTasks: EntityChildItem[];
+  childStories: EntityChildItem[];
+  childReads: Record<EntityKind, { total: number | null; partial: boolean; truncated: boolean; error: string | null }>;
   /** 仅需求：该需求下挂的缺陷（TAPD bug.story_id） */
   childBugs: EntityChildItem[];
   /** 仅需求：任务/缺陷真实总数（> 列表长度说明列表被 limit 200 截断；0 = 未知/未统计） */
-  childTasksTotal: number;
-  childBugsTotal: number;
+  childTasksTotal: number | null;
+  childBugsTotal: number | null;
   /** 仅任务/缺陷：所属需求（TAPD task.story_id / bug.story_id） */
   parentStory: { id: string; title: string; url: string } | null;
 }
 
 export interface AttachmentSearchItem {
+  labels?: string[] | null;
   id: string;
   identifier: string;
   title: string;
@@ -148,9 +156,9 @@ const FIELDS_INFO_PATH: Record<EntityKind, string> = {
 };
 
 const LIST_FIELDS: Record<EntityKind, string> = {
-  story: "id,name,status,owner,priority_label,iteration_id,modified",
-  task: "id,name,status,owner,priority_label,iteration_id,modified,story_id",
-  bug: "id,title,status,current_owner,priority_label,iteration_id,modified,story_id",
+  story: "id,name,status,owner,priority_label,iteration_id,modified,label",
+  task: "id,name,status,owner,priority_label,iteration_id,modified,story_id,label",
+  bug: "id,title,status,current_owner,priority_label,iteration_id,modified,story_id,label",
 };
 
 // 终态状态：默认「隐藏已完成」时过滤掉这些状态。
@@ -192,7 +200,7 @@ export function resolveConfig(settings: TapdConfigInput): TapdConfig {
       .map((part) => part.trim())
       .filter((part) => part.length > 0),
   )];
-  return { endpoint, site, token, tokenSource, workspaceIds };
+  return { endpoint, site, token, tokenSource, workspaceIds, protectedValues: [settings.syncGitToken ?? "", envToken, settingsToken].filter(Boolean) };
 }
 
 function normalizeBaseUrl(value: string): string {
@@ -678,6 +686,24 @@ async function fetchTerminalStatuses(config: TapdConfig, kind: EntityKind, label
   ]);
 }
 
+/** Board membership must never be guessed from a translated status label. */
+export async function fetchTaskClassification(config: TapdConfig, kind: EntityKind, workspaceId: string, status: string, workflow: {workitemTypeId?:string;parallel?:boolean} = {}): Promise<"unfinished" | "completed" | "unknown"> {
+  if (!config.workspaceIds.includes(workspaceId) || !status || workflow.parallel) return "unknown";
+  if (kind === "task") {
+    if (["done"].includes(status)) return "completed";
+    if (["open", "progressing"].includes(status)) return "unfinished";
+    return "unknown";
+  }
+  if (kind === "story" && !workflow.workitemTypeId) return "unknown";
+  try {
+    const data = await requestJson(config, "/workflows/last_steps", { workspace_id: workspaceId, system: kind, type: "status", ...(workflow.workitemTypeId ? {workitem_type_id:workflow.workitemTypeId} : {}) }, 0);
+    if (!data || typeof data !== "object" || Array.isArray(data) || !Object.keys(data).length || !Object.values(data).every(value => typeof value === "string")) return "unknown";
+    const candidates = await fetchStatusOptions(config, kind, workspaceId);
+    if (!candidates.some(option => option.value === status)) return "unknown";
+    return Object.hasOwn(data, status) ? "completed" : "unfinished";
+  } catch { return "unknown"; }
+}
+
 function activeStatuses(kind: EntityKind, labels: Record<string, string>, terminal: ReadonlySet<string>): string[] {
   const known = Object.keys(labels);
   const source = known.length > 0 ? known : [...FALLBACK_ACTIVE_STATUSES[kind]];
@@ -709,6 +735,7 @@ function toSummary(
   const storyId = kind === "story" ? "" : String(row?.story_id ?? "").trim();
   const storyKey = storyId && storyId !== "0" ? `${workspaceId}-${storyId}` : "";
   return {
+    labels: readDisplayLabels(config, row),
     kind,
     id,
     title: String((kind === "bug" ? row?.title : row?.name) ?? ""),
@@ -945,6 +972,8 @@ export interface CreateEntityInput {
   iterationId: string;
   /** 挂载的所属需求 ID（仅 task/bug 生效） */
   storyId?: string;
+  parentStoryId?: string;
+  workitemTypeId?: string;
   /** 单据所在项目；缺省仍取 workspaceIds[0] */
   workspaceId?: string;
   /** 动态表单收集的其余可写字段（key 会经 denylist 过滤） */
@@ -954,7 +983,7 @@ export interface CreateEntityInput {
 /** 创建接口额外透传字段时禁止的系统列/受控列（含动态表单里已静态化的列） */
 const CREATE_FIELD_DENYLIST = new Set([
   "id", "workspace_id", "story_id", "parent_id", "name", "title", "description",
-  "owner", "current_owner", "priority_label", "iteration_id", "status",
+  "owner", "current_owner", "priority_label", "iteration_id", "status", "workitem_type_id",
   "created", "modified", "creator", "reporter", "cc", "follower",
 ]);
 
@@ -984,11 +1013,147 @@ const fieldFailureMessages = {
 function fieldFailure(code: keyof typeof fieldFailureMessages) {
   return new TapdApiError(fieldFailureMessages[code], undefined, { code, phase: "validation", writeState: "not_sent" });
 }
-function protectFieldData(config: TapdConfig, data: unknown) {
+export function redactProtectedData<T>(config: TapdConfig, data: T): T {
+  let text = JSON.stringify(data);
+  for (const secret of [config.token, ...(config.protectedValues ?? [])].filter(Boolean)) text = text.split(JSON.stringify(secret).slice(1, -1)).join("[redacted]");
+  return JSON.parse(text);
+}
+export function protectFieldData(config: TapdConfig, data: unknown) {
   const text = JSON.stringify(data);
   if ([config.token, ...(config.protectedValues ?? [])].filter(Boolean)
     .some(secret => text.includes(JSON.stringify(secret).slice(1, -1)))) {
     throw new TapdApiError("字段数据包含受保护内容，无法安全读取或写入。");
+  }
+}
+
+export interface LabelQuery { workspaceId: string; page: number; limit: number; name?: string }
+export interface ProjectLabel { id: string; name: string; color: string | null }
+export interface ItemLabelTarget { kind: EntityKind; id: string; workspaceId: string }
+function validateLabelProject(config: TapdConfig, workspaceId: string) {
+  if (!/^\d{1,100}$/.test(workspaceId) || !config.workspaceIds.includes(workspaceId)) throw new TapdApiError("标签项目无效。");
+}
+function validLabelName(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 200 && value.trim().length > 0 && !/[|\u0000-\u001f\u007f]/.test(value);
+}
+function parseProjectLabel(row: unknown, workspaceId: string): ProjectLabel {
+  if (!row || typeof row !== "object" || Array.isArray(row)) throw requestFailure("read", "unsupported_label_response");
+  const value = row as Record<string, unknown>;
+  const id = String(value.id ?? "");
+  if (!/^\d{1,100}$/.test(id) || String(value.workspace_id ?? "") !== workspaceId || !validLabelName(value.name)
+    || (value.color != null && !/^[1-4]$/.test(String(value.color)))) throw requestFailure("read", "unsupported_label_response");
+  return { id, name: value.name, color: value.color == null ? null : String(value.color) };
+}
+export async function fetchProjectLabels(config: TapdConfig, input: LabelQuery) {
+  validateLabelProject(config, input.workspaceId);
+  if (!Number.isInteger(input.page) || input.page < 1 || input.page > 10_000
+    || !Number.isInteger(input.limit) || input.limit < 1 || input.limit > 200
+    || (input.name !== undefined && !validLabelName(input.name))) throw new TapdApiError("标签查询无效。");
+  protectFieldData(config, input);
+  const data = await requestJson(config, "/label", { workspace_id: input.workspaceId, page: input.page, limit: input.limit, name: input.name, order: "id asc" }, 0, true);
+  if (!Array.isArray(data) || data.length > input.limit) throw requestFailure("read", "unsupported_label_response");
+  const labels = data.map(row => parseProjectLabel(unwrapRow(row, ["LabelPool"]), input.workspaceId));
+  protectFieldData(config, labels);
+  const truncated = data.length === input.limit;
+  return { workspaceId: input.workspaceId, labels, page: input.page, limit: input.limit, truncated, nextPage: truncated && input.page < 10_000 ? input.page + 1 : null };
+}
+function parseLabelNames(value: string): string[] {
+  const labels = value === "" ? [] : value.split("|");
+  if (labels.length > 100 || !labels.every(validLabelName)) throw requestFailure("read", "unsupported_label_response");
+  return labels;
+}
+function readDisplayLabels(config: TapdConfig, row: any): string[] | null {
+  if (typeof row?.label !== "string" || row.label.length > 20_100) return null;
+  try { const labels = parseLabelNames(row.label); protectFieldData(config, labels); return labels; }
+  catch { return null; }
+}
+export async function readItemLabels(config: TapdConfig, input: ItemLabelTarget) {
+  validateLabelProject(config, input.workspaceId);
+  if (!["story", "task", "bug"].includes(input.kind) || !/^\d{1,100}$/.test(input.id)) throw new TapdApiError("标签单据目标无效。");
+  const data = await requestJson(config, LIST_PATH[input.kind], { workspace_id: input.workspaceId, id: input.id, limit: 1,
+    fields: `id,workspace_id,${input.kind === "bug" ? "title,current_owner" : "name,owner"},status,label` }, 0, true);
+  if (!Array.isArray(data) || data.length > 1) throw requestFailure("read", "unsupported_label_response");
+  const row = unwrapRows(data, [KIND_WRAPPER[input.kind]])[0];
+  if (!row || String(row.id) !== input.id) throw requestFailure("read", "item_not_returned");
+  if (String(row.workspace_id ?? "") !== input.workspaceId) throw requestFailure("read", "item_project_mismatch");
+  const returned = Object.hasOwn(row, "label");
+  const value: unknown = returned ? row.label : null;
+  if (value !== null && (typeof value !== "string" || value.length > 20_100)) throw requestFailure("read", "unsupported_label_response");
+  const labels = value === null ? null : parseLabelNames(value as string);
+  const result = { returned, value: value as string | null, labels, entity: { ...input,
+    title: String(row[input.kind === "bug" ? "title" : "name"] ?? "").slice(0, 500), status: String(row.status ?? "").slice(0, 200),
+    statusLabel: "", owner: String(row[input.kind === "bug" ? "current_owner" : "owner"] ?? "").slice(0, 200) } };
+  protectFieldData(config, result);
+  return result;
+}
+const itemLabelUpdates = new Map<string, Promise<unknown>>();
+type ItemLabelUpdate = ItemLabelTarget & { expectedValue: string; add: string[]; remove: string[]; confirmed: true };
+export async function updateItemLabels(config: TapdConfig, input: ItemLabelUpdate) {
+  const key = JSON.stringify([config.endpoint, input.workspaceId, input.kind, input.id]);
+  const previous = itemLabelUpdates.get(key) ?? Promise.resolve();
+  const running = previous.catch(() => {}).then(() => applyItemLabelChanges(config, input));
+  itemLabelUpdates.set(key, running);
+  try { return await running; }
+  finally { if (itemLabelUpdates.get(key) === running) itemLabelUpdates.delete(key); }
+}
+async function applyItemLabelChanges(config: TapdConfig, input: ItemLabelUpdate) {
+  validateLabelProject(config, input.workspaceId);
+  if (input.confirmed !== true || typeof input.expectedValue !== "string" || input.expectedValue.length > 20_100
+    || !Array.isArray(input.add) || !Array.isArray(input.remove) || input.add.length + input.remove.length < 1 || input.add.length + input.remove.length > 100
+    || ![...input.add, ...input.remove].every(validLabelName) || input.add.some(name => input.remove.includes(name))) throw new TapdApiError("标签增删输入无效。");
+  protectFieldData(config, input);
+  if (config.writeSignal?.aborted) throw new TapdApiError("TAPD 操作已取消");
+  const target = { kind: input.kind, id: input.id, workspaceId: input.workspaceId };
+  const before = await readItemLabels(config, target);
+  if (!before.returned || before.labels === null) throw new TapdApiError("标签旧值未知，未提交。", undefined, { code: "labels_not_returned", phase: "validation", writeState: "not_sent" });
+  if (before.value !== input.expectedValue) throw new TapdApiError("标签旧值冲突，请实时重读。", undefined, { code: "label_conflict", phase: "validation", writeState: "not_sent" });
+  const labels = before.labels.filter(name => !input.remove.includes(name));
+  for (const name of input.add) if (!labels.includes(name)) labels.push(name);
+  const value = labels.join("|");
+  if (value === before.value) return { ok: true, outcome: "unchanged" as const, writeState: "not_sent" as const, labels: before.labels, entity: before.entity };
+  if (labels.length > 100) throw new TapdApiError("标签总数超过安全上限，未提交。");
+  // The documented update APIs do not specify clearing semantics; never invent a destructive sentinel.
+  if (labels.length === 0) throw new TapdApiError("该部署的最后标签清空语义尚未核实，未提交。", undefined, { code: "label_clear_unsupported", phase: "validation", writeState: "not_sent" });
+  const check = await readItemLabels(config, target);
+  if (!check.returned || check.value !== before.value) throw new TapdApiError("写入前标签已变化，请实时重读。", undefined, { code: "label_conflict", phase: "validation", writeState: "not_sent" });
+  await requestPost(config, LIST_PATH[input.kind], { workspace_id: input.workspaceId, id: input.id, label: value });
+  try {
+    const after = await readItemLabels(config, target);
+    const expected = [...labels].sort();
+    const verified = after.returned && after.labels !== null && after.labels.length === labels.length
+      && [...after.labels].sort().every((name, index) => name === expected[index]);
+    return { ok: verified, outcome: verified ? "verified" as const : "unverified" as const, writeState: "accepted" as const, labels: after.labels, entity: after.entity };
+  } catch {
+    return { ok: false, outcome: "unverified" as const, writeState: "accepted" as const, labels: null, entity: before.entity };
+  }
+}
+export async function createProjectLabel(config: TapdConfig, input: { workspaceId: string; name: string; color?: number; confirmed: true }) {
+  validateLabelProject(config, input.workspaceId);
+  if (input.confirmed !== true || !validLabelName(input.name)
+    || (input.color !== undefined && (!Number.isInteger(input.color) || input.color < 1 || input.color > 4))) throw new TapdApiError("标签创建输入无效。");
+  protectFieldData(config, input);
+  const base = { workspaceId: input.workspaceId, name: input.name };
+  for (let page = 1; page <= 10; page++) {
+    const current = await fetchProjectLabels(config, { ...base, page, limit: 200 });
+    const existing = current.labels.find(label => label.name === input.name);
+    if (existing) return { ...base, ok: true, outcome: "unchanged" as const, writeState: "not_sent" as const, label: existing };
+    if (!current.truncated) break;
+    if (page === 10) throw new TapdApiError("标签查重未完成，未提交。", undefined, { code: "label_lookup_incomplete", phase: "validation", writeState: "not_sent" });
+  }
+  const data = await requestPost(config, "/label", { workspace_id: input.workspaceId, name: input.name, color: input.color });
+  // Accepted creation must stay accepted even when its response or fresh verification is incomplete.
+  let label: ProjectLabel | null = null;
+  try {
+    label = parseProjectLabel(unwrapRow(data, ["LabelPool"]), input.workspaceId);
+    protectFieldData(config, label);
+    if (label.name !== input.name) throw new Error();
+    const current = await requestJson(config, "/label", { workspace_id: input.workspaceId, id: label.id, limit: 1 }, 0, true);
+    if (!Array.isArray(current) || current.length !== 1) throw new Error();
+    const verified = parseProjectLabel(unwrapRow(current[0], ["LabelPool"]), input.workspaceId);
+    protectFieldData(config, verified);
+    if (verified.id !== label.id || verified.name !== input.name || (input.color !== undefined && verified.color !== String(input.color))) throw new Error();
+    return { ...base, ok: true, outcome: "verified" as const, writeState: "accepted" as const, label: verified };
+  } catch {
+    return { ...base, ok: false, outcome: "unverified" as const, writeState: "accepted" as const, label: null };
   }
 }
 export async function fetchFieldDefinitions(config: TapdConfig, kind: string, workspaceId: string): Promise<{ fields: FieldDefinition[] }> {
@@ -1067,11 +1232,12 @@ export async function fetchCreateFields(
   config: TapdConfig,
   kind: EntityKind,
   workspaceId?: string,
+  workitemTypeId?: string,
 ): Promise<{ me: string; fields: CreateFieldInfo[] }> {
   const ws = (workspaceId ?? "").trim() || config.workspaceIds[0] || "";
   let data: unknown;
   try {
-    data = await requestJson(config, FIELDS_INFO_PATH[kind], { workspace_id: ws }, 30 * 60_000);
+    data = await requestJson(config, FIELDS_INFO_PATH[kind], { workspace_id: ws, workitem_type_id: workitemTypeId }, 30 * 60_000);
   } catch {
     return { me: "", fields: [] };
   }
@@ -1119,12 +1285,104 @@ export async function fetchCreateFields(
   return { me, fields };
 }
 
+async function readHierarchyStory(config: TapdConfig, workspaceId: string, id: string) {
+  if (!config.workspaceIds.includes(workspaceId) || !/^\d{1,100}$/.test(id)) throw new TapdApiError("父需求项目或编号无效。");
+  const data = await requestJson(config, "/stories", { workspace_id: workspaceId, id, limit: 1, fields: "id,workspace_id,name,workitem_type_id,parent_id" }, 0, true);
+  const row = unwrapRows(data, ["Story"])[0];
+  if (!row || String(row.id) !== id || String(row.workspace_id ?? "") !== workspaceId) throw new TapdApiError("父需求未返回或项目不匹配，未提交。");
+  return row;
+}
+function categoryAllows(value: unknown, id: string): boolean {
+  if (value === "") return true;
+  if (value === "|") return false;
+  if (typeof value !== "string" || !/^\|?\d+(?:\|\d+)*\|?$/.test(value)) throw new TapdApiError("需求类别关系元数据未知，未提交。");
+  return value.split("|").includes(id);
+}
+export async function fetchChildHierarchy(config: TapdConfig, workspaceId: string, parentId: string) {
+  await readHierarchyStory(config, workspaceId, parentId);
+  const scoped = { ...config, workspaceIds: [workspaceId], freshReads: true };
+  const items: EntityChildItem[] = [];
+  const reads = {} as EntityDetailResult["childReads"];
+  await Promise.all((["story", "task", "bug"] as const).map(async kind => {
+    const collected: EntityChildItem[] = [], seen = new Set<string>();
+    let partial = false, truncated = false, error: string | null = null, total: number | null = null;
+    const relation = kind === "story" ? "parent_id" : "story_id";
+    const labels = await fetchStatusLabels(scoped, kind);
+    for (let page = 1; page <= 2; page++) {
+      try {
+        const data = await requestJson(scoped, LIST_PATH[kind], { workspace_id: workspaceId, [relation]: parentId, page, limit: 100, order: "id asc",
+          fields: `id,workspace_id,${relation},${kind === "bug" ? "title,current_owner" : "name,owner"},status,priority_label` }, 0, true);
+        if (!Array.isArray(data) || data.length > 100) throw new Error();
+        for (const row of unwrapRows(data, [KIND_WRAPPER[kind]])) {
+          const id = String(row?.id ?? "");
+          if (!/^\d{1,100}$/.test(id) || String(row.workspace_id ?? "") !== workspaceId || String(row[relation] ?? "") !== parentId) { partial = true; error = "部分子单据项目或父级不匹配，已排除。"; continue; }
+          if (seen.has(id)) continue;
+          seen.add(id);
+          const status = String(row.status ?? "");
+          collected.push({ kind, id, workspaceId, parentId, status, title: String((kind === "bug" ? row.title : row.name) ?? "").slice(0, 500), statusLabel: labels[status] ?? status,
+            owner: String((kind === "bug" ? row.current_owner : row.owner) ?? "").slice(0, 200), priority: String(row.priority_label ?? "").slice(0, 100),
+            url: entityUrl(config, workspaceId, kind, id), responsibleAgent: null });
+        }
+        if (data.length < 100) { total = partial ? null : collected.length; break; }
+        truncated = page === 2;
+      } catch { partial = true; truncated = true; error = "子单据读取不完整，请刷新重试。"; break; }
+    }
+    if (truncated && !partial) {
+      try { const data = await requestJson(scoped, COUNT_PATH[kind], { workspace_id: workspaceId, [relation]: parentId }, 0, true);
+        if (data?.count === undefined || data.count === null || !Number.isSafeInteger(Number(data.count)) || Number(data.count) < collected.length) throw new Error();
+        total = Number(data.count); truncated = total > collected.length;
+      } catch { partial = true; error = "子单据总数未知，已保留读取结果。"; }
+    }
+    reads[kind] = { total, partial, truncated, error };
+    items.push(...collected);
+  }));
+  protectFieldData(config, items);
+  return { items, reads };
+}
+
+export async function fetchChildTypes(config: TapdConfig, workspaceId: string, parentId: string) {
+  const parent = await readHierarchyStory(config, workspaceId, parentId);
+  const types: any[] = [];
+  for (let page = 1; page <= 5; page++) {
+    const data = await requestJson(config, "/workitem_types", { workspace_id: workspaceId, page, limit: 200, order: "id asc" }, 0, true);
+    if (!Array.isArray(data) || data.length > 200) throw new TapdApiError("需求类别元数据不可用。");
+    for (const entry of data) {
+      const type = unwrapRow(entry, ["WorkitemType"]);
+      if (!type || String(type.workspace_id) !== workspaceId || !/^\d{1,100}$/.test(String(type.id)) || (type.entity_type !== undefined && type.entity_type !== "story")) throw new TapdApiError("需求类别项目或类型不匹配。");
+      if (types.some(existing => String(existing.id) === String(type.id))) throw new TapdApiError("需求类别元数据重复或不完整，未提交。");
+      types.push(type);
+    }
+    if (data.length < 200) break;
+    if (page === 5) throw new TapdApiError("需求类别列表不完整，未提交。");
+  }
+  const parentType = types.find(type => String(type.id) === String(parent.workitem_type_id));
+  if (!parentType || String(parentType.status) !== "3") throw new TapdApiError("父需求类别未知或未启用，未提交。");
+  const allowed = types.filter(type => String(type.status) === "3" && categoryAllows(parentType.children_ids, String(type.id)) && categoryAllows(type.parent_ids, String(parentType.id)))
+    .map(type => ({ id: String(type.id), name: String(type.name ?? "").slice(0, 200) }));
+  protectFieldData(config, allowed);
+  return { types: allowed };
+}
+
 export async function createEntity(
   config: TapdConfig,
   input: CreateEntityInput,
-): Promise<{ id: string; kind: EntityKind; url: string }> {
+) {
   const workspaceId = (input.workspaceId ?? "").trim() || config.workspaceIds[0] || "";
+  protectFieldData(config, input);
+  const parentId = input.parentStoryId || input.storyId || "";
+  if (input.parentStoryId && (input.kind !== "story" || input.storyId)) throw new TapdApiError("子需求父级参数无效。");
+  if (input.kind === "story" && input.storyId) throw new TapdApiError("子需求请使用显式 parentStoryId。");
+  if (input.workitemTypeId && input.kind !== "story") throw new TapdApiError("需求类别不能用于任务或缺陷。");
+  if (parentId) {
+    await readHierarchyStory(config, workspaceId, parentId);
+    if (input.kind === "story") {
+      const { types } = await fetchChildTypes(config, workspaceId, parentId);
+      if (!input.workitemTypeId || !types.some(type => type.id === input.workitemTypeId)) throw new TapdApiError("该父需求不允许所选子需求类别，未提交。");
+    }
+  }
   const params: Record<string, QueryValue> = { workspace_id: workspaceId };
+  if (input.parentStoryId) params.parent_id = input.parentStoryId;
+  if (input.workitemTypeId) params.workitem_type_id = input.workitemTypeId;
   if (input.kind === "bug") params.title = input.title;
   else params.name = input.title;
   if (input.description.trim()) {
@@ -1145,11 +1403,28 @@ export async function createEntity(
     const value = (rawValue ?? "").trim();
     if (value) params[key] = value;
   }
+  if (parentId) {
+    const fields = await requestJson(config, FIELDS_INFO_PATH[input.kind], { workspace_id: workspaceId, workitem_type_id: input.workitemTypeId }, 0, true);
+    if (!fields || typeof fields !== "object" || Array.isArray(fields) || !fields[input.kind === "bug" ? "title" : "name"]) throw new TapdApiError("建单必填字段元数据不可用，未提交。");
+    for (const [key, value] of Object.entries(fields)) {
+      const field = value as any;
+      if (field && [true, 1, "1"].includes(field.required) && ![true, 1, "1"].includes(field.readonly) && !params[key]) throw new TapdApiError("存在未填写的必填字段，未提交。");
+    }
+  }
   const data = await requestPost(config, LIST_PATH[input.kind], params);
   const row = unwrapRow(data, [KIND_WRAPPER[input.kind]]);
   const id = String(row?.id ?? "");
   if (!id) throw requestFailure("write", "missing_created_id");
-  return { id, kind: input.kind, url: entityUrl(config, workspaceId, input.kind, id) };
+  const result = { id, kind: input.kind, url: entityUrl(config, workspaceId, input.kind, id) };
+  if (!parentId) return result;
+  try {
+    const actual = await requestJson(config, LIST_PATH[input.kind], { workspace_id: workspaceId, id, limit: 1, fields: "id,workspace_id,parent_id,story_id,workitem_type_id" }, 0, true);
+    const created = unwrapRows(actual, [KIND_WRAPPER[input.kind]])[0];
+    const verified = !!created && String(created.id) === id && String(created.workspace_id) === workspaceId
+      && String(created[input.kind === "story" ? "parent_id" : "story_id"]) === parentId
+      && (input.kind !== "story" || String(created.workitem_type_id) === input.workitemTypeId);
+    return { ...result, writeState: "accepted" as const, outcome: verified ? "verified" as const : "unverified" as const };
+  } catch { return { ...result, writeState: "accepted" as const, outcome: "unverified" as const }; }
 }
 
 export async function fetchFilterFields(config: TapdConfig): Promise<FilterField[]> {
@@ -1429,14 +1704,16 @@ export async function fetchEntitySummary(config: TapdConfig, kind: EntityKind, i
   if (!config.workspaceIds.includes(workspaceId)) throw new TapdApiError("项目未配置");
   const data = await requestJson(config, LIST_PATH[kind], {
     workspace_id: workspaceId, id, limit: 1,
-    fields: kind === "bug" ? "id,title,status,current_owner" : "id,name,status,owner",
+    fields: kind === "bug" ? "id,workspace_id,title,status,current_owner,label" : (kind === "story" ? "id,workspace_id,name,status,owner,workitem_type_id,step,flows,label" : "id,workspace_id,name,status,owner,label"),
   }, 0);
   const row = unwrapRows(data, [KIND_WRAPPER[kind]])[0];
-  if (!row || String(row.id) !== id) throw new TapdApiError("单据摘要不可用");
+  if (!row || String(row.id) !== id || (row.workspace_id !== undefined && String(row.workspace_id) !== workspaceId)) throw new TapdApiError("单据摘要不可用");
   const labels = await fetchStatusLabels({ ...config, workspaceIds: [workspaceId] }, kind);
   const status = String(row.status ?? "");
-  return { kind, id, workspaceId, title: String((kind === "bug" ? row.title : row.name) ?? ""),
-    status, statusLabel: labels[status] ?? status, owner: String((kind === "bug" ? row.current_owner : row.owner) ?? "").trim() };
+  return { labels: readDisplayLabels(config, row), kind, id, workspaceId, title: String((kind === "bug" ? row.title : row.name) ?? ""),
+    status, statusLabel: labels[status] ?? status, owner: String((kind === "bug" ? row.current_owner : row.owner) ?? "").trim(),
+    workitemTypeId: kind === "story" && typeof row.workitem_type_id === "string" && row.workitem_type_id.length <= 100 && /^\d+$/.test(row.workitem_type_id) && row.workitem_type_id !== "0" ? row.workitem_type_id : undefined,
+    workflowParallel: kind === "story" && ((row.workitem_type_id !== undefined && row.workitem_type_id !== null && row.workitem_type_id !== "" && row.workitem_type_id !== "0" && row.workitem_type_id !== 0 && !/^\d+$/.test(String(row.workitem_type_id))) || [row.step, row.flows].some(value => value !== undefined && value !== null && value !== "" && value !== "0" && value !== 0 && (!Array.isArray(value) || value.length > 0))) };
 }
 
 export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: string): Promise<EntityDetailResult> {
@@ -1445,8 +1722,9 @@ export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: stri
   for (const candidate of config.workspaceIds) {
     const data = await requestJson(config, LIST_PATH[kind], { workspace_id: candidate, id, limit: 1 });
     const rows = unwrapRows(data, [KIND_WRAPPER[kind]]);
-    if (rows.length > 0) {
-      row = rows[0];
+    const match = rows.find(value => String(value?.id) === id && (value.workspace_id === undefined || String(value.workspace_id) === candidate));
+    if (match) {
+      row = match;
       workspaceId = candidate;
       break;
     }
@@ -1455,11 +1733,12 @@ export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: stri
     throw new TapdApiError(`未找到${KIND_LABELS[kind]} #${id}`);
   }
 
-  const labels = await fetchStatusLabels(config, kind);
-  const iterationMap = await fetchIterationMap(config);
+  const labels = await fetchStatusLabels({ ...config, workspaceIds: [workspaceId] }, kind);
+  const iterationMap = await fetchIterationMap({ ...config, workspaceIds: [workspaceId] });
   const status = String(row.status ?? "");
   const iterationId = String(row.iteration_id ?? "");
   const detail: EntityDetailResult = {
+    labels: readDisplayLabels(config, row),
     kind,
     id: String(row.id ?? id),
     workspaceId,
@@ -1478,6 +1757,8 @@ export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: stri
     comments: [],
     commentsError: null,
     childTasks: [],
+    childStories: [],
+    childReads: { story: { total: null, partial: false, truncated: false, error: null }, task: { total: null, partial: false, truncated: false, error: null }, bug: { total: null, partial: false, truncated: false, error: null } },
     childBugs: [],
     childTasksTotal: 0,
     childBugsTotal: 0,
@@ -1485,8 +1766,8 @@ export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: stri
   };
 
   // 任务/缺陷详情：解析所属需求（story_id），点击可跳回需求详情
-  if (kind !== "story") {
-    const storyId = String(row.story_id ?? "").trim();
+  if (kind !== "story" || row.parent_id) {
+    const storyId = String(kind === "story" ? row.parent_id : row.story_id ?? "").trim();
     if (storyId && storyId !== "0") {
       const parent = { id: storyId, title: "", url: entityUrl(config, workspaceId, "story", storyId) };
       try {
@@ -1525,62 +1806,21 @@ export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: stri
     detail.commentsError = describeError(error);
   }
 
-  // 需求详情：拉取该需求下挂的任务与缺陷（task.story_id / bug.story_id）
   if (kind === "story") {
-    const labelsFor: Record<EntityKind, Record<string, string>> = {
-      task: await fetchStatusLabels(config, "task"),
-      bug: await fetchStatusLabels(config, "bug"),
-      story: {},
-    };
-    const loadChildren = async (childKind: Exclude<EntityKind, "story">): Promise<EntityChildItem[]> => {
-      try {
-        const data = await requestJson(config, LIST_PATH[childKind], {
-          workspace_id: workspaceId,
-          story_id: id,
-          limit: 200,
-          order: "modified desc",
-          fields: LIST_FIELDS[childKind],
-        });
-        return unwrapRows(data, [KIND_WRAPPER[childKind]])
-          .map((row) => {
-            const childId = String(row?.id ?? "");
-            const status = String(row?.status ?? "");
-            return {
-              kind: childKind,
-              id: childId,
-              title: String((childKind === "bug" ? row?.title : row?.name) ?? ""),
-              statusLabel: labelsFor[childKind][status] ?? status,
-              owner: String((childKind === "bug" ? row?.current_owner : row?.owner) ?? "").trim(),
-              priority: String(row?.priority_label ?? "").trim(),
-              url: entityUrl(config, workspaceId, childKind, childId),
-            };
-          })
-          .filter((item) => item.id.length > 0);
-      } catch {
-        return []; // 子单据读取失败不阻塞需求详情
-      }
-    };
-    const countChildren = async (childKind: Exclude<EntityKind, "story">): Promise<number> => {
-      try {
-        const data = await requestJson(config, COUNT_PATH[childKind], {
-          workspace_id: workspaceId,
-          story_id: id,
-        });
-        const count = Number(data?.count ?? 0);
-        return Number.isFinite(count) ? count : 0;
-      } catch {
-        return 0;
-      }
-    };
-    const [tasks, bugs] = await Promise.all([loadChildren("task"), loadChildren("bug")]);
-    const [taskTotal, bugTotal] = await Promise.all([
-      tasks.length >= 200 ? countChildren("task") : Promise.resolve(0),
-      bugs.length >= 200 ? countChildren("bug") : Promise.resolve(0),
-    ]);
-    detail.childTasks = tasks;
-    detail.childBugs = bugs;
-    detail.childTasksTotal = taskTotal;
-    detail.childBugsTotal = bugTotal;
+    try {
+      const children = await fetchChildHierarchy(config, workspaceId, id);
+      detail.childTasks = children.items.filter(item => item.kind === "task");
+      detail.childStories = children.items.filter(item => item.kind === "story");
+      detail.childBugs = children.items.filter(item => item.kind === "bug");
+      detail.childReads = children.reads;
+      if (Object.values(children.reads).some(read => read.partial)) config.readWarnings?.push("部分子单据读取失败，结果不完整。");
+      detail.childTasksTotal = children.reads.task.total;
+      detail.childBugsTotal = children.reads.bug.total;
+    } catch {
+      for (const kind of ["story", "task", "bug"] as const) detail.childReads[kind] = { total: null, partial: true, truncated: true, error: "子单据读取失败，不能判断为空。" };
+      config.readWarnings?.push("子单据读取失败，不能判断为空。");
+      detail.childTasksTotal = null; detail.childBugsTotal = null;
+    }
   }
   return detail;
 }
@@ -1618,6 +1858,7 @@ export async function searchEntities(config: TapdConfig, query: string): Promise
             `- 链接：${summary.url}`,
           ].filter((line): line is string => line !== null);
           items.push({
+            labels: summary.labels,
             id: `${kind}-${summary.id}`,
             identifier: `#${summary.id}`,
             title: summary.title,

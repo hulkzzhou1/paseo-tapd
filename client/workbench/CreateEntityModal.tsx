@@ -4,7 +4,7 @@ import { FlatList, Icon, TextInput, useToast } from "@getpaseo/plugin/client/rea
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, Text, View, useWindowDimensions, type TextStyle, type ViewStyle } from "react-native";
-import { createFieldsRpc, createRpc, filterOptionsRpc, tapdSettings, type EntityKind } from "../../shared/contracts";
+import { childTypesRpc, createFieldsRpc, createRpc, filterOptionsRpc, tapdSettings, type EntityKind } from "../../shared/contracts";
 import { Chip, type WorkbenchTheme } from "./bits";
 import { DatePicker } from "./DatePicker";
 
@@ -31,7 +31,7 @@ export interface CreatedEntity {
 
 /** 从需求详情发起创建时的预填上下文：锁类别为任务/缺陷并挂到该需求 */
 export interface CreateChildPreset {
-  kind: "task" | "bug";
+  kind: EntityKind;
   storyId: string;
   workspaceId: string;
   storyTitle: string;
@@ -49,6 +49,11 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial, ba
   const { width } = useWindowDimensions();
   const wide = width >= 900;
   const create = useRpc(createRpc);
+  const fetchTypes = useRpc(childTypesRpc);
+  const [workitemTypeId, setWorkitemTypeId] = useState("");
+  const [acceptedUnverified, setAcceptedUnverified] = useState("");
+  const typesQuery = useQuery({ queryKey: ["tapd-child-types", initial?.workspaceId, initial?.storyId],
+    queryFn: () => fetchTypes({ workspaceId: initial!.workspaceId, id: initial!.storyId }), enabled: open && initial?.kind === "story", retry: false });
   const fetchCreateFields = useRpc(createFieldsRpc);
   const fetchOptions = useRpc(filterOptionsRpc);
   const optionsQuery = useQuery({
@@ -71,8 +76,8 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial, ba
   const [mode, setMode] = useState<ModalMode>({ name: "form" });
   const [submitting, setSubmitting] = useState(false);
   const fieldsQuery = useQuery({
-    queryKey: ["tapd-create-fields", kind, initial?.workspaceId ?? ""],
-    queryFn: () => fetchCreateFields({ kind, workspaceId: initial?.workspaceId ?? "" }),
+    queryKey: ["tapd-create-fields", kind, initial?.workspaceId ?? "", workitemTypeId],
+    queryFn: () => fetchCreateFields({ kind, workspaceId: initial?.workspaceId ?? "", workitemTypeId: workitemTypeId || undefined }),
     enabled: open && initial !== null,
     staleTime: 600_000,
     retry: 1,
@@ -127,14 +132,16 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial, ba
       settings.status === "ready" ? settings.values.createFieldLayout[kind]?.hidden ?? [] : [],
     );
     return {
-      visibleFields: orderedFields.filter((field) => !hidden.has(field.key)),
-      hiddenFields: orderedFields.filter((field) => hidden.has(field.key)),
+      visibleFields: orderedFields.filter((field) => field.required || !hidden.has(field.key)),
+      hiddenFields: orderedFields.filter((field) => !field.required && hidden.has(field.key)),
     };
   }, [orderedFields, settings.status, settings, kind]);
 
   useEffect(() => {
     if (!open) {
       setKind("story");
+      setWorkitemTypeId("");
+      setAcceptedUnverified("");
       setTitle("");
       setDescription("");
       setOwner("");
@@ -168,7 +175,7 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial, ba
 
   async function submit() {
     const trimmed = title.trim();
-    if (!trimmed || submitting) return;
+    if (!trimmed || submitting || !!acceptedUnverified || (initial?.kind === "story" && !workitemTypeId)) return;
     setSubmitting(true);
     try {
       const created = await create({
@@ -178,15 +185,19 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial, ba
         owner: owner.trim(),
         priority,
         iterationId,
-        storyId: initial ? initial.storyId : undefined,
+        storyId: initial && initial.kind !== "story" ? initial.storyId : undefined,
+        parentStoryId: initial?.kind === "story" ? initial.storyId : undefined,
+        workitemTypeId: initial?.kind === "story" ? workitemTypeId : undefined,
         workspaceId: initial ? initial.workspaceId : undefined,
         extraFields: initial ? extraValues : undefined,
       });
+      if (created.outcome === "unverified") { setAcceptedUnverified(`创建已被接受，但父级关系未核实（#${created.id}），请只读核查，不要重复创建。`); toast.error(`创建关系待核实 #${created.id}`); return; }
       toast.show(`已创建「${trimmed}」#${created.id}`, { variant: "success" });
       onCreated({ id: created.id, kind: created.kind, url: created.url, title: trimmed });
       onClose();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
+      setAcceptedUnverified("创建结果未知，请先只读核查，避免重复创建。");
+      toast.error("创建失败或结果未知，请先只读核查；关闭并确认后再提交，避免重复创建。");
     } finally {
       setSubmitting(false);
     }
@@ -446,6 +457,10 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial, ba
         <View style={{ gap: 24 }}>
           <View style={{ gap: 16 }}>
           <Text accessibilityRole="header" style={{ color: theme.colors.foreground, fontSize: 16, fontWeight: "600" }}>基本信息</Text>
+          {initial?.kind === "story" && <View style={{ gap: 8 }}><Text style={styles.rowLabel}>子需求类别 *</Text>
+            {typesQuery.isError ? <Text style={{ color: theme.colors.statusDanger }}>允许的子需求类别读取失败，请关闭后重试。</Text> : typesQuery.isPending ? <Text style={styles.rowLabel}>正在读取允许的类别…</Text> : !typesQuery.data?.types.length ? <Text style={{ color: theme.colors.statusWarning }}>此父需求没有可创建的子需求类别。</Text> : <View style={styles.chips}>{typesQuery.data.types.map(type => <Chip key={type.id} label={type.name} theme={theme} active={workitemTypeId === type.id} onPress={() => setWorkitemTypeId(type.id)} />)}</View>}
+          </View>}
+          {acceptedUnverified && <Text style={{ color: theme.colors.statusWarning }}>{acceptedUnverified}</Text>}
           {initial ? (
             <View style={[styles.row, { width: "100%" }]}>
               <Text style={styles.rowLabel}>挂载到</Text>
@@ -459,7 +474,7 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial, ba
           <View style={[styles.row, { width: "100%" }]}>
             <Text style={styles.rowLabel}>类型</Text>
             <View style={styles.chips}>
-              {(initial ? (["task", "bug"] as const) : (["story", "task", "bug"] as const)).map((item) => (
+              {(initial ? (initial.kind === "story" ? (["story"] as const) : (["task", "bug"] as const)) : (["story", "task", "bug"] as const)).map((item) => (
                 <Chip
                   key={item}
                   label={KIND_TITLES[item]}
@@ -661,7 +676,7 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial, ba
             <Pressable
               accessibilityRole="button"
               style={[styles.primaryButton, !title.trim() || submitting ? styles.disabledButton : null]}
-              disabled={!title.trim() || submitting}
+              disabled={!title.trim() || submitting || !!acceptedUnverified || (initial?.kind === "story" && !workitemTypeId)}
               onPress={() => void submit()}
             >
               <Text style={styles.primaryLabel}>{submitting ? "创建中…" : "创建"}</Text>

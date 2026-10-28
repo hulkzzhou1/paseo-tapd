@@ -1,6 +1,7 @@
 import { WorkbenchDialog as Modal, dialogFormStyles } from "./WorkbenchDialog";
 import type { RpcOutput } from "@getpaseo/plugin";
-import { usePaseo } from "@getpaseo/plugin/client";
+import { taskDispatchRpc } from "../../shared/task-board";
+import { usePaseo, useRpc } from "@getpaseo/plugin/client";
 import { FlatList, Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
@@ -62,6 +63,7 @@ export function DispatchModal({ open, onClose, theme, data, defaultRepoPath, def
   onCreated: (input: { link: TapdLink; repoPath: string; provider: string }) => void;
 }) {
   const paseo = usePaseo();
+  const dispatchTask = useRpc(taskDispatchRpc);
   const toast = useToast();
   const [mode, setMode] = useState<"form" | "repo" | "model">("form");
   const [repos, setRepos] = useState<RepoOption[]>([]);
@@ -170,42 +172,19 @@ export function DispatchModal({ open, onClose, theme, data, defaultRepoPath, def
 
   async function dispatch() {
     if (dispatching) return;
+    if (!data.workspaceId) { toast.error("单据项目未知，请刷新详情后重试。"); return; }
     const trimmedRepo = repoPath.trim();
     const trimmedProvider = provider.trim();
     if (!trimmedRepo || !trimmedProvider || !prompt.trim()) return;
     setDispatching(true);
     try {
-      const workspaceTitle = `TAPD #${data.id} ${data.title}`.slice(0, 80);
-      const workspace = await paseo.workspaces.create({
-        title: workspaceTitle,
-        source: {
-          kind: "worktree",
-          cwd: trimmedRepo,
-          action: "branch-off",
-          branchName: branchName.trim() || undefined,
-        },
-      });
-      const agent = await workspace.agents.create({
-        config: { provider: trimmedProvider },
-        prompt,
-        title: `TAPD #${data.id}`,
-        labels: { "tapd-workbench": `${data.kind}-${data.id}` },
-      });
-      const link: TapdLink = {
-        key: `${data.kind}-${data.id}`,
-        kind: data.kind,
-        id: data.id,
-        workspaceId: workspace.id,
-        agentId: agent.id,
-        workspaceTitle: workspace.name || workspaceTitle,
-        agentTitle: `TAPD #${data.id}`,
-        createdAt: new Date().toISOString(),
-      };
-      onCreated({ link, repoPath: trimmedRepo, provider: trimmedProvider });
+      const result = await dispatchTask({ kind: data.kind, id: data.id, workspaceId: data.workspaceId, repoPath: trimmedRepo, provider: trimmedProvider, branchName: branchName.trim() || `tapd/${data.kind}-${data.id}`, prompt: prompt.trim(), confirmed: true });
+      if (!result.ok || !result.link) { toast.error(`${result.warning ?? "派发未完成，请勿重复提交。"}${result.workspaceId ? ` 工作区：${result.workspaceId}` : ""}${result.agentId ? ` Agent：${result.agentId}` : ""}`); return; }
+      onCreated({ link: result.link, repoPath: trimmedRepo, provider: trimmedProvider });
       toast.show("已派发，Agent 开始工作", { variant: "success" });
       onClose();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : String(error));
+      toast.error("派发未确认成功：请核查负责人、历史关联及已创建资源，勿重复提交。");
     } finally {
       setDispatching(false);
     }

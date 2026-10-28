@@ -1,10 +1,17 @@
 import { type PluginClientContext, type PluginButtonRegistration, type PluginAgentPanelProps } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { Platform } from "react-native";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Pressable, Text, View, Platform } from "react-native";
 import { conversationRefreshRpc, conversationEntityKey, conversationFocusRpc, conversationListRpc, conversationRemoveRpc, type ConversationEntity, type ConversationSummary } from "../../shared/conversation";
 import { EntityDetailExperience } from "../workbench/EntityDetailExperience";
 import type { DetailTarget } from "../workbench/EntityDetailContent";
+import { agentLinksRpc, type ToolLink } from "../../shared/agent-links";
+import { taskBoardRpc, type TaskBoard } from "../../shared/task-board";
+import { migrationListRpc, migrationConfirmRpc, type MigrationGroup } from "../../shared/ownership-migration";
+import { MigrationList } from "./MigrationList";
+import {usePanelVisibility} from "./usePanelVisibility";
+import {subscribeBoardUpdates} from "./board-updates";
+import { TaskBoardList } from "./TaskBoardList";
 import { ConversationList } from "./ConversationList";
 
 const labels = { story: "需求", task: "任务", bug: "缺陷" };
@@ -16,7 +23,11 @@ export function contributeConversationAccess(client: PluginClientContext) {
   const panels = new Map<string, () => void>();
   const listeners = new Set<() => void>();
   let summaries: ConversationSummary[] = [];
+  let assignments: ToolLink[] = [];
+  let serverBoardRevision=0;
+  let pendingAgents: {agentId:string;workspaceId:string}[] = [];
   const refreshRequests = new Map<string, number>();
+  const explicitOpenRequests = new Map<string, number>();
   let stopped = false;
   let pending = false;
   let again = false;
@@ -46,7 +57,7 @@ export function contributeConversationAccess(client: PluginClientContext) {
     return true;
   }
 
-  function ConversationPanel({ params: { agentId }, workspaceId, theme }: PluginAgentPanelProps) {
+  function RecentPanel({ params: { agentId }, workspaceId, theme }: PluginAgentPanelProps) {
     const conversations = useSyncExternalStore(subscribe, snapshot);
     const entities = conversations.find(c => c.agentId === agentId && c.workspaceId === workspaceId)?.entities ?? [];
     const hasEntities = entities.length > 0;
@@ -86,18 +97,76 @@ export function contributeConversationAccess(client: PluginClientContext) {
     }
     return <ConversationList entities={entities} theme={theme} pending={pending} loading={loading} failed={failed} onRefresh={() => { setRetry(value => value + 1); }} onOpen={entity => void selectEntity(entity)} onRemove={entity => void removeEntity(entity)} />;
   }
-  const stopList = client.addAgentPanel({ id: listId, title: "会话 TAPD", icon: "ClipboardList", locations: [location], Component: ConversationPanel });
+  function ConversationPanel(props: PluginAgentPanelProps) {
+    const { params: { agentId }, workspaceId, theme } = props;
+    const conversations = useSyncExternalStore(subscribe, snapshot);
+    const requested = useSyncExternalStore(subscribe, () => refreshRequests.get(agentId) ?? 0);
+    const explicitRequested=useSyncExternalStore(subscribe,()=>explicitOpenRequests.get(agentId)??0);
+    const [recent, setRecent] = useState(false);
+    const [migrationOpen, setMigrationOpen] = useState(false);
+    const [migrationGroups, setMigrationGroups] = useState<MigrationGroup[]>([]);
+    const [migrationWarnings, setMigrationWarnings] = useState<string[]>([]);
+    const [confirming, setConfirming] = useState(false);
+    const [migrationError, setMigrationError] = useState(false);
+    const [board, setBoard] = useState<TaskBoard | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [failed, setFailed] = useState(false);
+    const visibility=usePanelVisibility();
+    const boardVisible=visibility.visible&&!recent&&!migrationOpen;
+    const inFlight=useRef(false),again=useRef(false),mounted=useRef(true),visibleNow=useRef(false),lastNativeRequest=useRef<number|null>(null);
+    const run=useRef<(force?:boolean)=>void>(()=>{});
+    visibleNow.current=boardVisible;
+    const revision = assignments.filter(link => link.agentId === agentId).map(link => link.responsibility?.revision ?? `${link.kind}/${link.id}/${link.agentId}`).sort().join(",");
+    run.current=async(force=false)=>{
+      if(!mounted.current||(!force&&!visibleNow.current))return;
+      if(inFlight.current){again.current=true;return;}
+      inFlight.current=true;setLoading(true);
+      try{
+        const [result,migration]=await Promise.allSettled([client.rpc(taskBoardRpc,{agentId}),client.rpc(migrationListRpc,{agentId})]);
+        if(mounted.current){
+          if(result.status==="fulfilled"){setBoard(result.value);setFailed(false);}else setFailed(true);
+          if(migration.status==="fulfilled"){setMigrationGroups(migration.value.groups);setMigrationWarnings(migration.value.warnings);}else setMigrationWarnings(["历史关联读取失败，原候选已保留，可稍后重试。"]);
+        }
+      }catch{if(mounted.current)setFailed(true);}
+      finally{
+        inFlight.current=false;if(mounted.current)setLoading(false);
+        if(again.current){again.current=false;if(visibleNow.current)run.current();}
+      }
+    };
+    useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
+    useEffect(()=>{
+      if(boardVisible)run.current();
+      else if(Platform.OS!=="web"&&explicitRequested>0&&lastNativeRequest.current!==explicitRequested){lastNativeRequest.current=explicitRequested;run.current(true);}
+    },[agentId,workspaceId,boardVisible,requested,explicitRequested,revision,serverBoardRevision]);
+    useEffect(()=>{
+      if(!boardVisible)return;
+      const timer=setInterval(()=>run.current(),30_000);
+      return()=>clearInterval(timer);
+    },[boardVisible]);
+    const toast = useToast();
+    async function confirm(group:MigrationGroup,targetAgentId:string){
+      if(confirming)return;
+      setConfirming(true);setMigrationError(false);
+      try{await client.rpc(migrationConfirmRpc,{kind:group.kind,id:group.id,workspaceId:group.workspaceId,agentId:targetAgentId,expectedRevision:group.revision,confirmed:true});await refresh();run.current(true);}
+      catch{setMigrationError(true);}finally{setConfirming(false);}
+    }
+    const content=migrationOpen?<MigrationList groups={migrationGroups} warnings={migrationWarnings} theme={theme} pending={confirming} error={migrationError} onBack={()=>setMigrationOpen(false)} onConfirm={(group,id)=>void confirm(group,id)} />:recent?<View style={{ flex: 1 }}><Pressable accessibilityRole="button" onPress={() => setRecent(false)} style={{ minHeight: 36, justifyContent: "center", paddingHorizontal: 12, backgroundColor: theme.colors.surface0 }}><Text style={{ color: theme.colors.accent, fontSize: 12 }}>返回任务看板</Text></Pressable><RecentPanel {...props} /></View>:
+    <TaskBoardList migrationCount={migrationGroups.length} onMigration={migrationGroups.length||migrationWarnings.length?()=>setMigrationOpen(true):undefined} board={board} theme={theme} loading={loading} failed={failed} recentCount={conversations.find(item => item.agentId === agentId)?.entities.length ?? 0} onRecent={() => setRecent(true)} onRefresh={() => run.current(true)} onOpen={entity => { void openEntity(agentId, workspaceId, entity).catch(() => toast.error("单据详情暂不可用，请重试。")); }} />;
+    return <View ref={visibility.ref} style={{flex:1}}>{content}</View>;
+  }
+  const stopList = client.addAgentPanel({ id: listId, title: "TAPD 任务看板", icon: "ClipboardList", locations: [location], Component: ConversationPanel });
   function publish() {
     const present = new Set<string>();
     for (const conversation of summaries) {
       const { agentId, workspaceId, entities } = conversation;
-      if (!workspaceId || !entities.length) continue;
+      const owned = assignments.filter(link => link.agentId === agentId && link.responsibility).length;
+      if (!workspaceId || (!entities.length && !assignments.some(link => link.agentId === agentId) && !pendingAgents.some(item=>item.agentId===agentId))) continue;
       for (const entity of entities) detailPanel(entity);
       present.add(agentId);
       const old = pills.get(agentId);
       if (old && old.workspaceId !== workspaceId) { old.pill.remove(); pills.delete(agentId); }
-      const button = { title: `会话 TAPD 单据（${entities.length}）`, label: `TAPD · ${entities.length}`, icon: "ClipboardList",
-        behavior: { kind: "action" as const, onPress: () => { refreshRequests.set(agentId, (refreshRequests.get(agentId) ?? 0) + 1); client.openPanel(listId, { workspaceId, agentId, location }); for (const listener of listeners) listener(); } } };
+      const button = { title: `TAPD 任务看板（${owned}）`, label: `TAPD · ${owned}`, icon: "ClipboardList",
+        behavior: { kind: "action" as const, onPress: () => { explicitOpenRequests.set(agentId,(explicitOpenRequests.get(agentId)??0)+1); refreshRequests.set(agentId, (refreshRequests.get(agentId) ?? 0) + 1); client.openPanel(listId, { workspaceId, agentId, location }); for (const listener of listeners) listener(); } } };
       const entry = pills.get(agentId);
       if (entry) entry.pill.update(button);
       else pills.set(agentId, { workspaceId, pill: client.addComposerPill({ id: "tapd-conversation", workspaceId, agentId, button }) });
@@ -109,17 +178,31 @@ export function contributeConversationAccess(client: PluginClientContext) {
     if (stopped) return;
     if (pending) { again = true; return; }
     pending = true;
-    try { const result = await client.rpc(conversationListRpc, {}); if (!stopped) { summaries = result.conversations; publish(); } }
+    try {
+      const [result, saved] = await Promise.all([client.rpc(conversationListRpc, {}), client.rpc(agentLinksRpc, {})]);
+      if (!stopped) {
+        assignments = saved.links;
+        serverBoardRevision=saved.boardRevision??0;
+        pendingAgents = saved.pendingAgents??[];
+        summaries = [...result.conversations];
+        for (const link of [...assignments,...pendingAgents]) if (link.agentId && link.workspaceId && !summaries.some(item => item.agentId === link.agentId)) summaries.push({ agentId: link.agentId, workspaceId: link.workspaceId, entities: [] });
+        publish();
+      }
+    }
     catch { /* Preserve the last known list through temporary connection failures. */ }
     finally { pending = false; if (again && !stopped) { again = false; void refresh(); } }
   }
+  const stopUpdates=subscribeBoardUpdates(target=>{
+    for(const link of assignments)if(link.kind===target.kind&&link.id===target.id&&(!target.workspaceId||target.workspaceId===link.tapdWorkspaceId))refreshRequests.set(link.agentId,(refreshRequests.get(link.agentId)??0)+1);
+    for(const listener of listeners)listener();
+  });
   const unsubscribe = client.paseo.agents.subscribe(() => void refresh());
   const timer = setInterval(() => void refresh(), 2000);
   void refresh();
   return { openEntity, dispose() {
     stopped = true;
     clearInterval(timer);
-    unsubscribe();
+    unsubscribe();stopUpdates();
     for (const { pill } of pills.values()) pill.remove();
     for (const stop of panels.values()) void stop();
     void stopList();

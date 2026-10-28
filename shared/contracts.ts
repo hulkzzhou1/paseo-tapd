@@ -1,5 +1,10 @@
 import { defineAttachmentSource, defineRpc, defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
+export const labelNameSchema = z.string().min(1).max(200).regex(/^[^|\u0000-\u001f\u007f]+$/)
+  .refine(value => value.trim().length > 0, "Label names cannot be blank");
+// Old snapshots omit labels; null is an unreadable value, while [] confirms an empty set.
+export const entityLabelsSchema = z.array(labelNameSchema).max(100).nullable().optional();
+
 
 export const entityKindSchema = z.enum(["story", "task", "bug"]);
 export type EntityKind = z.infer<typeof entityKindSchema>;
@@ -247,6 +252,7 @@ export const tapdSettings = defineSettings({
 // ---------------------------------------------------------------------------
 
 const entitySummarySchema = z.object({
+  labels: entityLabelsSchema,
   kind: entityKindSchema,
   id: z.string(),
   title: z.string(),
@@ -404,6 +410,8 @@ export const createRpc = defineRpc({
     iterationId: z.string().default(""),
     /** 挂载的需求 ID（仅 task/bug；留空不挂载） */
     storyId: z.string().default(""),
+    parentStoryId: z.string().max(100).regex(/^\d*$/).default(""),
+    workitemTypeId: z.string().max(100).regex(/^\d*$/).default(""),
     /** 单据所在项目，缺省用 daemon 配置的第一个项目 */
     workspaceId: z.string().default(""),
     /** 动态表单收集的其余可写字段（服务端做 denylist 过滤） */
@@ -413,6 +421,8 @@ export const createRpc = defineRpc({
     id: z.string(),
     kind: entityKindSchema,
     url: z.string(),
+    writeState: z.enum(["accepted"]).optional(),
+    outcome: z.enum(["verified", "unverified"]).optional(),
   }),
 });
 
@@ -422,6 +432,7 @@ export const createFieldsRpc = defineRpc({
   input: z.object({
     kind: entityKindSchema,
     workspaceId: z.string().default(""),
+    workitemTypeId: z.string().max(100).regex(/^\d*$/).optional(),
   }),
   output: z.object({
     me: z.string().default(""),
@@ -447,7 +458,7 @@ export const updateStatusRpc = defineRpc({
     /** 单据实际所在项目；为空回退首个配置项目 */
     workspaceId: z.string().default(""),
   }),
-  output: z.object({ ok: z.boolean() }),
+  output: z.object({ ok: z.boolean(), writeState: z.literal("accepted"), outcome: z.enum(["verified", "unverified"]), status: z.string().nullable(), statusLabel: z.string().optional(), warning: z.string().optional() }),
 });
 
 export const addCommentRpc = defineRpc({
@@ -462,7 +473,10 @@ export const addCommentRpc = defineRpc({
   output: z.object({ ok: z.boolean() }),
 });
 
-const entityChildItemSchema = z.object({
+export const entityChildItemSchema = z.object({
+  workspaceId: z.string().default(""), status: z.string().default(""), parentId: z.string().default(""),
+  ownershipUnknown: z.boolean().default(false),
+  responsibleAgent: z.object({ id: z.string(), title: z.string() }).nullable().default(null),
   kind: entityKindSchema,
   id: z.string(),
   title: z.string(),
@@ -472,12 +486,17 @@ const entityChildItemSchema = z.object({
   url: z.string(),
 });
 
+export const childReadMetaSchema = z.object({ total: z.number().nullable(), partial: z.boolean(), truncated: z.boolean(), error: z.string().nullable() });
+export const childrenRpc = defineRpc({ name: "tapd.children", input: z.object({ workspaceId: z.string().regex(/^\d+$/).max(100), id: z.string().regex(/^\d+$/).max(100) }), output: z.object({ items: z.array(entityChildItemSchema), reads: z.object({ story: childReadMetaSchema, task: childReadMetaSchema, bug: childReadMetaSchema }) }) });
+export const childTypesRpc = defineRpc({ name: "tapd.child_types", input: childrenRpc.input, output: z.object({ types: z.array(z.object({ id: z.string(), name: z.string() })) }) });
+
 export const entityRpc = defineRpc({
   name: "tapd.entity",
   input: z.object({
     fresh: z.boolean().optional(), kind: entityKindSchema, id: z.string(), workspaceId: z.string().min(1).max(100).optional(),
     siteUrl: z.string().max(4096).optional(), apiEndpoint: z.string().max(4096).optional() }),
   output: z.object({
+    labels: entityLabelsSchema,
     kind: entityKindSchema,
     id: z.string(),
     /** 单据实际所在项目（回写状态/评论用） */
@@ -506,11 +525,13 @@ export const entityRpc = defineRpc({
     commentsError: z.string().nullable(),
     /** 仅需求：该需求下挂的任务 */
     childTasks: z.array(entityChildItemSchema).default([]),
+    childStories: z.array(entityChildItemSchema).default([]),
+    childReads: z.object({ story: childReadMetaSchema, task: childReadMetaSchema, bug: childReadMetaSchema }).optional(),
     /** 仅需求：该需求下挂的缺陷 */
     childBugs: z.array(entityChildItemSchema).default([]),
     /** 仅需求：子单据真实总数（> 上限 200 说明列表被截断；0 = 未统计） */
-    childTasksTotal: z.number().default(0),
-    childBugsTotal: z.number().default(0),
+    childTasksTotal: z.number().nullable().default(null),
+    childBugsTotal: z.number().nullable().default(null),
     /** 仅任务/缺陷：所属需求 */
     parentStory: z.object({ id: z.string(), title: z.string(), url: z.string() }).nullable().default(null),
   }),
@@ -522,6 +543,7 @@ export const searchRpc = defineRpc({
   output: z.object({
     items: z.array(
       z.object({
+        labels: entityLabelsSchema,
         id: z.string(),
         identifier: z.string(),
         title: z.string(),

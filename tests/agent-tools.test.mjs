@@ -42,24 +42,24 @@ function setup(t, respond = () => []) {
 }
 function entityApi({ url, init, body }) {
   if (init.method === "POST") return { [url.pathname === "/tasks" ? "Task" : "Story"]: { id: body.get("id") || "11111111" } };
-  if (url.pathname.endsWith("get_fields_info")) return { status: { options: { open: "待处理", done: "已完成" } } };
+  if (url.pathname.endsWith("get_fields_info")) return { name: { required: 1, readonly: 0, html_type: "text" }, status: { options: { open: "待处理", done: "已完成" } } };
   if (url.pathname === "/users/info") return { User: { nick: "example-user" } };
   if (url.pathname === "/stories" && url.searchParams.get("id") && url.searchParams.get("workspace_id") === "87654321") {
-    return [{ Story: { id: url.searchParams.get("id"), name: "示例需求", status: "open", description: "<p>完整正文</p>" } }];
+    return [{ Story: { id: url.searchParams.get("id"), workspace_id: "87654321", name: "示例需求", status: "open", description: "<p>完整正文</p>" } }];
   }
   return [];
 }
 
 test("main SDK tools expose valid schemas, names and required write confirmation without connection overrides", (t) => {
   const { tools } = setup(t);
-  assert.equal(tools.length, 16);
+  for (const name of ["tapd_projects", "tapd_entity", "tapd_labels", "tapd_item_labels", "tapd_create_label"]) assert.ok(tools.some(tool => tool.name === name));
   assert.equal(new Set(tools.map(tool => tool.name)).size, tools.length);
   for (const tool of tools) {
     assert.match(tool.name, /^tapd_[a-z_]+$/);
     assert.ok(tool.name.length <= 64);
     const schema = z.toJSONSchema(tool.input);
     for (const key of ["token", "apiEndpoint", "siteUrl", "syncGitToken"]) assert.equal(key in schema.properties, false);
-    if (["tapd_create", "tapd_update_status", "tapd_add_comment", "tapd_update_field"].includes(tool.name)) {
+    if (["tapd_create", "tapd_update_status", "tapd_add_comment", "tapd_update_field", "tapd_create_label", "tapd_update_labels"].includes(tool.name)) {
       assert.ok(schema.required.includes("confirmed"));
       assert.equal(schema.properties.confirmed.const, true);
       assert.ok(schema.required.includes("workspaceId"));
@@ -111,7 +111,12 @@ test("detail and metadata tools reuse configured authenticated reads and preserv
 });
 
 test("confirmed writes verify the actual project and preserve field denylist and plain-text escaping", async (t) => {
-  const { call, requests } = setup(t, entityApi);
+  let status = "open";
+  const { call, requests } = setup(t, request => {
+    if (request.init.method === "POST" && request.body.has("status")) status = request.body.get("status");
+    const data = entityApi(request);
+    return request.url.pathname === "/stories" && Array.isArray(data) ? data.map(row => ({ Story: { ...row.Story, status } })) : data;
+  });
   const item = { kind: "story", id: "11111111", workspaceId: "87654321", confirmed: true };
   assert.equal((await call("tapd_update_status", { ...item, status: "done" })).structuredContent.ok, true);
   assert.equal((await call("tapd_add_comment", { ...item, text: "<script>example</script>" })).structuredContent.ok, true);
@@ -252,8 +257,8 @@ test("session-open attaches tools alongside existing tools, skips history, and p
     const hook = hooks.get("agent.session_open");
     const request = { purpose: "launch", tools: [{ name: "example_existing" }], env: { TAPD_TOKEN: "example-existing", EXAMPLE: "keep" } };
     const updated = await hook({ request });
-    assert.equal(updated.tools.length, 20);
-    for (const name of ["tapd_agent_options", "tapd_bind_agent", "tapd_dispatch_agent"]) assert.ok(updated.tools.some(tool => tool.name === name));
+    assert.equal(new Set(updated.tools.map(tool => tool.name)).size, updated.tools.length);
+    for (const name of ["tapd_agent_options", "tapd_bind_agent", "tapd_dispatch_agent", "tapd_take_task", "tapd_task_board", "tapd_labels", "tapd_item_labels", "tapd_create_label"]) assert.ok(updated.tools.some(tool => tool.name === name));
     assert.equal(updated.tools[0].name, "example_existing");
     assert.equal(updated.env.TAPD_TOKEN, "example-existing");
     assert.equal(updated.env.EXAMPLE, "keep");
@@ -290,7 +295,7 @@ test("single entity tool appends a bounded actual-project card without copying c
   assert.equal(rows[0].data.operation, "read");
   assert.equal(JSON.stringify(rows).includes("完整正文"), false);
   assert.equal(JSON.stringify(rows).includes(initial.token), false);
-  assert.equal(requests.filter(({ url }) => url.pathname === "/stories").length, 2);
+  assert.equal(requests.filter(({ url }) => url.pathname === "/stories" && url.searchParams.has("id") && !url.searchParams.has("fields")).length, 2, "full detail lookup is not repeated for presentation");
 });
 
 test("single entity keeps read success when presentation fails, and a failed read never appends success", async (t) => {

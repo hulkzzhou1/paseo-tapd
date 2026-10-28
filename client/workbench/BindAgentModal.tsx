@@ -1,12 +1,13 @@
 import { WorkbenchDialog as Modal, dialogFormStyles } from "./WorkbenchDialog";
-import { usePaseo } from "@getpaseo/plugin/client";
+import { taskClaimRpc, taskTransferRpc } from "../../shared/task-board";
+import { usePaseo, useRpc } from "@getpaseo/plugin/client";
 import { TextInput, useToast } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
+import { type ToolLink } from "../../shared/agent-links";
 import { type TapdLink } from "../../shared/contracts";
 import { Chip, type WorkbenchTheme } from "./bits";
 import { type EntityDetailData } from "./EntityDetailContent";
-import { defaultBindNotice, makeLink, notifyAgent } from "./link-utils";
 
 interface AgentRow {
   id: string;
@@ -17,8 +18,9 @@ interface AgentRow {
   cwdBase: string;
 }
 
-/** 工作台：把单据绑定到一个已存在的 Agent（绑定后发送跟进提示词） */
-export function BindAgentModal({ open, onClose, theme, data, links, onBound, backToDetail }: {
+/** 用户直接指派只建立承担关系，不启动执行。 */
+export function BindAgentModal({ open, onClose, theme, data, links, onBound, backToDetail, transferFrom }: {
+  transferFrom?: ToolLink;
   open: boolean;
   backToDetail?: boolean;
   onClose: () => void;
@@ -28,12 +30,15 @@ export function BindAgentModal({ open, onClose, theme, data, links, onBound, bac
   onBound: (link: TapdLink) => void;
 }) {
   const paseo = usePaseo();
+  const claim = useRpc(taskClaimRpc);
+  const transfer = useRpc(taskTransferRpc);
+  const [selected, setSelected] = useState<AgentRow | null>(null);
+  const [reason, setReason] = useState("");
   const toast = useToast();
   const [agents, setAgents] = useState<AgentRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [bindingId, setBindingId] = useState("");
   const [query, setQuery] = useState("");
-  const [notice, setNotice] = useState("");
 
   useEffect(() => {
     if (!open) return;
@@ -42,7 +47,8 @@ export function BindAgentModal({ open, onClose, theme, data, links, onBound, bac
     setError(null);
     setBindingId("");
     setQuery("");
-    setNotice(defaultBindNotice({ kind: data.kind, id: data.id, title: data.title, statusLabel: data.statusLabel, url: data.url }));
+    setSelected(null);
+    setReason("");
     void (async () => {
       try {
         const result = await paseo.agents.list({
@@ -93,20 +99,16 @@ export function BindAgentModal({ open, onClose, theme, data, links, onBound, bac
 
   async function bind(agent: AgentRow) {
     if (bindingId) return;
+    if (!data.workspaceId) { toast.error("单据项目未知，请刷新详情后重试。"); return; }
     setBindingId(agent.id);
     try {
-      const link = makeLink({
-        kind: data.kind,
-        id: data.id,
-        workspaceId: agent.workspaceId,
-        agentId: agent.id,
-        agentTitle: agent.title,
-      });
+      const target = { kind: data.kind, id: data.id, workspaceId: data.workspaceId, confirmed: true as const };
+      const { link } = transferFrom?.responsibility ? await transfer({ ...target, targetAgentId: agent.id, expectedOwnerAgentId: transferFrom.agentId, expectedRevision: transferFrom.responsibility.revision, reason }) : await claim({ ...target, agentId: agent.id });
       onBound(link);
-      const prompt = notice.trim();
-      const notified = prompt ? await notifyAgent(paseo, agent.id, prompt) : false;
-      toast.show(notified ? `已关联并通知「${agent.title}」` : `已关联「${agent.title}」`, { variant: "success" });
+      toast.show(`已指派「${agent.title}」，未启动执行`, { variant: "success" });
       onClose();
+    } catch {
+      toast.error("接手失败：单据已有负责人、历史关联待确认，或目标不可用；请刷新核查。");
     } finally {
       setBindingId("");
     }
@@ -121,7 +123,6 @@ export function BindAgentModal({ open, onClose, theme, data, links, onBound, bac
     error: TextStyle;
     center: ViewStyle;
     input: TextStyle;
-    noticeInput: TextStyle;
   }>(() => ({
     row: {
       flexDirection: "row",
@@ -139,26 +140,13 @@ export function BindAgentModal({ open, onClose, theme, data, links, onBound, bac
     error: { color: theme.colors.statusDanger, fontSize: 13, lineHeight: 19 },
     center: { alignItems: "center", padding: 24 },
     input: { ...dialogFormStyles(theme).input, flex: 1 },
-    noticeInput: {
-      height: 84,
-      textAlignVertical: "top",
-      paddingTop: 8,
-      marginBottom: 4,
-    },
+
   }), [theme]);
 
   return (
-    <Modal theme={theme} pending={!!bindingId} onBack={backToDetail ? onClose : undefined} title={`绑定 Agent · #${data.id}`} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Modal theme={theme} pending={!!bindingId} onBack={backToDetail ? onClose : undefined} title={`${transferFrom ? "转交" : "绑定"} Agent · #${data.id}`} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Modal.Content>
-        <Text style={styles.hint}>选择已有 Agent 关联这张单据；提示词已默认填好，可修改后发送，不发送就清空。</Text>
-        <TextInput
-          style={[styles.input, styles.noticeInput]}
-          placeholder="提示词：会发送给该 Agent；清空则只建立关联不发送"
-          placeholderTextColor={theme.colors.foregroundMuted}
-          multiline
-          value={notice}
-          onChangeText={setNotice}
-        />
+        <Text style={styles.hint}>{transferFrom ? `从「${transferFrom.agentTitle || transferFrom.agentId}」转交给所选 Agent；确认后原子替换负责人。` : "选择已有 Agent 负责这张单据；只建立承担关系，不发送消息或启动执行。"}</Text>
         <TextInput
           style={styles.input}
           placeholder="搜索 Agent（标题 / 模型 / ID）"
@@ -185,7 +173,7 @@ export function BindAgentModal({ open, onClose, theme, data, links, onBound, bac
                 accessibilityRole="button"
                 style={styles.row}
                 disabled={bound || bindingId.length > 0}
-                onPress={() => void bind(agent)}
+                onPress={() => setSelected(agent)}
               >
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text style={styles.rowTitle} numberOfLines={1}>{agent.title}</Text>
@@ -205,6 +193,11 @@ export function BindAgentModal({ open, onClose, theme, data, links, onBound, bac
             );
           })
         )}
+        {selected ? <View style={{ gap: 12 }}>
+          <Text style={styles.hint}>确认{transferFrom ? "转交" : "指派"}给「{selected.title}」？不会启动执行。</Text>
+          {transferFrom ? <TextInput accessibilityLabel="转交原因" style={styles.input} placeholder="简短说明转交原因（不填写正文或凭据）" value={reason} onChangeText={setReason} maxLength={500} /> : null}
+          <Pressable accessibilityRole="button" accessibilityLabel={transferFrom ? "确认转交" : "确认指派"} disabled={!!bindingId || (!!transferFrom && !reason.trim())} onPress={() => void bind(selected)} style={dialogFormStyles(theme).primaryButton}><Text style={dialogFormStyles(theme).primaryLabel}>{transferFrom ? "确认转交" : "确认指派"}</Text></Pressable>
+        </View> : null}
       </Modal.Content>
     </Modal>
   );

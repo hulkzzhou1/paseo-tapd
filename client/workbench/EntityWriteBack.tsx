@@ -1,3 +1,4 @@
+import {invalidateBoard} from "../conversation/board-updates";
 import { WorkbenchDialog as Modal, dialogFormStyles } from "./WorkbenchDialog";
 import { useRpc } from "@getpaseo/plugin/client";
 import { TextInput, useToast } from "@getpaseo/plugin/client/react-native";
@@ -43,7 +44,12 @@ export function StatusDropdown({ theme, kind, id, workspaceId, current, currentL
     setSubmitting(true);
     setWriteError("");
     try {
-      await updateStatus({ kind, id, status: value, workspaceId });
+      const result = await updateStatus({ kind, id, status: value, workspaceId });
+      invalidateBoard({kind,id,workspaceId});
+      if (result.outcome === "unverified") {
+        toast.show("已接受状态修改，但当前状态未核实；请刷新核对，勿重复提交。");
+        onDone(); return true;
+      }
     } catch {
       setWriteError("状态未确认，请读取详情核对后再操作。");
       return false;

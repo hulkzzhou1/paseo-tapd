@@ -1,10 +1,13 @@
 import { type PluginClientContext, type PluginButtonRegistration, type PluginAgentPanelProps } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { Platform } from "react-native";
+import { Pressable, Text, View, Platform } from "react-native";
 import { conversationRefreshRpc, conversationEntityKey, conversationFocusRpc, conversationListRpc, conversationRemoveRpc, type ConversationEntity, type ConversationSummary } from "../../shared/conversation";
 import { EntityDetailExperience } from "../workbench/EntityDetailExperience";
 import type { DetailTarget } from "../workbench/EntityDetailContent";
+import { agentLinksRpc, type ToolLink } from "../../shared/agent-links";
+import { taskBoardRpc, type TaskBoard } from "../../shared/task-board";
+import { TaskBoardList } from "./TaskBoardList";
 import { ConversationList } from "./ConversationList";
 
 const labels = { story: "需求", task: "任务", bug: "缺陷" };
@@ -16,6 +19,7 @@ export function contributeConversationAccess(client: PluginClientContext) {
   const panels = new Map<string, () => void>();
   const listeners = new Set<() => void>();
   let summaries: ConversationSummary[] = [];
+  let assignments: ToolLink[] = [];
   const refreshRequests = new Map<string, number>();
   let stopped = false;
   let pending = false;
@@ -46,7 +50,7 @@ export function contributeConversationAccess(client: PluginClientContext) {
     return true;
   }
 
-  function ConversationPanel({ params: { agentId }, workspaceId, theme }: PluginAgentPanelProps) {
+  function RecentPanel({ params: { agentId }, workspaceId, theme }: PluginAgentPanelProps) {
     const conversations = useSyncExternalStore(subscribe, snapshot);
     const entities = conversations.find(c => c.agentId === agentId && c.workspaceId === workspaceId)?.entities ?? [];
     const hasEntities = entities.length > 0;
@@ -86,17 +90,38 @@ export function contributeConversationAccess(client: PluginClientContext) {
     }
     return <ConversationList entities={entities} theme={theme} pending={pending} loading={loading} failed={failed} onRefresh={() => { setRetry(value => value + 1); }} onOpen={entity => void selectEntity(entity)} onRemove={entity => void removeEntity(entity)} />;
   }
-  const stopList = client.addAgentPanel({ id: listId, title: "会话 TAPD", icon: "ClipboardList", locations: [location], Component: ConversationPanel });
+  function ConversationPanel(props: PluginAgentPanelProps) {
+    const { params: { agentId }, workspaceId, theme } = props;
+    const conversations = useSyncExternalStore(subscribe, snapshot);
+    const requested = useSyncExternalStore(subscribe, () => refreshRequests.get(agentId) ?? 0);
+    const [recent, setRecent] = useState(false);
+    const [board, setBoard] = useState<TaskBoard | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [failed, setFailed] = useState(false);
+    const [retry, setRetry] = useState(0);
+    const revision = assignments.filter(link => link.agentId === agentId && link.responsibility).map(link => link.responsibility!.revision).sort().join(",");
+    useEffect(() => {
+      let cancelled = false;
+      setLoading(true);
+      void client.rpc(taskBoardRpc, { agentId }).then(result => { if (!cancelled) { setBoard(result); setFailed(false); } }, () => { if (!cancelled) setFailed(true); }).finally(() => { if (!cancelled) setLoading(false); });
+      return () => { cancelled = true; };
+    }, [agentId, workspaceId, requested, retry, revision]);
+    const toast = useToast();
+    if (recent) return <View style={{ flex: 1 }}><Pressable accessibilityRole="button" onPress={() => setRecent(false)} style={{ minHeight: 36, justifyContent: "center", paddingHorizontal: 12, backgroundColor: theme.colors.surface0 }}><Text style={{ color: theme.colors.accent, fontSize: 12 }}>返回任务看板</Text></Pressable><RecentPanel {...props} /></View>;
+    return <TaskBoardList board={board} theme={theme} loading={loading} failed={failed} recentCount={conversations.find(item => item.agentId === agentId)?.entities.length ?? 0} onRecent={() => setRecent(true)} onRefresh={() => setRetry(value => value + 1)} onOpen={entity => { void openEntity(agentId, workspaceId, entity).catch(() => toast.error("单据详情暂不可用，请重试。")); }} />;
+  }
+  const stopList = client.addAgentPanel({ id: listId, title: "TAPD 任务看板", icon: "ClipboardList", locations: [location], Component: ConversationPanel });
   function publish() {
     const present = new Set<string>();
     for (const conversation of summaries) {
       const { agentId, workspaceId, entities } = conversation;
-      if (!workspaceId || !entities.length) continue;
+      const owned = assignments.filter(link => link.agentId === agentId && link.responsibility).length;
+      if (!workspaceId || (!entities.length && !assignments.some(link => link.agentId === agentId))) continue;
       for (const entity of entities) detailPanel(entity);
       present.add(agentId);
       const old = pills.get(agentId);
       if (old && old.workspaceId !== workspaceId) { old.pill.remove(); pills.delete(agentId); }
-      const button = { title: `会话 TAPD 单据（${entities.length}）`, label: `TAPD · ${entities.length}`, icon: "ClipboardList",
+      const button = { title: `TAPD 任务看板（${owned}）`, label: `TAPD · ${owned}`, icon: "ClipboardList",
         behavior: { kind: "action" as const, onPress: () => { refreshRequests.set(agentId, (refreshRequests.get(agentId) ?? 0) + 1); client.openPanel(listId, { workspaceId, agentId, location }); for (const listener of listeners) listener(); } } };
       const entry = pills.get(agentId);
       if (entry) entry.pill.update(button);
@@ -109,7 +134,15 @@ export function contributeConversationAccess(client: PluginClientContext) {
     if (stopped) return;
     if (pending) { again = true; return; }
     pending = true;
-    try { const result = await client.rpc(conversationListRpc, {}); if (!stopped) { summaries = result.conversations; publish(); } }
+    try {
+      const [result, saved] = await Promise.all([client.rpc(conversationListRpc, {}), client.rpc(agentLinksRpc, {})]);
+      if (!stopped) {
+        assignments = saved.links;
+        summaries = [...result.conversations];
+        for (const link of assignments) if (link.agentId && link.workspaceId && !summaries.some(item => item.agentId === link.agentId)) summaries.push({ agentId: link.agentId, workspaceId: link.workspaceId, entities: [] });
+        publish();
+      }
+    }
     catch { /* Preserve the last known list through temporary connection failures. */ }
     finally { pending = false; if (again && !stopped) { again = false; void refresh(); } }
   }

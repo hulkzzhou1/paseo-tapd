@@ -1,5 +1,5 @@
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
-import { labelsRpc, itemLabelsRpc, createLabelRpc } from "../shared/labels";
+import { labelsRpc, itemLabelsRpc, createLabelRpc, updateLabelsRpc } from "../shared/labels";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import type { imageRpc, addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, updateCheckRpc, updateStatusRpc } from "../shared/contracts";
 import { updateFieldRpc, readFieldRpc, fieldDefinitionsRpc, DEFAULT_FILTERS, type EntityKind, type TapdSettingsValues } from "../shared/contracts";
@@ -22,6 +22,7 @@ import {
   fetchFieldDefinitions,
   fetchProjectLabels,
   readItemLabels,
+  updateItemLabels,
   createProjectLabel,
   readEntityField,
   updateEntityField,
@@ -51,6 +52,11 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
   }
 
   return {
+    async updateLabels(raw: RpcInput<typeof updateLabelsRpc>): Promise<RpcOutput<typeof updateLabelsRpc>> {
+      const input = updateLabelsRpc.input.parse(raw);
+      const { config } = await requireConfig();
+      return updateItemLabels(config, input);
+    },
     async createLabel(raw: RpcInput<typeof createLabelRpc>): Promise<RpcOutput<typeof createLabelRpc>> {
       const input = createLabelRpc.input.parse(raw);
       const { config } = await requireConfig();

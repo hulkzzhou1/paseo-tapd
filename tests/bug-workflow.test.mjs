@@ -26,7 +26,7 @@ async function fixture(t){
    state.reads.push(u.pathname);
    if(state.readbackFailure&&state.afterPost&&u.pathname==='/bugs')return Response.json({status:0},{status:503});
    if(u.pathname==='/bugs')data=[{Bug:{id:target.id,workspace_id:target.workspaceId,title:'Example defect',status:state.status,current_owner:'example-member',description:'Example body'}}];
-   else if(u.pathname==='/bugs/get_fields_info')data={status:{options:{in_progress:'处理中',status_5:'已解决',closed:'已关闭'}},current_owner:{label:'处理人',html_type:'user_chooser',readonly:0},resolution:{label:'解决方法',html_type:'radio',readonly:0,options:{fixed:'已修复',duplicated:'重复'}},custom_field_one:{label:'说明',html_type:'text',readonly:0},...(state.remarksMetadata?{remarks:state.remarksMetadata}:{})};
+   else if(u.pathname==='/bugs/get_fields_info')data={status:{options:{in_progress:'处理中',status_5:'已解决',closed:'已关闭'}},current_owner:{label:'处理人',html_type:'user_chooser',readonly:0},resolution:{label:'解决方法',html_type:'radio',readonly:0,options:{fixed:'已修复',duplicated:'重复'}},custom_field_one:{label:'说明',html_type:'text',readonly:0},enable_add_timesheet:{html_type:'text',readonly:0},transition_description:{html_type:'text',readonly:0},...(state.remarksMetadata?{remarks:state.remarksMetadata}:{})};
    else if(u.pathname==='/workflows/all_transitions'){
     if(state.ruleFailure)return Response.json({status:0},{status:403});data=state.transitions;
    }else if(u.pathname==='/users/info')data={nick:'example-member'};
@@ -143,8 +143,13 @@ test('declared defect transition fields support documented metadata without read
  const write=await f.tool('tapd_update_status',{...target,status:'status_5',transitionFields:{remarks:'Approved result'},confirmed:true});
  assert.notEqual(write.isError,true);assert.equal(write.structuredContent.outcome,'verified');assert.equal(f.state.posts.length,1);
  assert.equal(f.state.posts[0].body.has('enable_add_timesheet'),false);assert.equal(f.state.posts[0].body.has('transition_description'),false);
- f.state.status='in_progress';f.state.transitions[0].Appendfield[2].Notnull='yes';
- await assert.rejects(f.rpc('tapd.update_status',{...target,status:'status_5',transitionFields:{remarks:'Approved result'}}));assert.equal(f.state.posts.length,1);
+ f.state.status='in_progress';
+ for(const key of ['enable_add_timesheet','transition_description']){
+  f.state.transitions[0].Appendfield=[{DBModel:'Bug',FieldName:'remarks',Notnull:'yes'},{DBModel:'Bug',FieldName:key,Notnull:'yes'}];
+  assert.equal((await f.rpc('tapd.status_options',target)).transitions[0].supported,false);
+  await assert.rejects(f.rpc('tapd.update_status',{...target,status:'status_5',transitionFields:{remarks:'Approved result',[key]:'1'}}));
+ }
+ assert.equal(f.state.posts.length,1);
 });
 test('only absent readonly is accepted for a declared field; unknown markers and arbitrary optional fields remain blocked',async t=>{
  const f=await fixture(t);f.state.transitions[0].Appendfield.push({DBModel:'Bug',FieldName:'remarks',Notnull:'yes'});

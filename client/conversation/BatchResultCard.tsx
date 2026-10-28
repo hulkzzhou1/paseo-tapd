@@ -7,6 +7,8 @@ import { EntityDetailExperience } from "../workbench/EntityDetailExperience";
 import { useEntityNavigation, type OpenConversationEntity } from "./useEntityNavigation";
 import { EntitySummary } from "./EntitySummary";
 
+import { CardGrid } from "./CardGrid";
+
 const kindLabels = { story: "需求", task: "任务", bug: "缺陷" };
 export function BatchResultCard({ item, theme, agentId, openPanel }: PluginTimelineItemProps<z.infer<typeof batchResultSchema>> & { openPanel?: OpenConversationEntity }) {
   const data = item.data;
@@ -39,16 +41,16 @@ export function BatchResultCard({ item, theme, agentId, openPanel }: PluginTimel
     {data.truncated ? <Text style={{ color: colors.statusWarning }}>结果已截断，未包含全部匹配单据。</Text> : null}
     {!data.returned ? <Text style={{ color: colors.foregroundMuted }}>{data.partial ? "未取得单据，请重新查询。" : "没有匹配的单据。"}</Text> : null}
     {data.warnings.map((warning, index) => <Text key={index} style={{ color: colors.statusWarning, fontSize: 12 }}>{warning}</Text>)}
-    {items.map((row, index) => <Pressable key={`${row.workspaceId}:${row.kind}:${row.id}:${index}`} accessibilityRole="button" accessibilityLabel={`打开 TAPD ${kindLabels[row.kind]} #${row.id}：${row.title}`}
+    <CardGrid>{items.map((row, index) => <Pressable key={`${row.workspaceId}:${row.kind}:${row.id}:${index}`} accessibilityRole="button" accessibilityLabel={`打开 TAPD ${kindLabels[row.kind]} #${row.id}：${row.title}`}
       onFocus={() => setFocusedIndex(index)} onBlur={() => setFocusedIndex(null)}
       ref={button => { if (button) buttons.current.set(index, button); else buttons.current.delete(index); }}
       onPress={() => {
         opener.current = buttons.current.get(index) ?? null;
         const entity = { siteUrl: data.siteUrl, apiEndpoint: data.apiEndpoint, ...row };
         void open(entity);
-      }} style={({ pressed }) => ({ paddingHorizontal: 12, paddingVertical: 8, gap: 5, borderRadius: 10, backgroundColor: pressed ? colors.surface2 : colors.surface0, borderWidth: 1, borderColor: focusedIndex === index ? colors.accent : colors.border })}>
+      }} style={({ pressed }) => ({ paddingHorizontal: 10, paddingVertical: 6, gap: 5, borderRadius: 10, backgroundColor: pressed ? colors.surface2 : colors.surface0, borderWidth: 1, borderColor: focusedIndex === index ? colors.accent : colors.border })}>
       <EntitySummary entity={row} theme={theme} />
-    </Pressable>)}
+    </Pressable>)}</CardGrid>
     {error ? <Text accessibilityRole="alert" style={{ color: colors.statusDanger }}>其余结果暂时无法加载，请重试。</Text> : null}
     {items.length < data.returned ? <Pressable accessibilityRole="button" accessibilityLabel={error ? "重试加载其余单据" : `展开更多已返回单据（${items.length}/${data.returned}）`} disabled={loading} onPress={() => { void expand(); }} style={{ paddingVertical: 8 }}>
       <Text style={{ color: colors.accent }}>{loading ? "加载中…" : error ? "重试加载其余单据" : `展开更多已返回单据（${items.length}/${data.returned}）`}</Text>

@@ -92,7 +92,7 @@ async function main() {
       const calls=name=>page.evaluate(name=>(window.calls||[]).filter(call=>call.name===name),name);
       if (conversation) {
         assert.equal((await calls('tapd.entity')).length,0,'card rendering must not fetch detail');
-        await page.getByText('查询时的摘要 · 打开查看最新详情',{exact:true}).waitFor();
+        await page.getByText('查询时的摘要',{exact:true}).waitFor();
         await page.getByText('部分评论读取失败，请在详情中重试。',{exact:true}).waitFor();
         await page.getByRole('button',{name:'打开 TAPD 需求 #12345678：示例需求',exact:true}).focus();
         await page.keyboard.press('Enter');

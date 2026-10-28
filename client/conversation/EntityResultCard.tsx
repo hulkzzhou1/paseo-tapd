@@ -15,16 +15,15 @@ export function EntityResultCard({ item, theme, agentId, openPanel }: PluginTime
   const button = useRef<View>(null);
   const [focused, setFocused] = useState(false);
   const colors = theme.colors;
-  return <View style={{ gap: 6, maxWidth: 760 }}>
+  return <View style={{ gap: 6, maxWidth: 380 }}>
     <Pressable ref={button} accessibilityRole="button" accessibilityLabel={`打开 TAPD ${kindLabels[entity.kind]} #${entity.id}：${entity.title}`}
       onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onPress={() => { void open(entity); }}
-      style={({ pressed }) => ({ paddingHorizontal: 14, paddingVertical: 8, gap: 6, backgroundColor: pressed ? colors.surface2 : colors.surface1, borderWidth: 1, borderColor: focused ? colors.accent : colors.border, borderRadius: 12 })}>
+      style={({ pressed }) => ({ paddingHorizontal: 10, paddingVertical: 6, gap: 4, backgroundColor: pressed ? colors.surface2 : colors.surface1, borderWidth: 1, borderColor: focused ? colors.accent : colors.border, borderRadius: 8 })}>
       <EntitySummary entity={entity} theme={theme} />
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderTopWidth: 1, borderColor: colors.border, paddingTop: 6 }}>
-        <Text style={{ color: operation === "read" ? colors.foregroundMuted : colors.statusSuccess, fontSize: 12, fontWeight: "600" }}>{operation === "read" ? "TAPD 单据" : "✓ 操作成功"}</Text>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderTopWidth: 1, borderColor: colors.border, paddingTop: 4, gap: 8 }}>
+        <Text style={{ color: operation === "read" ? colors.foregroundMuted : colors.statusSuccess, fontSize: 12, fontWeight: "600", flexShrink: 1 }}>{caption}</Text>
         <Text style={{ color: colors.accent, fontSize: 12, fontWeight: "600" }}>查看详情 →</Text>
       </View>
-      <Text style={{ color: colors.foregroundMuted, fontSize: 12 }}>{caption} · 打开查看最新详情</Text>
     </Pressable>
     {warnings.map((warning, index) => <Text key={index} accessibilityRole="alert" style={{ color: colors.statusWarning, fontSize: 12 }}>{warning}</Text>)}
     <EntityDetailExperience target={target} onTargetChange={setTarget} onDismiss={() => button.current?.focus()} theme={theme} />

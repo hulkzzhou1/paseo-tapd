@@ -25,11 +25,11 @@ A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo works
 
 ## Install
 
-Requires Paseo >= 0.13.2 (daemon and client), with the mainline agent-tool API described below.
+Requires Paseo 0.14.0-beta.1 or a newer compatible build (daemon and client). Stable 0.13.2 is not supported.
 
 ```bash
 # from GitHub
-paseo plugin add git:CasonMo/paseo-tapd
+paseo plugin add git:hulkzzhou1/paseo-tapd
 
 # or from any Git source
 paseo plugin add git:<repo-url>
@@ -107,11 +107,11 @@ MIT
 
 ## 安装
 
-需要 Paseo >= 0.13.2（daemon 与 client），且包含下文所述主线 Agent 工具 API。
+需要 Paseo 0.14.0-beta.1 或更新的兼容构建（daemon 与 client）；稳定版 0.13.2 不支持。
 
 ```bash
 # 从 GitHub
-paseo plugin add git:CasonMo/paseo-tapd
+paseo plugin add git:hulkzzhou1/paseo-tapd
 
 # 或任意 Git 源
 paseo plugin add git:<repo-url>
@@ -183,9 +183,9 @@ Iteration options and the selected summary mark current iterations using the cli
 
 ## Agent tools / Agent 工具
 
-Requires a Paseo **mainline build with `defineAgentTool` support** (verified against main commit `6b7d49f0d8d21d01565f9517a8c2a30e2a587e2a`), plus its matching SDK. The published npm 0.13.2 SDK does not yet include this API. For development, run `npm ci --include=dev --ignore-scripts`, then `npm run sdk:main -- /path/to/paseo-main` using a trusted, built main checkout before typechecking/testing. This only copies the built SDK distribution into local node_modules; the daemon supplies the runtime SDK. Re-run after reinstalling npm dependencies.
+The current published compatible SDK is `@getpaseo/plugin@0.14.0-beta.1`, pinned in the lockfile. Run `npm ci --include=dev --ignore-scripts` before typechecking/testing. Stable npm 0.13.2 lacks the required agent-tool API. For local mainline development only, `npm run sdk:main -- /path/to/paseo-main` can replace the local SDK with a matching trusted build; the daemon supplies the runtime SDK. The existing local main build was verified at commit `6b7d49f0d8d21d01565f9517a8c2a30e2a587e2a`.
 
-需要包含 `defineAgentTool` 的 **Paseo 主线构建及配套 SDK**；npm 同号 0.13.2 尚不支持此接口。开发先运行上述安装与 `sdk:main` 命令，使用已构建的可信主线源码。脚本只复制主线 SDK 构建产物到本地 node_modules，运行时由 daemon 提供；重装 npm 依赖后需重新准备。
+当前公开兼容版本为 `0.14.0-beta.1`，锁文件固定对应 SDK；开发安装依赖后即可检查。稳定版 `0.13.2` 缺少工具 API。只有开发本地主线构建时才需要可选的 `sdk:main`，它不修改插件设置。
 
 | Tool / 工具 | Capability / 能力 |
 | --- | --- |
@@ -265,7 +265,7 @@ The bundled [paseo-tapd skill](skills/paseo-tapd/SKILL.md) guides reads, taking 
 
 会话 TAPD 侧栏提供固定搜索栏、按类型计数筛选和紧凑卡片，可搜索标题、编号、处理人或状态。打开/重新打开会话入口时，以最多两张并发读取已收录单据的摘要，逐批更新；也可点击「刷新摘要」。摘要接口只请求标题/状态/处理人字段，不读取正文、评论和关联单据；不生成新的工具结果卡片，不改变最近优先排序，刷新期间移除的单据不会复活。读取失败有提示，可重试。后台两秒轮询仍仅读取本机引用，不调用 TAPD。历史工具卡片保留原快照。
 
-会话结果卡片、批量条目和侧栏卡片使用更紧凑的纵向间距；保留全部信息、标题换行能力及侧栏操作按钮的 44px 点击高度。
+会话结果卡片使用 13px 标题、最多两行和合并的结果说明；单张卡片最大宽度 380px。侧栏与批量结果在可用宽度达到 520px 时双列展示，窄面板自动单列；保留状态、处理人和侧栏移除按钮的 44px 点击高度，点击标题区域打开完整详情。
 
 ### Controlled story fields / 受控需求字段
 

@@ -228,3 +228,29 @@ test('summary refresh updates current metadata without reordering, changing hist
   p.close();p=plugin();assert.deepEqual((await list()).map(e=>e.id),['22222222']);
  } finally {p.close();if(prior===undefined)delete process.env.PASEO_HOME;else process.env.PASEO_HOME=prior;await rm(directory,{recursive:true,force:true});}
 });
+
+test('saved conversation output and restored cards use the current protected set without rewriting historical data',async t=>{
+ const prior={token:values.token,legacy:values.syncGitToken,environment:process.env.TAPD_TOKEN};
+ t.after(()=>{values.token=prior.token;if(prior.legacy===undefined)delete values.syncGitToken;else values.syncGitToken=prior.legacy;if(prior.environment===undefined)delete process.env.TAPD_TOKEN;else process.env.TAPD_TOKEN=prior.environment;});
+ for(const [source,nextCredential] of [['settings','rotated"\\settings-value'],['environment','rotated"\\environment-value'],['legacy','retired"\\independent-value']]){
+  const directory=await mkdtemp(join(tmpdir(),'tapd-current-credentials-')),previous=process.env.PASEO_HOME;process.env.PASEO_HOME=directory;
+  values.token=prior.token;delete values.syncGitToken;delete process.env.TAPD_TOKEN;clearTapdCache();let reads=0;
+  t.mock.method(globalThis,'fetch',async input=>{reads++;const url=new URL(input);return Response.json({status:1,data:url.pathname==='/stories'?[{Story:{id:'11111111',workspace_id:'12345678',name:nextCredential,status:'open'}}]:[]});});
+  const h=host();let p=plugin();
+  const list=()=>p.rpcs.get('tapd.conversations')({},ctx(h));
+  try{
+   assert.notEqual((await read(p,h)).isError,true);
+   const original=(await list()).conversations[0].entities[0],card=structuredClone(h.rows.get('example-agent')[0]),beforeReads=reads;
+   if(source==='settings')values.token=nextCredential;else if(source==='environment')process.env.TAPD_TOKEN=nextCredential;else values.syncGitToken=nextCredential;
+   const safeFailure=error=>error.message==='字段数据包含受保护内容，无法安全读取或写入。';
+   await assert.rejects(list(),safeFailure,`${source}: saved summaries must not expose a newly protected value`);
+   p.close();h.rows.clear();p=plugin();
+   await assert.rejects(list(),safeFailure,`${source}: unsafe saved cards must not be republished on recovery`);
+   assert.equal(h.rows.get('example-agent')?.length??0,0);
+   values.token=prior.token;delete values.syncGitToken;delete process.env.TAPD_TOKEN;
+   assert.deepEqual((await list()).conversations[0].entities[0],original,'safe configuration recovers the original summary unchanged');
+   assert.deepEqual(h.rows.get('example-agent'),[card],'restore uses the original stable card without redaction or scope rewriting');
+   assert.equal(reads,beforeReads,'credential checks/recovery never refetch TAPD or replay writes');
+  }finally{p.close();if(previous===undefined)delete process.env.PASEO_HOME;else process.env.PASEO_HOME=previous;await rm(directory,{recursive:true,force:true});}
+ }
+});

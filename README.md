@@ -365,3 +365,6 @@ Creation, status and comment writes share configured-project validation. Existin
 New single-item and batch result cards are saved locally before direct timeline append. Long conversations do not rescan their entire history for each new card; restart, reconnect and timeline replacement still restore missing cards without repeating TAPD writes. One Agent's presentation recovery does not block another Agent's new cards.
 
 单张与批量结果卡片先保存本机，再直接追加到时间线，长会话不会因每张新卡片重扫全部历史；重启、重连和时间线替换仍可恢复缺失卡片，不重复 TAPD 写入。某个 Agent 的展示恢复不会阻塞其他 Agent 的新卡片。
+
+
+本机已保存的会话摘要与恢复发布的历史卡片也按当前凭据重新检查；更换 Token 后命中受保护内容时明确失败，不再返回或重新追加该内容。原持久记录与历史快照保留，恢复安全配置后可继续读取。派发及其他 Agent 操作在解析兼容旧设置时保留旧凭据的保护集合，敏感提示词在创建资源和发送前拒绝，不因移除 Git 字段绕过检查。

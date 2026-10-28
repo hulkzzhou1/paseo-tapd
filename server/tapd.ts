@@ -638,7 +638,7 @@ async function writeTargetProject(config: TapdConfig, workspaceId: string, kind:
     if (!Array.isArray(data) || data.length > 1) throw new TapdApiError("写入目标无法核实，未提交。");
     if (data.length === 0) continue;
     const row = unwrapRow(data[0], [KIND_WRAPPER[kind]]);
-    if (!row || String(row.id) !== id || String(row.workspace_id ?? "") !== project) throw new TapdApiError("写入目标项目或编号不匹配，未提交。");
+    if (!row || String(row.id) !== id || String(row.workspace_id ?? "") !== project || (row.entity_type !== undefined && row.entity_type !== kind)) throw new TapdApiError("写入目标类型、项目或编号不匹配，未提交。");
     return project;
   }
   throw new TapdApiError("未找到可核实的写入目标，未提交。");

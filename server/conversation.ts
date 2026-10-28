@@ -100,6 +100,10 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
     if (!result) { result = { hostId: host, agentId: agent, workspaceId: context.paseo.agents.ref(agent).workspaceId, entities: [], cards: [], sources: {} }; next.records.push(result); }
     return result;
   }
+  async function checked<T>(data: T): Promise<T> {
+    protectFieldData(resolveConfig(await getValues()), data);
+    return data;
+  }
   async function validate(entities: ConversationEntity[], presentation: unknown = []) {
     const values = await getValues();
     const config = resolveConfig(values);
@@ -163,6 +167,7 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
       cursor = page.startCursor;
     }
     for (const card of stored.cards) if (!present.has(card.id)) {
+      await checked(card);
       await timeline.append({ type: "plugin", id: card.id, kind: "entities" in card ? "tapd-batch-result" : "tapd-entity-result", version: 1, data: card.data });
       present.add(card.id);
     }
@@ -184,6 +189,7 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
       if (!isNew) { await restore(context.paseo, context.agentId); return; }
       const key = JSON.stringify([hostId(context.paseo, context.agentId), context.agentId]);
       if (recovered.get(key)?.has(card.id)) return;
+      await checked(card);
       await context.paseo.agents.ref(context.agentId).timeline.append({ type: "plugin", id: card.id, kind: "entities" in card ? "tapd-batch-result" : "tapd-entity-result", version: 1, data: card.data });
       const present = recovered.get(key) ?? new Set<string>();
       present.add(card.id);
@@ -309,7 +315,7 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
       const fresh = (await load()).records.find(candidate => candidate.hostId === item.hostId && candidate.agentId === item.agentId);
       if (fresh) conversations.push({ agentId: fresh.agentId, workspaceId: fresh.workspaceId, entities: fresh.entities });
     }
-    return { conversations };
+    return checked({ conversations });
   }
   async function remove(context: ConversationContext, raw: ConversationEntity) {
     await bootstrap(context);

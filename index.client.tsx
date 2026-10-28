@@ -1,3 +1,5 @@
+import {useEffect} from "react";
+import {invalidateBoard} from "./client/conversation/board-updates";
 import { useAgent } from "@getpaseo/plugin/client";
 import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
@@ -56,6 +58,9 @@ export default function contribute(client: PluginClientContext) {
   } });
   client.addTimelineRenderer({ kind: "tapd-entity-result", version: 1, schema: entityResultSchema, Component: (props) => {
     const workspaceId = useAgent(props.agentId, agent => agent.workspaceId);
+    const result=entityResultSchema.safeParse(props.item.data);
+    const entity=result.success&&result.data.operation==="status"?result.data.entity:null;
+    useEffect(()=>{if(entity)invalidateBoard(entity);},[entity?.workspaceId,entity?.kind,entity?.id,entity?.status]);
     return <EntityResultCard {...props} openPanel={entity => conversation.openEntity(props.agentId, workspaceId, entity)} />;
   } });
   return conversation.dispose;

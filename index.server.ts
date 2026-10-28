@@ -1,5 +1,6 @@
 import { createOwnershipMigration } from "./server/ownership-migration";
 import { migrationListRpc, migrationConfirmRpc } from "./shared/ownership-migration";
+import {taskBoardRevision} from "./server/task-board-state";
 import { createAgentLinks } from "./server/agent-links";
 import { createAssignmentService, createAssignmentTools } from "./server/agent-assignment";
 import { createTaskBoard } from "./server/task-board";
@@ -43,7 +44,7 @@ export default function contribute(server: PluginServerContext) {
     if ([config.token, values.syncGitToken].filter(Boolean).some(secret => JSON.stringify(result).includes(secret))) throw new Error("关联包含敏感配置，无法安全展示；原记录已保留。");
     return result;
   };
-  server.handle(agentLinksRpc, async () => ({ links: await visibleLinks(), pendingAgents: await migration.pendingAgents() }));
+  server.handle(agentLinksRpc, async () => ({ links: await visibleLinks(), pendingAgents: await migration.pendingAgents(), boardRevision: taskBoardRevision(resolveConfig(await getValues())) }));
   server.handle(removeAgentLinkRpc, async link => { await agentLinks.remove(link); return { ok: true as const }; });
   const handlers = createHandlers(getValues);
   server.handle(labelsRpc, handlers.labels);

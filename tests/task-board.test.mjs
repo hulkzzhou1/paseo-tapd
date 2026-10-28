@@ -16,12 +16,12 @@ async function setup(t,overrides={}) {
  const agents=new Map(['example-agent','example-other'].map(id=>[id,{id,title:id,workspaceId:'example-workspace',archivedAt:null}]));const sends=[];const creates=[];
  const ref=id=>({id,workspaceId:agents.get(id)?.workspaceId,current:()=>agents.get(id),refresh:async()=>agents.has(id)?{agent:agents.get(id)}:null,get archivedAt(){return agents.get(id)?.archivedAt;},send:async prompt=>sends.push(prompt)});
  const paseo={agents:{ref,list:async()=>({entries:[...agents.values()].map(agent=>({agent}))})},projects:{list:async()=>({projects:[{projectKind:'git',projectRootPath:'/example/repo',projectDisplayName:'Example'}]})},providers:{snapshot:async()=>({entries:[{provider:'example',models:[{id:'model'}]}]})},workspaces:{create:async()=>{creates.push('workspace');return {id:'example-workspace',agents:{create:async()=>ref('example-other')}};}}};
- const api={status:null,workflow:{done:"已完成"},actualProject:null,workflowType:null};
+ const api={status:null,workflow:{done:"已完成"},actualProject:null,workflowType:'12345678',offline:false,requests:[],categoryById:{},workflowByCategory:{}};
  const context={paseo,agent:{id:'example-agent'},signal:new AbortController().signal};const rpcs=new Map();let before;let writes=0;
- clearTapdCache();t.mock.method(globalThis,'fetch',async(source,init)=>{if(init.method==='POST')writes++;const u=new URL(source);let data=[];
- if(u.pathname==='/stories')data=[{Story:{id:u.searchParams.get('id'),name:'Example task',...(api.workflowType?{workitem_type_id:api.workflowType}:{}),...(api.actualProject?{workspace_id:api.actualProject}:{}),status:api.status??(u.searchParams.get('id')==='22222222'?'done':'open')}}];
+ clearTapdCache();t.mock.method(globalThis,'fetch',async(source,init)=>{if(api.offline)throw Error('offline');api.requests.push(new URL(source));if(init.method==='POST'){writes++;const next=new URLSearchParams(init.body).get('status');if(next)api.status=next;}const u=new URL(source);let data=[];
+ if(u.pathname==='/stories')data=[{Story:{id:u.searchParams.get('id'),name:'Example task',...((api.categoryById[u.searchParams.get('id')]??api.workflowType)?{workitem_type_id:api.categoryById[u.searchParams.get('id')]??api.workflowType}:{}),...(api.actualProject?{workspace_id:api.actualProject}:{}),status:api.status??(u.searchParams.get('id')==='22222222'?'done':'open')}}];
  if(u.pathname.endsWith('/get_fields_info'))data={status:{options:{open:'待处理',done:'已完成',custom:'已完成'}}};
- if(u.pathname==='/workflows/last_steps')data=api.workflow;
+ if(u.pathname==='/workflows/last_steps')data=api.workflowByCategory[u.searchParams.get('workitem_type_id')]??api.workflow;
  return Response.json({status:1,data});});
  const start=()=>contribute({registerSettings:()=>({read:async()=>({status:'ready',values}),subscribe:()=>()=>{}}),handle:(r,f)=>rpcs.set(r.name,f),before:(_n,f)=>before=f,on:()=>{}});let close=start();
  t.after(async()=>{close();if(prior===undefined)delete process.env.PASEO_HOME;else process.env.PASEO_HOME=prior;await rm(home,{recursive:true,force:true});});
@@ -74,14 +74,41 @@ test('custom translated completion labels never decide status; unknown workflow 
  let board=(await s.call('tapd_task_board',{})).structuredContent;assert.equal(board.items[0].entity.statusLabel,'已完成');assert.equal(board.items[0].classification,'unfinished','actual terminal metadata takes precedence over translated label');
  s.api.workflowType='example-category';
  board=(await s.call('tapd_task_board',{})).structuredContent;assert.equal(board.items[0].classification,'unknown','category-specific workflow cannot reuse project-wide terminal guesses');
- s.api.workflowType=null;
+ s.api.workflowType='12345678';
  s.api.workflow=[];
  board=(await s.call('tapd_task_board',{})).structuredContent;assert.equal(board.items[0].classification,'unknown');assert.equal(board.partial,true);assert.ok(board.items[0].warning);
  s.api.actualProject='87654321';
- board=(await s.call('tapd_task_board',{})).structuredContent;assert.equal(board.items.length,1);assert.equal(board.items[0].classification,'unknown');assert.equal(board.items[0].entity.title,'');
+ board=(await s.call('tapd_task_board',{})).structuredContent;assert.equal(board.items.length,1);assert.equal(board.items[0].classification,'unknown');assert.equal(board.items[0].entity.title,'Example task');assert.equal(board.items[0].stale,true);
  assert.equal((await s.call('tapd_take_task',{...target,workspaceId:'87654321'})).isError,true);
  assert.equal((await s.call('tapd_task_board',{agentId:'missing-agent'})).isError,true);
  assert.equal(s.writes(),0);
+});
+
+test('fresh board reads preserve last successful summary as stale/unknown when the next read fails',async t=>{
+ const s=await setup(t);await s.call('tapd_take_task',target);
+ const first=(await s.call('tapd_task_board',{})).structuredContent;assert.equal(first.items[0].stale,false);assert.ok(first.items[0].fetchedAt);
+ s.api.offline=true;
+ const failed=(await s.call('tapd_task_board',{})).structuredContent;assert.equal(failed.items[0].entity.title,'Example task');assert.equal(failed.items[0].fetchedAt,first.items[0].fetchedAt);assert.equal(failed.items[0].stale,true);assert.equal(failed.items[0].classification,'unknown');assert.equal(failed.partial,true);
+ s.api.offline=false;s.api.status='done';
+ const fresh=(await s.call('tapd_task_board',{})).structuredContent;assert.equal(fresh.items[0].classification,'completed');assert.equal(fresh.items[0].stale,false);
+});
+
+test('actual requirement category isolates terminal workflows and requests whole-item statuses',async t=>{
+ const s=await setup(t);s.api.status='custom';s.api.categoryById={'11111111':'11112222','22222222':'33334444'};s.api.workflowByCategory={'11112222':{custom:'已完成'},'33334444':{done:'已完成'}};
+ await s.call('tapd_take_task',target);await s.call('tapd_take_task',{...target,id:'22222222'});
+ const board=(await s.call('tapd_task_board',{})).structuredContent;
+ assert.equal(board.items.find(item=>item.entity.id==='11111111').classification,'completed');assert.equal(board.items.find(item=>item.entity.id==='22222222').classification,'unfinished');
+ for(const request of s.api.requests.filter(url=>url.pathname==='/workflows/last_steps')){assert.equal(request.searchParams.get('type'),'status');assert.equal(request.searchParams.get('workspace_id'),'12345678');assert.ok(['11112222','33334444'].includes(request.searchParams.get('workitem_type_id')));}
+ s.api.workflowType=null;delete s.api.categoryById['11111111'];
+ const unknown=(await s.call('tapd_task_board',{})).structuredContent;assert.equal(unknown.items.find(item=>item.entity.id==='11111111').classification,'unknown','missing category cannot use all-workflow terminal union');
+});
+
+test('an accepted status tool write immediately invalidates boards even if card presentation fails',async t=>{
+ const s=await setup(t);await s.call('tapd_take_task',target);
+ const before=await s.rpc('tapd.agent-links',{});
+ const changed=await s.call('tapd_update_status',{...target,status:'done'});assert.equal(changed.structuredContent.ok,true);
+ const after=await s.rpc('tapd.agent-links',{});assert.equal(after.boardRevision,before.boardRevision+1);
+ const board=(await s.call('tapd_task_board',{})).structuredContent;assert.equal(board.items[0].classification,'completed');assert.equal(board.items[0].entity.status,'done');assert.equal(board.items[0].stale,false);assert.equal(s.writes(),1);
 });
 
 test('user RPC transfer and release compare revisions, preserve unrelated tasks and never start execution',async t=>{

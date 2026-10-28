@@ -1,3 +1,4 @@
+import {invalidateBoard} from "../conversation/board-updates";
 import { WorkbenchDialog as Modal, dialogFormStyles } from "./WorkbenchDialog";
 import { useRpc } from "@getpaseo/plugin/client";
 import { TextInput, useToast } from "@getpaseo/plugin/client/react-native";
@@ -44,6 +45,7 @@ export function StatusDropdown({ theme, kind, id, workspaceId, current, currentL
     setWriteError("");
     try {
       await updateStatus({ kind, id, status: value, workspaceId });
+      invalidateBoard({kind,id,workspaceId});
     } catch {
       setWriteError("状态未确认，请读取详情核对后再操作。");
       return false;

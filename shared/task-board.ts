@@ -9,9 +9,9 @@ export const taskClaimSchema = taskTargetSchema.extend({ agentId: z.string().min
 export const taskBoardItemSchema = z.object({
   entity: conversationEntitySchema, link: toolLinkSchema,
   classification: z.enum(["unfinished", "completed", "unknown"]),
-  fetchedAt: z.string(), warning: z.string().default(""),
+  stale: z.boolean().default(false), fetchedAt: z.string(), warning: z.string().default(""),
 });
-export const taskBoardSchema = z.object({ agentId: z.string(), workspaceId: z.string().nullable(), items: z.array(taskBoardItemSchema), fetchedAt: z.string(), partial: z.boolean() });
+export const taskBoardSchema = z.object({ agentId: z.string(), workspaceId: z.string().nullable(), items: z.array(taskBoardItemSchema), fetchedAt: z.string(), partial: z.boolean(), revision: z.number().int().nonnegative().default(0), truncated: z.boolean().default(false), total: z.number().int().nonnegative().default(0), warnings: z.array(z.string()).default([]) });
 export type TaskBoard = z.infer<typeof taskBoardSchema>;
 export type TaskBoardItem = z.infer<typeof taskBoardItemSchema>;
 export const taskBoardRpc = defineRpc({ name: "tapd.task-board", input: z.object({ agentId: z.string().min(1).max(200) }), output: taskBoardSchema });

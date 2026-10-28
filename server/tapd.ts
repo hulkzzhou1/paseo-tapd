@@ -580,20 +580,42 @@ export async function fetchFilterOptions(config: TapdConfig): Promise<{
   return { priorities, severities, iterations, statuses };
 }
 
-/** 状态流转：POST 更新单据状态（workspaceId 为空时回退首个项目） */
+function writeProject(config: TapdConfig, workspaceId?: string) {
+  const resolved = workspaceId?.trim() || config.workspaceIds[0] || "";
+  if (!/^\d{1,100}$/.test(resolved) || !config.workspaceIds.includes(resolved)) throw new TapdApiError("写入项目未配置，未提交。");
+  return resolved;
+}
+
+async function writeTargetProject(config: TapdConfig, workspaceId: string, kind: EntityKind, id: string) {
+  if (!["story", "task", "bug"].includes(kind) || !/^\d{1,100}$/.test(id)) throw new TapdApiError("写入单据类型或编号无效，未提交。");
+  const projects = workspaceId.trim() ? [writeProject(config, workspaceId)] : config.workspaceIds;
+  for (const project of projects) {
+    writeProject(config, project);
+    const data = await requestJson(config, LIST_PATH[kind], { workspace_id: project, id, limit: 1, fields: "id,workspace_id" }, 0, true);
+    if (!Array.isArray(data) || data.length > 1) throw new TapdApiError("写入目标无法核实，未提交。");
+    if (data.length === 0) continue;
+    const row = unwrapRow(data[0], [KIND_WRAPPER[kind]]);
+    if (!row || String(row.id) !== id || String(row.workspace_id ?? "") !== project) throw new TapdApiError("写入目标项目或编号不匹配，未提交。");
+    return project;
+  }
+  throw new TapdApiError("未找到可核实的写入目标，未提交。");
+}
+
+/** 状态流转：核实实际单据项目后写入；未指定项目时查询已配置项目。 */
 export async function updateEntityStatus(
   config: TapdConfig,
   workspaceId: string,
   kind: EntityKind,
   id: string,
   status: string,
-): Promise<void> {
-  const resolved = workspaceId.trim() || (config.workspaceIds[0] ?? "");
+): Promise<string> {
+  const resolved = await writeTargetProject(config, workspaceId, kind, id);
   await requestPost(config, LIST_PATH[kind], { workspace_id: resolved, id, status });
   clearTapdCache();
+  return resolved;
 }
 
-/** 回写评论：POST 新评论（HTML 格式）（workspaceId 为空时回退首个项目） */
+/** 核实实际单据项目后回写 HTML 评论；读取失败不猜测目标。 */
 export async function addComment(
   config: TapdConfig,
   workspaceId: string,
@@ -603,7 +625,7 @@ export async function addComment(
   author: string,
 ): Promise<void> {
   protectFieldData(config, [text, author]);
-  const resolved = workspaceId.trim() || (config.workspaceIds[0] ?? "");
+  const resolved = await writeTargetProject(config, workspaceId, kind, id);
   const entryType = kind === "story" ? "stories" : kind === "bug" ? "bug" : "tasks";
   const params: Record<string, QueryValue> = {
     workspace_id: resolved,
@@ -1368,7 +1390,8 @@ export async function createEntity(
   config: TapdConfig,
   input: CreateEntityInput,
 ) {
-  const workspaceId = (input.workspaceId ?? "").trim() || config.workspaceIds[0] || "";
+  const workspaceId = writeProject(config, input.workspaceId);
+  if (!["story", "task", "bug"].includes(input.kind)) throw new TapdApiError("建单类型无效，未提交。");
   protectFieldData(config, input);
   const parentId = input.parentStoryId || input.storyId || "";
   if (input.parentStoryId && (input.kind !== "story" || input.storyId)) throw new TapdApiError("子需求父级参数无效。");

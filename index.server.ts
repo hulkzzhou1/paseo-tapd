@@ -1,3 +1,5 @@
+import { createOwnershipLifecycle } from "./server/ownership-lifecycle";
+
 import { childrenRpc, childTypesRpc } from "./shared/contracts";
 import { createOwnershipMigration } from "./server/ownership-migration";
 import { migrationListRpc, migrationConfirmRpc } from "./shared/ownership-migration";
@@ -31,6 +33,7 @@ export default function contribute(server: PluginServerContext) {
   const syncAccess: SyncSettingsAccess = { read: getValues };
 
   const agentLinks = createAgentLinks();
+  const ownership = createOwnershipLifecycle(getValues, agentLinks);
   const migration = createOwnershipMigration(getValues, agentLinks);
   server.handle(migrationListRpc, ({agentId}, context) => migration.list(agentId, context));
   server.handle(migrationConfirmRpc, (input, context) => migration.confirm(input, context));
@@ -41,26 +44,27 @@ export default function contribute(server: PluginServerContext) {
   server.handle(taskDispatchRpc, (input, context) => assignments.dispatch(input, context, "user"));
   server.handle(taskTransferRpc, (input, context) => assignments.transfer(input, context));
   server.handle(taskReleaseRpc, (input, context) => assignments.release(input, context, "user", input.agentId));
-  const visibleLinks = async () => {
+  const visibleLinks = async (context: Parameters<typeof ownership.reconcile>[0]) => {
+    await ownership.reconcile(context);
     const values = await getValues(), config = resolveConfig(values);
     const result = (await agentLinks.list()).filter(link => link.apiEndpoint === config.endpoint && (!link.siteUrl || link.siteUrl === config.site) && config.workspaceIds.includes(link.tapdWorkspaceId));
     if ([config.token, values.syncGitToken].filter(Boolean).some(secret => JSON.stringify(result).includes(secret))) throw new Error("关联包含敏感配置，无法安全展示；原记录已保留。");
     return result;
   };
-  server.handle(agentLinksRpc, async () => ({ links: await visibleLinks(), pendingAgents: await migration.pendingAgents(), boardRevision: taskBoardRevision(resolveConfig(await getValues())) }));
+  server.handle(agentLinksRpc, async (_input, context) => ({ links: await visibleLinks(context), pendingAgents: await migration.pendingAgents(), boardRevision: taskBoardRevision(resolveConfig(await getValues())) }));
   server.handle(removeAgentLinkRpc, link => agentLinks.stateTransaction(async state => {
     const matches = (item: typeof link) => sameTask(item, link) && item.agentId === link.agentId;
     if (state.links.some(item => matches(item) && item.responsibility)) throw new Error("已确认承担关系请使用退出操作并填写原因。");
     return { state: { ...suppressTask(state, link, "user"), links: state.links.filter(item => !matches(item)) }, result: { ok: true as const } };
   }));
   const handlers = createHandlers(getValues, {}, agentLinks);
-  server.handle(childrenRpc, handlers.children);
+  server.handle(childrenRpc, async (input, context) => { await ownership.reconcile(context).catch(() => {}); return handlers.children(input); });
   server.handle(childTypesRpc, handlers.childTypes);
   server.handle(labelsRpc, handlers.labels);
   server.handle(itemLabelsRpc, handlers.itemLabels);
   server.handle(createLabelRpc, handlers.createLabel);
   server.handle(updateLabelsRpc, handlers.updateLabels);
-  const conversations = createConversationRuntime(getValues);
+  const conversations = createConversationRuntime(getValues, ownership);
   const tools = [...createTapdTools(getValues, conversations, agentLinks), ...createAssignmentTools(getValues, agentLinks)];
   server.handle(conversationBatchPageRpc, (input, context) => conversations.batchPage({ paseo: context.paseo, agentId: input.agentId }, input));
   server.handle(conversationRefreshRpc, ({ agentId, entity }, context) => conversations.refreshEntity({ paseo: context.paseo, agentId }, entity).catch(() => { throw new Error("单据摘要读取失败，请刷新重试。"); }));
@@ -78,7 +82,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(createFieldsRpc, handlers.createFields);
   server.handle(updateStatusRpc, handlers.updateStatus);
   server.handle(addCommentRpc, handlers.addComment);
-  server.handle(entityRpc, handlers.entity);
+  server.handle(entityRpc, async (input, context) => { await ownership.reconcile(context).catch(() => {}); return handlers.entity(input); });
   server.handle(imageRpc, handlers.image);
   server.handle(searchRpc, handlers.search);
   server.handle(filterOptionsRpc, handlers.filterOptions);

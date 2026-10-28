@@ -7,6 +7,7 @@ import { taskClaimSchema, taskDispatchSchema, taskDelegateSchema, taskAcceptSche
 import type { RpcOutput } from "@getpaseo/plugin";
 import { OwnershipConflict, sameTask, suppressTask, type AgentLinks } from "./agent-links";
 import { fetchEntitySummary, resolveConfig } from "./tapd";
+import { createOwnershipLifecycle } from "./ownership-lifecycle";
 import { createOwnershipMigration } from "./ownership-migration";
 import { createTaskBoard } from "./task-board";
 
@@ -16,6 +17,7 @@ class AssignmentError extends Error {
 }
 type Context = Pick<AgentToolContext, "paseo"> & { signal?: AbortSignal };
 export function createAssignmentService(getValues: () => Promise<TapdSettingsValues>, links: AgentLinks) {
+  const lifecycle = createOwnershipLifecycle(getValues, links);
   const migration = createOwnershipMigration(getValues, links);
   async function entity(input: z.infer<typeof taskTargetSchema>, values: TapdSettingsValues) {
     const config = resolveConfig(values);
@@ -29,6 +31,7 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
     return { key: `${input.kind}-${input.id}`, kind: input.kind, id: input.id, tapdWorkspaceId: input.workspaceId, apiEndpoint: config.endpoint, siteUrl: config.site, workspaceId, agentId, agentTitle, workspaceTitle: "", createdAt: new Date().toISOString(), responsibility: { confirmedAt: new Date().toISOString(), actorAgentId, revision: randomUUID() } };
   }
   async function target(raw: z.infer<typeof taskTargetSchema> & { reason?: string }, context: Context, validateEntity = true) {
+    await lifecycle.reconcile(context);
     const values = tapdSettingsSchema.parse(await getValues());
     const config = resolveConfig(values);
     if (!config.workspaceIds.includes(raw.workspaceId)) throw new Error("单据项目未配置。");
@@ -39,7 +42,7 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
     if (!validateEntity) return scope;
     await migration.importLegacy();
     const state = await links.state();
-    const old = values.links.filter(item => item.kind === raw.kind && item.id === raw.id);
+    const old = values.links.filter(item => !state.deletedAgents.includes(item.agentId) && item.kind === raw.kind && item.id === raw.id);
     if (old.length && !state.suppressed.some(item => sameTask(item, scope))) throw new OwnershipConflict([...state.links.filter(item => sameTask(item, scope)), ...old]);
     return scope;
   }
@@ -64,6 +67,7 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
       const input = taskClaimSchema.parse(raw);
       const agentId = input.agentId ?? actorAgentId;
       if (!userAssignment && agentId !== actorAgentId) throw new Error("只能接手当前 Agent 的任务；用户指派请使用界面操作。");
+      await lifecycle.reconcile(context);
       const values = tapdSettingsSchema.parse(await getValues());
       const config = await entity(input, values);
       const agent = await available(agentId, context);
@@ -146,6 +150,7 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
       let workspaceId: string | undefined, agentId: string | undefined;
       let bound = false, phase = "reservation";
       try {
+        await lifecycle.reconcile(context);
         const result = await links.claim(link(input, config, "dispatch-reservation", actorAgentId), values.links, async () => {
           phase = "workspace";
           const workspace = await context.paseo.workspaces.create({ title: `TAPD #${input.id}`, source: { kind: "worktree", cwd: input.repoPath, action: "branch-off", branchName: input.branchName } });
@@ -210,6 +215,8 @@ export function createAssignmentTools(getValues: () => Promise<TapdSettingsValue
     tool("tapd_leave_task", "Release only the calling Agent's responsibility with expectedRevision and a short reason. Idempotent retry, local history, no TAPD changes or messages.", taskReleaseSchema, (input, context) => service.release(input, context, context.agent.id)),
     tool("tapd_task_history", "Read local relationship actor/time/reason records for an actual configured item. No body, credentials or automatic business comments.", taskTargetSchema, (input, context) => service.history(input, context)),
     tool("tapd_agent_options", "Read existing active Agents, Git projects and available provider/models before binding or dispatching. Agents are limited to 200; inspect truncated. Returns confirmed and historical bindings for the current TAPD connection.", z.object({}), async (_input, { paseo }, values) => {
+      await createOwnershipLifecycle(getValues, links).reconcile({ paseo });
+      const snapshot = await links.state();
       const [agents, projects, providers, saved] = await Promise.all([paseo.agents.list({ filter: { includeArchived: false }, page: { limit: 200 } }), paseo.projects.list(), paseo.providers.snapshot(), links.list()]);
       const config = resolveConfig(values);
       return {
@@ -217,7 +224,7 @@ export function createAssignmentTools(getValues: () => Promise<TapdSettingsValue
         truncated: agents.entries.length >= 200,
         projects: projects.projects.filter(p => p.projectKind === "git").map(p => ({ path: p.projectRootPath, name: p.projectCustomName ?? p.projectDisplayName })),
         models: providers.entries.filter(p => p.enabled !== false).flatMap(p => (p.models ?? []).filter(m => m.isSelectable !== false).map(m => ({ value: `${p.provider}/${m.id}`, label: m.label }))),
-        legacyBindings: values.links,
+        legacyBindings: values.links.filter(link => !snapshot.deletedAgents.includes(link.agentId)),
         bindings: saved.filter(link => link.apiEndpoint === config.endpoint && (!link.siteUrl || link.siteUrl === config.site) && config.workspaceIds.includes(link.tapdWorkspaceId)),
       };
     }),

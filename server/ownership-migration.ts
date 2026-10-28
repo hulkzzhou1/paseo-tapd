@@ -1,3 +1,4 @@
+import {createOwnershipLifecycle} from "./ownership-lifecycle";
 import {createHash,randomUUID} from "node:crypto";
 import type {AgentToolContext} from "@getpaseo/plugin/server";
 import type {z} from "zod";
@@ -28,7 +29,7 @@ export function createOwnershipMigration(getValues:()=>Promise<TapdSettingsValue
   if(importing)return importing;
   importing=(async()=>{
    const values=await getValues(),config=resolveConfig(values),snapshot=await links.state();
-   const source=values.links.map(link=>({link,key:digest([config.endpoint,config.site,link])})).filter(item=>!snapshot.imports.includes(item.key));
+   const source=values.links.map(link=>({link,key:digest([config.endpoint,config.site,link])})).filter(item=>!snapshot.imports.includes(item.key)&&!snapshot.deletedAgents.includes(item.link.agentId));
    const warnings:string[]=[];
    if(source.length>200)warnings.push("本轮最多核实 200 条旧关联，其余将在后续读取继续处理。");
    const imported:{key:string;link:ToolLink}[]=[];
@@ -44,7 +45,7 @@ export function createOwnershipMigration(getValues:()=>Promise<TapdSettingsValue
     for(const item of imported){
      if(next.imports.includes(item.key))continue;
      next.imports.push(item.key);changed=true;
-     if(next.suppressed.some(scope=>sameTask(scope,item.link)))continue;
+     if(next.deletedAgents.includes(item.link.agentId)||next.suppressed.some(scope=>sameTask(scope,item.link)))continue;
      const existing=next.links.find(link=>sameTask(link,item.link)&&link.agentId===item.link.agentId);
      if(existing){if(!existing.responsibility){const index=next.links.indexOf(existing);next.links[index]={...existing,legacyOrigins:[...new Set([...(existing.legacyOrigins??["tool"]),"settings" as const])].sort()};}}
      else next.links.push(item.link);
@@ -56,8 +57,9 @@ export function createOwnershipMigration(getValues:()=>Promise<TapdSettingsValue
   try{return await importing;}finally{importing=undefined;}
  }
  return {importLegacy,
-  async pendingAgents(){const values=await getValues(),config=resolveConfig(values),state=await links.state();const result=values.links.filter(link=>!state.imports.includes(digest([config.endpoint,config.site,link]))).map(({agentId,workspaceId})=>({agentId,workspaceId}));if([config.token,values.syncGitToken].filter(Boolean).some(secret=>JSON.stringify(result).includes(secret)))throw new Error("旧关联包含敏感配置，无法安全展示；原记录已保留。");return result;},
+  async pendingAgents(){const values=await getValues(),config=resolveConfig(values),state=await links.state();const result=values.links.filter(link=>!state.deletedAgents.includes(link.agentId)&&!state.imports.includes(digest([config.endpoint,config.site,link]))).map(({agentId,workspaceId})=>({agentId,workspaceId}));if([config.token,values.syncGitToken].filter(Boolean).some(secret=>JSON.stringify(result).includes(secret)))throw new Error("旧关联包含敏感配置，无法安全展示；原记录已保留。");return result;},
   async list(agentId:string,context:Pick<AgentToolContext,"paseo">){
+   await createOwnershipLifecycle(getValues,links).reconcile(context);
    const agent=context.paseo.agents.ref(agentId);await agent.refresh();if(!agent.current())throw new Error("目标 Agent 不可用。");
    const {warnings}=await importLegacy(),values=await getValues();
    const result=groups(await links.state(),values).filter(group=>group.candidates.some(link=>link.agentId===agentId));
@@ -65,7 +67,7 @@ export function createOwnershipMigration(getValues:()=>Promise<TapdSettingsValue
    return {groups:result,warnings};
   },
   async confirm(raw:z.infer<typeof migrationConfirmRpc.input>,context:Pick<AgentToolContext,"paseo">){
-   const input=migrationConfirmRpc.input.parse(raw);await importLegacy();
+   const input=migrationConfirmRpc.input.parse(raw);await createOwnershipLifecycle(getValues,links).reconcile(context);await importLegacy();
    const values=await getValues(),config=resolveConfig(values);
    if(!config.workspaceIds.includes(input.workspaceId))throw new Error("单据项目未配置。");
    await fetchEntitySummary(config,input.kind,input.id,input.workspaceId);

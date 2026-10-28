@@ -8,9 +8,9 @@ import { randomUUID } from "node:crypto";
 
 type Scope = z.infer<typeof ownershipScopeSchema>;
 const suppressedSchema = ownershipScopeSchema.extend({ at: z.string(), actorAgentId: z.string().max(200) });
-const stateSchema = z.object({ version: z.literal(1), links: z.array(toolLinkSchema), suppressed: z.array(suppressedSchema), history: z.array(ownershipEventSchema), offers: z.array(ownershipOfferSchema), imports: z.array(z.string()).default([]), legacyArchive: z.array(toolLinkSchema).default([]) }).passthrough();
+const stateSchema = z.object({ version: z.literal(1), links: z.array(toolLinkSchema), suppressed: z.array(suppressedSchema), history: z.array(ownershipEventSchema), offers: z.array(ownershipOfferSchema), imports: z.array(z.string()).default([]), legacyArchive: z.array(toolLinkSchema).default([]), deletedAgents: z.array(z.string().min(1).max(200)).default([]) }).passthrough();
 export type OwnershipState = z.infer<typeof stateSchema>;
-const empty = (): OwnershipState => ({ version: 1, links: [], suppressed: [], history: [], offers: [], imports: [], legacyArchive: [] });
+const empty = (): OwnershipState => ({ version: 1, links: [], suppressed: [], history: [], offers: [], imports: [], legacyArchive: [], deletedAgents: [] });
 const queues = new Map<string, Promise<unknown>>();
 export class OwnershipConflict extends Error {
   readonly candidates: readonly TapdLink[];
@@ -45,7 +45,11 @@ export function createAgentLinks() {
   function stateTransaction<T>(run: (state: OwnershipState) => Promise<{ state?: OwnershipState; result: T }>) {
     const work = (queues.get(file) ?? Promise.resolve()).then(async () => {
       const next = await run(await read());
-      if (next.state) await save(next.state);
+      if (next.state) {
+        const removed = next.state.deletedAgents;
+        if (next.state.links.some(link => removed.includes(link.agentId)) || next.state.offers.some(offer => removed.includes(offer.actorAgentId) || removed.includes(offer.targetAgentId))) throw new Error("目标 Agent 已删除，旧承担操作不能恢复；请刷新核查。");
+        await save(next.state);
+      }
       return next.result;
     });
     queues.set(file, work.catch(() => {}));
@@ -57,9 +61,10 @@ export function createAgentLinks() {
   }
   function claim(target: ToolLink, legacy: readonly TapdLink[], create: () => Promise<ToolLink> = async () => target) {
     return stateTransaction(async state => {
+      if (state.deletedAgents.includes(target.agentId) || state.deletedAgents.includes(target.responsibility?.actorAgentId ?? "")) throw new Error("Agent 已删除，不能接手或派发。");
       const existing = state.links.filter(item => sameTask(item, target));
       const suppressed = state.suppressed.some(item => sameTask(item, target));
-      const old = suppressed ? [] : legacy.filter(item => item.kind === target.kind && item.id === target.id);
+      const old = suppressed ? [] : legacy.filter(item => !state.deletedAgents.includes(item.agentId) && item.kind === target.kind && item.id === target.id);
       if (existing.length === 1 && existing[0].responsibility && existing[0].agentId === target.agentId && !old.some(item => item.agentId !== target.agentId)) return { result: { changed: false, link: existing[0] } };
       if (existing.length || old.length) throw new OwnershipConflict([...existing, ...old]);
       const link = toolLinkSchema.parse(await create());

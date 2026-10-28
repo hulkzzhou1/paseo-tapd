@@ -63,7 +63,7 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
     try { if (agentLinks) { snapshot = agentLinks.state ? await agentLinks.state() : null; links = snapshot?.links ?? await agentLinks.list(); } } catch { /* Keep the child data; ownership stays unknown. */ }
     return items.map(item => {
       const suppressed = snapshot?.suppressed.some(scope => sameTask(scope, { apiEndpoint: config.endpoint, siteUrl: config.site, tapdWorkspaceId: item.workspaceId, kind: item.kind, id: item.id })) ?? false;
-      const pendingLegacy = !suppressed && values.links.some(link => link.kind === item.kind && link.id === item.id);
+      const pendingLegacy = !suppressed && values.links.some(link => !snapshot?.deletedAgents?.includes(link.agentId) && link.kind === item.kind && link.id === item.id);
       const matches = links?.filter(link => link.kind === item.kind && link.id === item.id && link.tapdWorkspaceId === item.workspaceId
         && link.apiEndpoint === config.endpoint && (!link.siteUrl || link.siteUrl === config.site) && (link.responsibility || !suppressed)) ?? [];
       const owner = !pendingLegacy && matches.length === 1 && matches[0].responsibility ? { id: matches[0].agentId, title: matches[0].agentTitle } : null;

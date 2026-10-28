@@ -1,4 +1,5 @@
 import { createAgentLinks } from "./server/agent-links";
+import { labelsRpc, itemLabelsRpc, createLabelRpc } from "./shared/labels";
 import { createAssignmentTools } from "./server/agent-assignment";
 import { agentLinksRpc, removeAgentLinkRpc } from "./shared/agent-links";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
@@ -31,6 +32,9 @@ export default function contribute(server: PluginServerContext) {
   server.handle(agentLinksRpc, async () => ({ links: await visibleLinks() }));
   server.handle(removeAgentLinkRpc, async link => { await agentLinks.remove(link); return { ok: true as const }; });
   const handlers = createHandlers(getValues);
+  server.handle(labelsRpc, handlers.labels);
+  server.handle(itemLabelsRpc, handlers.itemLabels);
+  server.handle(createLabelRpc, handlers.createLabel);
   const conversations = createConversationRuntime(getValues);
   const tools = [...createTapdTools(getValues, conversations), ...createAssignmentTools(getValues, agentLinks)];
   server.handle(conversationBatchPageRpc, (input, context) => conversations.batchPage({ paseo: context.paseo, agentId: input.agentId }, input));

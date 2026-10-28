@@ -8,6 +8,7 @@ import {
   type TapdSettingsValues,
 } from "../shared/contracts";
 import { createHandlers } from "./handlers";
+import { labelsRpc, itemLabelsRpc, createLabelRpc } from "../shared/labels";
 import { safeFailure, resolveConfig, type TapdConfig } from "./tapd";
 
 type Handlers = ReturnType<typeof createHandlers>;
@@ -41,6 +42,7 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
           const result = await run(parsed, createHandlers(async () => values, { writeSignal: signal, readWarnings: warnings }), config, signal);
           const operation = ({ tapd_entity: "read", tapd_create: "create", tapd_update_status: "status", tapd_add_comment: "comment", tapd_update_field: "field" } as const)[name as "tapd_entity" | "tapd_create" | "tapd_update_status" | "tapd_add_comment" | "tapd_update_field"];
           writeCompleted = operation !== undefined && operation !== "read" && (operation !== "field" || ("writeState" in result && result.writeState === "accepted"));
+          if (name === "tapd_create_label" && "writeState" in result && result.writeState === "accepted") writeCompleted = true;
           if (signal.aborted && !writeCompleted) throw new Error();
           // Errors from TAPD may echo request data; keep them out of model-visible results.
           let serialized = JSON.stringify(warnings.length ? { ...result, warnings: [...new Set(warnings)] } : result, (key, value) =>
@@ -75,7 +77,7 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
               else await paseo.agents.ref(agent.id).timeline.append({ type: "plugin", id: data.batchId, kind: "tapd-batch-result", version: 1, data });
             } catch { structuredContent.presentationWarning = "查询已完成，批量快捷卡片未能显示；可以重新查询。"; }
           }
-          if (writeCompleted && operation !== "field") structuredContent.ok = true;
+          if (writeCompleted && operation && operation !== "field") structuredContent.ok = true;
           if (operation && !("unchanged" in structuredContent && structuredContent.unchanged) && (operation !== "field" || structuredContent.outcome === "verified")) {
             try {
               const entity = operation === "read" ? structuredContent : structuredContent.entity;
@@ -99,7 +101,7 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
           }
           return { structuredContent };
         } catch (error) {
-          if (writeCompleted) return { structuredContent: { ...(name === "tapd_update_field" ? { ok: false, writeState: "accepted", outcome: "unverified" } : { ok: true }), presentationWarning: "TAPD 操作已成功，结果展示暂不可用；请查询确认，勿重复提交。" } };
+          if (writeCompleted) return { structuredContent: { ...(["tapd_update_field", "tapd_create_label"].includes(name) ? { ok: false, writeState: "accepted", outcome: "unverified" } : { ok: true }), presentationWarning: "TAPD 操作已成功，结果展示暂不可用；请查询确认，勿重复提交。" } };
           return { isError: true, text: failure, structuredContent: { failure: safeFailure(error) } };
         }
       },
@@ -113,6 +115,9 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
   }
 
   return [
+    tool("tapd_create_label", "WRITE: create a project label definition only after approval of the exact project/name/color. Does not attach it to an item. Exact existing names report unchanged without editing color; names/case/whitespace are preserved. Bounded duplicate preflight is not atomic. Inspect outcome/writeState; never automatically retry unknown or accepted-unverified creation. Read tapd_labels to reconcile.", createLabelRpc.input, (input, handlers) => handlers.createLabel(input)),
+    tool("tapd_item_labels", "Read an item's actual label field fresh for story/task/bug in the exact configured project. returned=false means missing; value=null is unknown, not empty; only labels=[] with value=\"\" confirms no labels. Preserve exact names/case/whitespace. Unsupported responses and permission failures do not establish an empty set.", itemLabelsRpc.input, (input, handlers) => handlers.itemLabels(input)),
+    tool("tapd_labels", "Read one fresh page of project label definitions. Names are generic and case/whitespace preserved. A full page has truncated=true and nextPage; continue paging before treating a missing name as absent. name is a fuzzy filter, not exact matching. No labels or comments are written.", labelsRpc.input, (input, handlers) => handlers.labels(input)),
     tool("tapd_update_field", "WRITE: replace one discovered story text/rich-text field only after approval of the exact project, item, key, old and new value. Preserve human content and raw HTML. Empty value explicitly clears. Checks expectedValue then reads back fresh; this is not atomic concurrency control. Inspect outcome and writeState. Never retry an unverified write; read the field first.", updateFieldRpc.input, (input, handlers) => handlers.updateField(input)),
     tool("tapd_read_field", "Read one discovered story text/rich-text field fresh. Preserves exact text/HTML, null and not-returned; never treat a missing value as empty. Use the actual project and field key.", readFieldRpc.input, (input, handlers) => handlers.readField(input)),
     tool("tapd_field_definitions", "Discover story description/custom fields for one project. Keeps raw types, readonly and unsupported fields; readonly=null is unknown, not permission. Actual item permissions remain server-enforced.", fieldDefinitionsRpc.input, (input, handlers) => handlers.fieldDefinitions(input)),

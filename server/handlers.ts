@@ -1,4 +1,5 @@
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
+import { labelsRpc, itemLabelsRpc, createLabelRpc } from "../shared/labels";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import type { imageRpc, addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, updateCheckRpc, updateStatusRpc } from "../shared/contracts";
 import { updateFieldRpc, readFieldRpc, fieldDefinitionsRpc, DEFAULT_FILTERS, type EntityKind, type TapdSettingsValues } from "../shared/contracts";
@@ -19,6 +20,9 @@ import {
   fetchMyCommentedIds,
   fetchCreateFields,
   fetchFieldDefinitions,
+  fetchProjectLabels,
+  readItemLabels,
+  createProjectLabel,
   readEntityField,
   updateEntityField,
   fetchRelatedStoryIdsFromTasks,
@@ -47,6 +51,21 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
   }
 
   return {
+    async createLabel(raw: RpcInput<typeof createLabelRpc>): Promise<RpcOutput<typeof createLabelRpc>> {
+      const input = createLabelRpc.input.parse(raw);
+      const { config } = await requireConfig();
+      return createProjectLabel(config, input);
+    },
+    async itemLabels(raw: RpcInput<typeof itemLabelsRpc>): Promise<RpcOutput<typeof itemLabelsRpc>> {
+      const input = itemLabelsRpc.input.parse(raw);
+      const { config } = await requireConfig();
+      return readItemLabels(config, input);
+    },
+    async labels(raw: RpcInput<typeof labelsRpc>): Promise<RpcOutput<typeof labelsRpc>> {
+      const input = labelsRpc.input.parse(raw);
+      const { config } = await requireConfig();
+      return fetchProjectLabels(config, input);
+    },
     async board(input: RpcInput<typeof boardRpc>): Promise<RpcOutput<typeof boardRpc>> {
       const key = JSON.stringify(input.filters ?? null);
       return boardWithCache(key, async () => {

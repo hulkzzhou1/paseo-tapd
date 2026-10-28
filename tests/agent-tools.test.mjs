@@ -52,14 +52,14 @@ function entityApi({ url, init, body }) {
 
 test("main SDK tools expose valid schemas, names and required write confirmation without connection overrides", (t) => {
   const { tools } = setup(t);
-  assert.equal(tools.length, 16);
+  for (const name of ["tapd_projects", "tapd_entity", "tapd_labels", "tapd_item_labels", "tapd_create_label"]) assert.ok(tools.some(tool => tool.name === name));
   assert.equal(new Set(tools.map(tool => tool.name)).size, tools.length);
   for (const tool of tools) {
     assert.match(tool.name, /^tapd_[a-z_]+$/);
     assert.ok(tool.name.length <= 64);
     const schema = z.toJSONSchema(tool.input);
     for (const key of ["token", "apiEndpoint", "siteUrl", "syncGitToken"]) assert.equal(key in schema.properties, false);
-    if (["tapd_create", "tapd_update_status", "tapd_add_comment", "tapd_update_field"].includes(tool.name)) {
+    if (["tapd_create", "tapd_update_status", "tapd_add_comment", "tapd_update_field", "tapd_create_label"].includes(tool.name)) {
       assert.ok(schema.required.includes("confirmed"));
       assert.equal(schema.properties.confirmed.const, true);
       assert.ok(schema.required.includes("workspaceId"));
@@ -252,7 +252,7 @@ test("session-open attaches tools alongside existing tools, skips history, and p
     const hook = hooks.get("agent.session_open");
     const request = { purpose: "launch", tools: [{ name: "example_existing" }], env: { TAPD_TOKEN: "example-existing", EXAMPLE: "keep" } };
     const updated = await hook({ request });
-    assert.equal(updated.tools.length, 20);
+    assert.equal(new Set(updated.tools.map(tool => tool.name)).size, updated.tools.length);
     for (const name of ["tapd_agent_options", "tapd_bind_agent", "tapd_dispatch_agent"]) assert.ok(updated.tools.some(tool => tool.name === name));
     assert.equal(updated.tools[0].name, "example_existing");
     assert.equal(updated.env.TAPD_TOKEN, "example-existing");

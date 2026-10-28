@@ -107,3 +107,7 @@ PASEO_RUNTIME_DIR="$RUNTIME_ROOT" node tests/public-daemon-fields.check.mjs
 TDD 复用既有 Agent 工具边界：将原富文本保真、冲突、单字段提交、fresh 回读和显式清空用例同时运行于两种类型。先运行新增 rich_text 案例失败（退出 1），最小修复后字段组 11/11 通过（退出 0）。公开 daemon fixture 改用 rich_text 验证实际 worker/RPC 链路，rich_edit 的覆盖仍由字段组保留。最终检查与独立两轴审查结果见 PR。
 
 本机安装的 paseo-tapd 技能曾与旧仓库基线完全相同；确认没有本地自定义后，复制已审查的仓库版本并逐字比对通过。插件安装不会自动注册 provider 技能，该步骤未改宿主源码或业务设置。实际 TAPD 写权限、字段提交/清空与服务端 HTML 规范化仍未测试，readonly=false 仅为元数据，不能当成权限证明。
+
+本轮最终结果：`npm test` 113/113、`npm run typecheck`、`npm run lint`、公开 daemon 检查及 `git diff --check` 均退出 0；lint 仍为 4 条既有警告。daemon 检查为两个独立进程、25 次模拟读取、4 次明确模拟 POST、0 重放。Standards 与 Spec 对 `08fb34f...dfaa53d` 独立复审均无发现；Spec 另跑字段组 11/11 通过。
+
+本机 `paseo plugin reload tapd-workbench --json` 退出 0，状态 running；公开 client bundle 含版本 0.4.38。实际方案字段重新发现后为 supported=true，原始类型仍保留 rich_text；两次 fresh 读取均返回字符串且内容相等。此项目候选仍为 124 个，受支持项从 34 个增至 37 个。只记录统计和断言，不保存实际字段 key/正文；没有调用真实写接口。读取相等不能证明并发锁、写权限或服务端写后规范化。此次重载后的 provider 工具重新注入仍应由后续 session open 完成；本轮已验证重载前工具注入及重载后实际 RPC 读取，未把二者混称同一次完整 provider 写入链路。

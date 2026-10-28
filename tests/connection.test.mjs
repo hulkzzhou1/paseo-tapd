@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { entityUrl, resolveConfig } from "../server/tapd.ts";
 import { tapdSettingsSchema, tapdBaseUrlSchema } from "../shared/contracts.ts";
-import { managedValues } from "../server/git-sync.ts";
 
 const settings = { token: "", workspaceIds: "12345678" };
 
@@ -38,11 +37,8 @@ test("invalid or credential-bearing addresses fail without echoing the input", (
   }
 });
 
-test("old settings keep working and private addresses stay out of Git backups", () => {
+test("old settings still load with default connection addresses", () => {
   const old = tapdSettingsSchema.parse({});
   assert.equal(old.apiEndpoint, "");
   assert.equal(old.siteUrl, "");
-  const managed = managedValues({ ...old, apiEndpoint: "https://api.example.com", siteUrl: "https://example.com" });
-  assert.equal("apiEndpoint" in managed, false);
-  assert.equal("siteUrl" in managed, false);
 });

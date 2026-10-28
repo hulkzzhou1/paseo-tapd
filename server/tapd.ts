@@ -222,8 +222,20 @@ export function describeError(error: unknown): string {
   return String(error);
 }
 
+export async function readCacheKey(config: TapdConfig, request: unknown): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify([config.endpoint, config.site, config.workspaceIds, config.tokenSource, config.token, config.protectedValues ?? [], request]));
+  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
 const DEFAULT_CACHE_TTL_MS = 20_000;
-const responseCache = new Map<string, { at: number; value: unknown }>();
+const RESPONSE_CACHE_LIMIT = 500;
+const responseCache = new Map<string, { at: number; expiresAt: number; value: unknown }>();
+function pruneCache<T extends { expiresAt: number }>(cache: Map<string, T>, limit: number): void {
+  const now = Date.now();
+  for (const [key, entry] of cache) if (entry.expiresAt <= now) cache.delete(key);
+  while (cache.size > limit) cache.delete(cache.keys().next().value!);
+}
+
 const inflightRequests = new Map<string, Promise<unknown>>();
 let cacheGeneration = 0;
 
@@ -231,8 +243,17 @@ let cacheGeneration = 0;
 // 看板整体缓存（SWR）：过期先回旧数据 + 后台刷新，避免进工作台全量重拉白屏
 // ---------------------------------------------------------------------------
 const BOARD_CACHE_TTL_MS = 90_000;
-const boardCache = new Map<string, { at: number; result: unknown }>();
+const BOARD_CACHE_MAX_AGE_MS = 30 * 60_000;
+const BOARD_CACHE_LIMIT = 50;
+const boardCache = new Map<string, { at: number; expiresAt: number; result: unknown }>();
 const boardRefreshes = new Map<string, Promise<unknown>>();
+
+function storeBoardResult(key: string, result: unknown): void {
+  const at = Date.now();
+  boardCache.delete(key);
+  boardCache.set(key, { at, expiresAt: at + BOARD_CACHE_MAX_AGE_MS, result });
+  pruneCache(boardCache, BOARD_CACHE_LIMIT);
+}
 
 export function clearTapdCache(): void {
   cacheGeneration++;
@@ -244,15 +265,22 @@ export function clearTapdCache(): void {
 
 export type StaleBoardResult<T> = T & { stale: boolean; cachedAt: string };
 
+function invalidatedRead(): TapdApiError {
+  return new TapdApiError("TAPD 读取期间配置或数据已变更，请刷新重试。", undefined, { code: "invalidated", phase: "read", writeState: "not_sent" });
+}
+
 export async function boardWithCache<T extends Record<string, unknown>>(
   key: string,
   fetcher: () => Promise<T>,
   force: boolean,
 ): Promise<StaleBoardResult<T>> {
+  const generation = cacheGeneration;
+  pruneCache(boardCache, BOARD_CACHE_LIMIT);
   const cached = boardCache.get(key) as { at: number; result: T } | undefined;
   if (force || !cached) {
     const result = await fetcher();
-    boardCache.set(key, { at: Date.now(), result });
+    if (generation !== cacheGeneration) throw invalidatedRead();
+    storeBoardResult(key, result);
     return { ...result, stale: false, cachedAt: "" };
   }
   if (Date.now() - cached.at < BOARD_CACHE_TTL_MS) {
@@ -263,12 +291,12 @@ export async function boardWithCache<T extends Record<string, unknown>>(
   if (!running) {
     running = fetcher()
       .then((result) => {
-        boardCache.set(key, { at: Date.now(), result });
+        if (generation === cacheGeneration) storeBoardResult(key, result);
         return result;
       })
       .catch(() => null)
       .finally(() => {
-        boardRefreshes.delete(key);
+        if (boardRefreshes.get(key) === running) boardRefreshes.delete(key);
       });
     boardRefreshes.set(key, running);
   }
@@ -298,11 +326,18 @@ async function requestJson(
   const query = buildQuery(params);
   const generation = cacheGeneration;
   const url = `${config.endpoint}${path}${query ? `?${query}` : ""}`;
-  const cached = responseCache.get(url);
+  const key = await readCacheKey(config, url);
+  if (generation !== cacheGeneration) throw invalidatedRead();
+  pruneCache(responseCache, RESPONSE_CACHE_LIMIT);
+  const cached = responseCache.get(key);
   if (!fresh && cached && Date.now() - cached.at < ttlMs) return cached.value;
-  const pending = fresh ? undefined : inflightRequests.get(url);
+  const pending = fresh ? undefined : inflightRequests.get(key);
   if (pending) {
-    try { return await pending; } catch (error) {
+    try {
+      const result = await pending;
+      if (generation !== cacheGeneration) throw invalidatedRead();
+      return result;
+    } catch (error) {
       config.readWarnings?.push("部分 TAPD 读取失败，结果可能不完整。");
       throw error;
     }
@@ -319,7 +354,13 @@ async function requestJson(
       let payload;
       try { payload = await response.json(); } catch { throw requestFailure("read", "invalid_response", response.status); }
       if (!payload || typeof payload !== "object" || payload.status !== 1) throw requestFailure("read", "api_rejected", response.status);
-      if (!fresh && generation === cacheGeneration) responseCache.set(url, { at: Date.now(), value: payload.data });
+      if (generation !== cacheGeneration) throw invalidatedRead();
+      if (!fresh && ttlMs > 0) {
+        const at = Date.now();
+        responseCache.delete(key);
+        responseCache.set(key, { at, expiresAt: at + ttlMs, value: payload.data });
+        pruneCache(responseCache, RESPONSE_CACHE_LIMIT);
+      }
       return payload.data;
     } catch (error) {
       if (error instanceof TapdApiError) throw error;
@@ -327,14 +368,16 @@ async function requestJson(
     } finally { clearTimeout(timer); }
   })();
 
-  if (!fresh) inflightRequests.set(url, request);
+  if (!fresh) inflightRequests.set(key, request);
   try {
-    return await request;
+    const result = await request;
+    if (generation !== cacheGeneration) throw invalidatedRead();
+    return result;
   } catch (error) {
     config.readWarnings?.push("部分 TAPD 读取失败，结果可能不完整。");
     throw error;
   } finally {
-    if (!fresh && inflightRequests.get(url) === request) inflightRequests.delete(url);
+    if (!fresh && inflightRequests.get(key) === request) inflightRequests.delete(key);
   }
 }
 
@@ -580,20 +623,42 @@ export async function fetchFilterOptions(config: TapdConfig): Promise<{
   return { priorities, severities, iterations, statuses };
 }
 
-/** 状态流转：POST 更新单据状态（workspaceId 为空时回退首个项目） */
+function writeProject(config: TapdConfig, workspaceId?: string) {
+  const resolved = workspaceId?.trim() || config.workspaceIds[0] || "";
+  if (!/^\d{1,100}$/.test(resolved) || !config.workspaceIds.includes(resolved)) throw new TapdApiError("写入项目未配置，未提交。");
+  return resolved;
+}
+
+async function writeTargetProject(config: TapdConfig, workspaceId: string, kind: EntityKind, id: string) {
+  if (!["story", "task", "bug"].includes(kind) || !/^\d{1,100}$/.test(id)) throw new TapdApiError("写入单据类型或编号无效，未提交。");
+  const projects = workspaceId.trim() ? [writeProject(config, workspaceId)] : config.workspaceIds;
+  for (const project of projects) {
+    writeProject(config, project);
+    const data = await requestJson(config, LIST_PATH[kind], { workspace_id: project, id, limit: 1, fields: "id,workspace_id" }, 0, true);
+    if (!Array.isArray(data) || data.length > 1) throw new TapdApiError("写入目标无法核实，未提交。");
+    if (data.length === 0) continue;
+    const row = unwrapRow(data[0], [KIND_WRAPPER[kind]]);
+    if (!row || String(row.id) !== id || String(row.workspace_id ?? "") !== project || (row.entity_type !== undefined && row.entity_type !== kind)) throw new TapdApiError("写入目标类型、项目或编号不匹配，未提交。");
+    return project;
+  }
+  throw new TapdApiError("未找到可核实的写入目标，未提交。");
+}
+
+/** 状态流转：核实实际单据项目后写入；未指定项目时查询已配置项目。 */
 export async function updateEntityStatus(
   config: TapdConfig,
   workspaceId: string,
   kind: EntityKind,
   id: string,
   status: string,
-): Promise<void> {
-  const resolved = workspaceId.trim() || (config.workspaceIds[0] ?? "");
+): Promise<string> {
+  const resolved = await writeTargetProject(config, workspaceId, kind, id);
   await requestPost(config, LIST_PATH[kind], { workspace_id: resolved, id, status });
   clearTapdCache();
+  return resolved;
 }
 
-/** 回写评论：POST 新评论（HTML 格式）（workspaceId 为空时回退首个项目） */
+/** 核实实际单据项目后回写 HTML 评论；读取失败不猜测目标。 */
 export async function addComment(
   config: TapdConfig,
   workspaceId: string,
@@ -602,7 +667,8 @@ export async function addComment(
   text: string,
   author: string,
 ): Promise<void> {
-  const resolved = workspaceId.trim() || (config.workspaceIds[0] ?? "");
+  protectFieldData(config, [text, author]);
+  const resolved = await writeTargetProject(config, workspaceId, kind, id);
   const entryType = kind === "story" ? "stories" : kind === "bug" ? "bug" : "tasks";
   const params: Record<string, QueryValue> = {
     workspace_id: resolved,
@@ -1367,7 +1433,8 @@ export async function createEntity(
   config: TapdConfig,
   input: CreateEntityInput,
 ) {
-  const workspaceId = (input.workspaceId ?? "").trim() || config.workspaceIds[0] || "";
+  const workspaceId = writeProject(config, input.workspaceId);
+  if (!["story", "task", "bug"].includes(input.kind)) throw new TapdApiError("建单类型无效，未提交。");
   protectFieldData(config, input);
   const parentId = input.parentStoryId || input.storyId || "";
   if (input.parentStoryId && (input.kind !== "story" || input.storyId)) throw new TapdApiError("子需求父级参数无效。");
@@ -1700,14 +1767,15 @@ export async function fetchColumn(
 }
 
 /** Conversation summaries read only list fields; descriptions, comments and related items stay lazy. */
-export async function fetchEntitySummary(config: TapdConfig, kind: EntityKind, id: string, workspaceId: string) {
+export async function fetchEntitySummary(config: TapdConfig, kind: EntityKind, id: string, workspaceId: string, verifyTarget = false) {
   if (!config.workspaceIds.includes(workspaceId)) throw new TapdApiError("项目未配置");
   const data = await requestJson(config, LIST_PATH[kind], {
     workspace_id: workspaceId, id, limit: 1,
     fields: kind === "bug" ? "id,workspace_id,title,status,current_owner,label" : (kind === "story" ? "id,workspace_id,name,status,owner,workitem_type_id,step,flows,label" : "id,workspace_id,name,status,owner,label"),
   }, 0);
   const row = unwrapRows(data, [KIND_WRAPPER[kind]])[0];
-  if (!row || String(row.id) !== id || (row.workspace_id !== undefined && String(row.workspace_id) !== workspaceId)) throw new TapdApiError("单据摘要不可用");
+  if (!row || String(row.id) !== id || (row.workspace_id !== undefined && String(row.workspace_id) !== workspaceId)
+    || (verifyTarget && (String(row.workspace_id ?? "") !== workspaceId || (row.entity_type !== undefined && row.entity_type !== kind)))) throw new TapdApiError("单据摘要不可用");
   const labels = await fetchStatusLabels({ ...config, workspaceIds: [workspaceId] }, kind);
   const status = String(row.status ?? "");
   return { labels: readDisplayLabels(config, row), kind, id, workspaceId, title: String((kind === "bug" ? row.title : row.name) ?? ""),

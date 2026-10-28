@@ -125,10 +125,6 @@ export const tapdSettingsSchema = z.object({
   lastProvider: z.string().default(""),
   /** Legacy setting retained for saved configuration compatibility; no longer triggers writes. */
   autoReportAgentResult: z.boolean().default(false),
-  /** Git 配置同步：把非密配置（视图/收藏/看板列/关联记录等）备份到用户自己的仓库，卸载重装后可一键恢复 */
-  syncGitUrl: z.string().default(""),
-  syncGitToken: z.string().default(""),
-  syncBranch: z.string().default("main"),
   /** 看板自动刷新间隔（秒）：0=关闭；>0 时客户端按该间隔定时强制刷新（下限 30 秒，上限 3600 秒） */
   autoRefreshSeconds: z.number().int().min(0).max(3600).default(0),
   /** 挂载创建（需求详情建任务/缺陷）动态字段的布局：kind → { order: 显示顺序, hidden: 隐藏清单 }；order 未覆盖的字段按服务端原序追加 */
@@ -148,7 +144,7 @@ export type TapdSettingsValues = z.infer<typeof tapdSettingsSchema>;
 export const tapdSettings = defineSettings({
   id: "tapd-workbench-config",
   scope: "host",
-  version: 6,
+  version: 7,
   schema: tapdSettingsSchema,
   migrate: (values, fromVersion) => {
     const previous = (values ?? {}) as Record<string, unknown>;
@@ -199,6 +195,7 @@ export const tapdSettings = defineSettings({
         };
       });
       migrated = {
+        ...migrated,
         token,
         workspaceIds,
         views,
@@ -221,6 +218,7 @@ export const tapdSettings = defineSettings({
         views.push({ id: "related", name: "我相关的", filters: { ...DEFAULT_FILTERS, ownerMode: "related" } });
       }
       migrated = {
+        ...migrated,
         token,
         workspaceIds,
         views,
@@ -236,11 +234,17 @@ export const tapdSettings = defineSettings({
       const views = rawViews.filter((view) => view?.id !== "mine");
       const previousDefault = typeof migrated.defaultViewId === "string" ? migrated.defaultViewId : "";
       migrated = {
+        ...migrated,
         token,
         workspaceIds,
         views,
         defaultViewId: previousDefault === "mine" ? "" : previousDefault,
       };
+    }
+
+    if (fromVersion < 7) {
+      migrated = { ...migrated };
+      for (const key of ["syncGitUrl", "syncGitToken", "syncBranch"]) delete migrated[key];
     }
 
     return migrated;
@@ -455,7 +459,7 @@ export const updateStatusRpc = defineRpc({
     kind: entityKindSchema,
     id: z.string(),
     status: z.string(),
-    /** 单据实际所在项目；为空回退首个配置项目 */
+    /** 单据实际所在项目；未指定时读取已配置项目以核实实际归属 */
     workspaceId: z.string().default(""),
   }),
   output: z.object({ ok: z.boolean(), writeState: z.literal("accepted"), outcome: z.enum(["verified", "unverified"]), status: z.string().nullable(), statusLabel: z.string().optional(), warning: z.string().optional() }),
@@ -467,7 +471,7 @@ export const addCommentRpc = defineRpc({
     kind: entityKindSchema,
     id: z.string(),
     text: z.string(),
-    /** 单据实际所在项目；为空回退首个配置项目 */
+    /** 单据实际所在项目；未指定时读取已配置项目以核实实际归属 */
     workspaceId: z.string().default(""),
   }),
   output: z.object({ ok: z.boolean() }),
@@ -612,25 +616,6 @@ export const agentStatusRpc = defineRpc({
     ).default([]),
   }),
 });
-
-/** 配置同步：把非密配置推送到用户 Git 仓库 / 从仓库拉取覆盖（均在设置页手动触发） */
-export const syncPushRpc = defineRpc({
-  name: "tapd.sync_push",
-  input: z.object({}),
-  output: z.object({ message: z.string() }),
-});
-
-export const syncPullRpc = defineRpc({
-  name: "tapd.sync_pull",
-  input: z.object({}),
-  output: z.object({
-    message: z.string(),
-    /** 待合并的非密设置字段（客户端负责用 settings.save 写回） */
-    values: z.record(z.string(), z.unknown()),
-  }),
-});
-
-
 
 export const imageRpc = defineRpc({
   name: "tapd.image",

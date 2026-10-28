@@ -151,16 +151,15 @@ test("raw failures and credentials never reach tool results, including partial f
   }
 });
 
-test("successful item content redacts configured credentials without dropping readable fields", async (t) => {
+test("unsafe complete item content is an explicit failure instead of a lossy successful detail", async (t) => {
   const { call } = setup(t, request => {
     const data = entityApi(request);
     if (Array.isArray(data) && data[0]?.Story) data[0].Story.description = `<p>${initial.token} ${initial.syncGitToken} 示例正文</p>`;
     return data;
   });
   const result = await call("tapd_entity", { kind: "story", id: "11111111" });
-  assert.equal(result.isError, undefined);
-  assert.match(result.structuredContent.description, /示例正文/);
-  assert.match(result.structuredContent.descriptionHtml, /\[redacted\]/);
+  assert.equal(result.isError, true);
+  assert.equal(result.structuredContent.description, undefined);
   assert.equal(JSON.stringify(result).includes(initial.token), false);
   assert.equal(JSON.stringify(result).includes(initial.syncGitToken), false);
 });
@@ -332,7 +331,7 @@ test("single card keeps partial-read warnings, bounds untrusted summaries and ex
   const { call } = setup(t, request => {
     if (request.url.pathname === "/tasks" && request.url.searchParams.has("story_id")) throw new Error("untrusted failure");
     const result = entityApi(request);
-    if (Array.isArray(result) && result[0]?.Story) result[0].Story.name = initial.token + "x".repeat(1000);
+    if (Array.isArray(result) && result[0]?.Story) result[0].Story.name = "x".repeat(1000);
     return result;
   });
   const rows = [];

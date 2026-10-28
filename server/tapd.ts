@@ -675,10 +675,15 @@ export async function fetchBugTransitions(config: TapdConfig, workspaceId: strin
     for (const spec of rule.Appendfield) {
       const key = spec?.FieldName;
       if (typeof key !== "string" || !/^[a-zA-Z][a-zA-Z0-9_]{0,99}$/.test(key) || !["yes", "no"].includes(spec.Notnull) || fields.some(field => field.key === key)) throw new TapdApiError("缺陷流转附加字段无法识别，请在 TAPD 原站核对。");
+      // These optional native form settings are not requests to edit a bug or log time.
+      const auxiliary = ["enable_add_timesheet", "transition_description"].includes(key);
+      if (spec.DBModel === "Bug" && spec.Notnull === "no" && auxiliary) continue;
       const info = metadata[key];
       const mapped = key === "remarks" ? { kind: "text" as const, single: true } : mapHtmlType(String(info?.html_type ?? ""));
-      const supported = spec.DBModel === "Bug" && !["id", "workspace_id", "status", "v_status", "description", "title", "name", "workitem_type_id", "story_id", "parent_id"].includes(key)
-        && !!mapped && ((key === "remarks" && !info) || !!info && [0, "0", false].includes(info.readonly));
+      // Field info may omit readonly; the exact current edge declares the editable fields.
+      const supported = spec.DBModel === "Bug" && !auxiliary && !["id", "workspace_id", "status", "v_status", "description", "title", "name", "workitem_type_id", "story_id", "parent_id"].includes(key)
+        && !!mapped && ((key === "remarks" && info === undefined) || !!info && typeof info === "object" && !Array.isArray(info)
+          && (info.readonly === undefined || [0, "0", false].includes(info.readonly)));
       const label = key === "remarks" ? "流转评论" : String(info?.label ?? key).slice(0, 500);
       const options = info?.options && typeof info.options === "object" && !Array.isArray(info.options)
         ? Object.entries(info.options).map(([value, label]) => ({ value, label: String(label).slice(0, 200) })) : [];

@@ -678,6 +678,23 @@ async function fetchTerminalStatuses(config: TapdConfig, kind: EntityKind, label
   ]);
 }
 
+/** Board membership must never be guessed from a translated status label. */
+export async function fetchTaskClassification(config: TapdConfig, kind: EntityKind, workspaceId: string, status: string): Promise<"unfinished" | "completed" | "unknown"> {
+  if (!config.workspaceIds.includes(workspaceId) || !status) return "unknown";
+  if (kind === "task") {
+    if (["done"].includes(status)) return "completed";
+    if (["open", "progressing"].includes(status)) return "unfinished";
+    return "unknown";
+  }
+  try {
+    const data = await requestJson(config, "/workflows/last_steps", { workspace_id: workspaceId, system: kind }, 0);
+    if (!data || typeof data !== "object" || Array.isArray(data) || !Object.keys(data).length || !Object.values(data).every(value => typeof value === "string")) return "unknown";
+    const candidates = await fetchStatusOptions(config, kind, workspaceId);
+    if (!candidates.some(option => option.value === status)) return "unknown";
+    return Object.hasOwn(data, status) ? "completed" : "unfinished";
+  } catch { return "unknown"; }
+}
+
 function activeStatuses(kind: EntityKind, labels: Record<string, string>, terminal: ReadonlySet<string>): string[] {
   const known = Object.keys(labels);
   const source = known.length > 0 ? known : [...FALLBACK_ACTIVE_STATUSES[kind]];
@@ -1551,14 +1568,15 @@ export async function fetchEntitySummary(config: TapdConfig, kind: EntityKind, i
   if (!config.workspaceIds.includes(workspaceId)) throw new TapdApiError("项目未配置");
   const data = await requestJson(config, LIST_PATH[kind], {
     workspace_id: workspaceId, id, limit: 1,
-    fields: kind === "bug" ? "id,title,status,current_owner" : "id,name,status,owner",
+    fields: kind === "bug" ? "id,workspace_id,title,status,current_owner" : (kind === "story" ? "id,workspace_id,name,status,owner,workitem_type_id,step,flows" : "id,workspace_id,name,status,owner"),
   }, 0);
   const row = unwrapRows(data, [KIND_WRAPPER[kind]])[0];
-  if (!row || String(row.id) !== id) throw new TapdApiError("单据摘要不可用");
+  if (!row || String(row.id) !== id || (row.workspace_id !== undefined && String(row.workspace_id) !== workspaceId)) throw new TapdApiError("单据摘要不可用");
   const labels = await fetchStatusLabels({ ...config, workspaceIds: [workspaceId] }, kind);
   const status = String(row.status ?? "");
   return { kind, id, workspaceId, title: String((kind === "bug" ? row.title : row.name) ?? ""),
-    status, statusLabel: labels[status] ?? status, owner: String((kind === "bug" ? row.current_owner : row.owner) ?? "").trim() };
+    status, statusLabel: labels[status] ?? status, owner: String((kind === "bug" ? row.current_owner : row.owner) ?? "").trim(),
+    workflowAmbiguous: kind === "story" && [row.workitem_type_id, row.step, row.flows].some(value => value !== undefined && value !== null && value !== "" && value !== "0" && value !== 0 && (!Array.isArray(value) || value.length > 0)) };
 }
 
 export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: string): Promise<EntityDetailResult> {

@@ -18,9 +18,9 @@ export function EntityResultCard({ item, theme, agentId, openPanel }: PluginTime
   return <View style={{ gap: 6, maxWidth: 760 }}>
     <Pressable ref={button} accessibilityRole="button" accessibilityLabel={`打开 TAPD ${kindLabels[entity.kind]} #${entity.id}：${entity.title}`}
       onFocus={() => setFocused(true)} onBlur={() => setFocused(false)} onPress={() => { void open(entity); }}
-      style={({ pressed }) => ({ padding: 16, gap: 12, backgroundColor: pressed ? colors.surface2 : colors.surface1, borderWidth: 1, borderColor: focused ? colors.accent : colors.border, borderRadius: 12 })}>
+      style={({ pressed }) => ({ paddingHorizontal: 14, paddingVertical: 8, gap: 6, backgroundColor: pressed ? colors.surface2 : colors.surface1, borderWidth: 1, borderColor: focused ? colors.accent : colors.border, borderRadius: 12 })}>
       <EntitySummary entity={entity} theme={theme} />
-      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderTopWidth: 1, borderColor: colors.border, paddingTop: 10 }}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderTopWidth: 1, borderColor: colors.border, paddingTop: 6 }}>
         <Text style={{ color: operation === "read" ? colors.foregroundMuted : colors.statusSuccess, fontSize: 12, fontWeight: "600" }}>{operation === "read" ? "TAPD 单据" : "✓ 操作成功"}</Text>
         <Text style={{ color: colors.accent, fontSize: 12, fontWeight: "600" }}>查看详情 →</Text>
       </View>

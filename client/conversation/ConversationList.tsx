@@ -48,14 +48,14 @@ export function ConversationList({ entities, theme, pending, loading, failed, on
         })}
       </View>
     </View>
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, gap: 8 }} keyboardShouldPersistTaps="handled">
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, gap: 6 }} keyboardShouldPersistTaps="handled">
       {visible.map(entity => {
         const key = conversationEntityKey(entity);
         const tone = toneColor(statusTone(entity.kind, entity.status, entity.statusLabel), theme);
         const known = !!entity.title;
         return <View key={key} style={{ borderWidth: 1, borderColor: focused === key ? c.accent : c.border, borderRadius: 12, backgroundColor: c.surface1, overflow: "hidden" }}>
           <Pressable accessibilityRole="button" accessibilityLabel={`打开 TAPD ${labels[entity.kind]} #${entity.id}：${entity.title}`} onFocus={() => setFocused(key)} onBlur={() => setFocused("")} onPress={() => onOpen(entity)}
-            style={({ pressed }) => ({ padding: 14, gap: 9, backgroundColor: pressed ? c.surface2 : c.surface1 })}>
+            style={({ pressed }) => ({ paddingHorizontal: 14, paddingVertical: 8, gap: 5, backgroundColor: pressed ? c.surface2 : c.surface1 })}>
             <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 5 }}><Icon name={entity.kind === "bug" ? "Bug" : entity.kind === "task" ? "ListTodo" : "FileText"} size={14} color={kindColor(entity.kind, theme)} /><Text style={{ fontSize: 12, fontWeight: "600", color: kindColor(entity.kind, theme) }}>{labels[entity.kind]}</Text></View>
               <Text style={{ color: c.foregroundMuted, fontSize: 11, flexShrink: 1 }}>#{entity.id}</Text>

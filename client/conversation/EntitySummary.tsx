@@ -12,14 +12,14 @@ export function EntitySummary({ entity, theme }: {
 }) {
   const colors = theme.colors;
   const status = toneColor(statusTone(entity.kind, entity.status, entity.statusLabel), theme);
-  return <View style={{ gap: 10, borderLeftWidth: 3, borderLeftColor: status, paddingLeft: 12, minWidth: 0 }}>
+  return <View style={{ gap: 5, borderLeftWidth: 3, borderLeftColor: status, paddingLeft: 12, minWidth: 0 }}>
     <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
       <Text style={{ color: kindColor(entity.kind, theme), fontSize: 12, lineHeight: 18, fontWeight: "600" }}>{labels[entity.kind]}</Text>
       <Text selectable style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18 }}>#{entity.id}</Text>
     </View>
-    <Text numberOfLines={3} style={{ color: colors.foreground, fontSize: 16, lineHeight: 24, fontWeight: "600" }}>{entity.title || `#${entity.id}`}</Text>
+    <Text numberOfLines={3} style={{ color: colors.foreground, fontSize: 16, lineHeight: 22, fontWeight: "600" }}>{entity.title || `#${entity.id}`}</Text>
     <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: status, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, backgroundColor: colors.surface0 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderColor: status, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2, backgroundColor: colors.surface0 }}>
         <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: status }} />
         <Text style={{ color: status, fontSize: 12, lineHeight: 18, fontWeight: "600" }}>{entity.statusLabel || entity.status || "状态待读取"}</Text>
       </View>

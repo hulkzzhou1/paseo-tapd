@@ -30,7 +30,7 @@ export function BatchResultCard({ item, theme, agentId, openPanel }: PluginTimel
     } catch { setError(true); }
     finally { busy.current = false; setLoading(false); }
   }
-  return <View style={{ gap: 10, maxWidth: 760, padding: 14, borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: colors.surface1 }}>
+  return <View style={{ gap: 6, maxWidth: 760, paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: colors.border, borderRadius: 12, backgroundColor: colors.surface1 }}>
     <Text style={{ color: colors.foreground, fontSize: 15, fontWeight: "600" }}>TAPD {data.operation === "board" ? "看板" : "搜索"}结果</Text>
     <Text style={{ color: colors.foregroundMuted }}>已返回 {data.returned} 条{data.total === null ? " · 总数未知" : ` · 查询总数 ${data.total}`}</Text>
     <Text style={{ color: colors.foregroundMuted, fontSize: 12 }}>查询时的摘要 · 点击单据加入会话并查看最新详情</Text>
@@ -46,7 +46,7 @@ export function BatchResultCard({ item, theme, agentId, openPanel }: PluginTimel
         opener.current = buttons.current.get(index) ?? null;
         const entity = { siteUrl: data.siteUrl, apiEndpoint: data.apiEndpoint, ...row };
         void open(entity);
-      }} style={({ pressed }) => ({ padding: 12, gap: 8, borderRadius: 10, backgroundColor: pressed ? colors.surface2 : colors.surface0, borderWidth: 1, borderColor: focusedIndex === index ? colors.accent : colors.border })}>
+      }} style={({ pressed }) => ({ paddingHorizontal: 12, paddingVertical: 8, gap: 5, borderRadius: 10, backgroundColor: pressed ? colors.surface2 : colors.surface0, borderWidth: 1, borderColor: focusedIndex === index ? colors.accent : colors.border })}>
       <EntitySummary entity={row} theme={theme} />
     </Pressable>)}
     {error ? <Text accessibilityRole="alert" style={{ color: colors.statusDanger }}>其余结果暂时无法加载，请重试。</Text> : null}

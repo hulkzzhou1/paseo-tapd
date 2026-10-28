@@ -30,7 +30,7 @@
 | 工具注册/旧写操作/关联 | `tests/agent-tools.test.mjs`, `tests/agent-assignment.test.mjs` | 新增三工具，复用既有绑定/派发/显式评论 |
 | 状态 UI 写错误 | `tests/status-dropdown-interaction.check.cjs` | 不泄露错误，提示核对而非直接重试 |
 
-TDD：先新增缺失工具、字段冲突/保真、fresh 被旧请求阻塞、旧回合误取摘要、字段卡片缺失和创建缺编号的失败断言，再逐项实现；聚焦测试记录见 PR。检查使用既有依赖和匹配 SDK，未安装依赖或更改宿主。
+TDD：先新增缺失工具、字段冲突/保真、fresh 被旧请求阻塞、旧回合误取摘要、字段卡片缺失和创建缺编号的失败断言，再逐项实现；聚焦测试记录见 PR。首轮检查使用既有依赖和匹配 SDK；本次验证收尾仅在临时目录补依赖并复用安装主线的公开构建产物，未改宿主源码或产品依赖。
 
 ## 未测范围与部署验收
 
@@ -41,10 +41,37 @@ TDD：先新增缺失工具、字段冲突/保真、fresh 被旧请求阻塞、�
 - `npm run typecheck`：退出 0。
 - `npm run lint`：退出 0，4 条既有 unused eslint-disable 警告，无错误。
 - `npm test`：退出 0，112 项通过；Node 提示既有模块类型声明缺失，无失败。
-- 状态 UI 隔离检查：退出 1，现有宿主 app checkout 缺少 esbuild，测试未进入浏览器交互；保留更新后的安全错误断言，未安装依赖或修改宿主。
-- daemon 实进程检查未运行：可用同级宿主源码缺少 defineAgentTool 导出，无法作为匹配主线宿主；已有注册/RPC/恢复 fixture 通过不等于真实 daemon 验收。
+- 状态 UI 隔离检查：首轮退出 1（误以不完整的同级开发 checkout 作为测试依赖来源，缺少 esbuild）；本次改用安装主线的构建依赖并补临时动态库，退出 0，覆盖项目/类型候选、当前值不提交、重复点击、安全报错、刷新和窄屏暗色详情。
+- 新增公开接口 daemon 字段检查：退出 0，两个不同进程、真实插件 worker/RPC、25 次本地读取、4 次明确模拟 POST（含 1 次拒绝）、0 次重放；通过旧值冲突、安全拒绝、accepted/unverified、清空、插件重载和 daemon 重启。旧 `daemon-lifecycle.check.mjs` 使用内部测试工具，本轮未运行；不能把新检查称为完整 Agent 生命周期验收。
 - `git diff --check`：退出 0；新增内容仅脱敏示例，无图片改动。
 
 ## 独立两轴审查
 
 首次审查固定为基线至 `85448f569fd4b99acbf3581548177c19ab60e07f`。Standards 与 Spec 各报告 1 项 P2：英文说明残留旧自动回评及旧工具计数，违反文档同步要求；修复提交同步所有相关英文段落。未发现其他可操作的规范/规格问题，未合并或重排两轴结论。规格审查独立重跑字段、回合反馈及卡片恢复三组测试，18/18 通过、退出 0。修复复核与最终提交范围以集成 PR 记录为准；审查不代表真实部署验证。
+
+## 验证收尾：环境、命令和准确范围
+
+当前安装的 `0.13.2` 是主线 `6b7d49f0d8d21d01565f9517a8c2a30e2a587e2a` 构建，包含 `defineAgentTool`；首轮所查同级开发 checkout 不是该安装构建。公开 npm `0.13.2` 不含该导出与当前宿主能力是两件事。此次也核对了 npm 的 `0.14.0-beta.1` SDK 已包含导出，校验下载包的 registry SHA-512 integrity；最终 daemon 验证直接复用当前主线构建的公开包入口，没有替换其 SDK，也没有部署 beta。
+
+UI 测试实际复用主线 app 依赖：esbuild 0.28.1、Playwright 1.58.2、React/React DOM 19.2.3、react-native-web 0.21.2；使用对应缓存 Chromium headless shell 1208，新建临时浏览器 profile，无截图。TencentOS 4.4 缺少 libgbm/libasound，以下 [Ubuntu 官方包归档](https://archive.ubuntu.com/ubuntu/pool/main/) 仅解压到临时目录，通过测试进程 LD_LIBRARY_PATH 加载，未系统安装：
+
+| 包 | SHA-256 |
+| --- | --- |
+| libgbm1_22.0.1-1ubuntu2_amd64.deb | f15116201bc7ec40cc0b34b41571dd1e9e3520d4e08aafab084a02f8ca071160 |
+| libasound2_1.2.6.1-1ubuntu1_amd64.deb | cb208a762817bde5b83d1d52b7b89c747e9b484c857ea114bf97bacc1b29ecae |
+| libwayland-server0_1.20.0-1_amd64.deb | 83616131541e45455a30afe67f65c817e72a20f85ccf36a1d64930d89fa313d3 |
+
+`RUNTIME_ROOT` 指受信任的完整主线构建；`TEST_LIB_DIR` 指上述临时解压目录。在没有这两个缺包的机器上可省略 LD_LIBRARY_PATH：
+
+```bash
+PASEO_APP_DIR="$RUNTIME_ROOT/packages/app" \
+  LD_LIBRARY_PATH="$TEST_LIB_DIR/usr/lib/x86_64-linux-gnu" \
+  node tests/status-dropdown-interaction.check.cjs
+# exit 0
+PASEO_RUNTIME_DIR="$RUNTIME_ROOT" node tests/public-daemon-fields.check.mjs
+# exit 0
+```
+
+新脚本要求 Linux user/mount namespace（unshare、mount、bash）。它只从 `@getpaseo/server` 和 `@getpaseo/client/node` 公开入口构建/连接 daemon，不调用 test-utils、内部模块或 agentManager。临时 home 与真实用户 home 分离，主线/插件/依赖/Node 只读挂载；禁用全部真实 provider、relay、语音和元数据模型，凭据及单据均为 fixture。插件只安装/重载在临时 daemon，API 只指向 loopback 模拟服务；进程退出清理临时状态。缺少命名空间能力时直接失败，不降级到真实 home。
+
+本次没有修改产品实现，故未机械重跑首轮已通过的 112 项测试、typecheck 和 lint。新增验收脚本另做只读审查，结论记录在 PR。仍未验证真实模型/MCP 授权、普通回合通知、Agent 归档/删除跨进程恢复或真实 TAPD 权限；旧值比较的并发窗口和未知评论结果核对限制不变。就本任务的代码审查和受控验证而言可建议转 ready；按用户要求 PR 仍保留 draft，转 ready 不代表部署验收通过。

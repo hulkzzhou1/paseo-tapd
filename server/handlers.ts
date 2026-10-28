@@ -10,6 +10,7 @@ import { getTurnRecord } from "./agent-state";
 import {
   addComment,
   boardWithCache,
+  readCacheKey,
   createEntity,
   describeError,
   fetchColumn,
@@ -75,16 +76,21 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
     });
   }
 
+  function protectedResult<T>(config: TapdConfig, result: T): T {
+    protectFieldData(config, result);
+    return result;
+  }
+
   return {
     async children(raw: RpcInput<typeof childrenRpc>): Promise<RpcOutput<typeof childrenRpc>> {
       const input = childrenRpc.input.parse(raw);
       const { config, values } = await requireConfig();
       const result = await fetchChildHierarchy(config, input.workspaceId, input.id);
-      return { ...result, items: await childOwners(result.items, config, values) };
+      return protectedResult(config, { ...result, items: await childOwners(result.items, config, values) });
     },
     async childTypes(raw: RpcInput<typeof childTypesRpc>): Promise<RpcOutput<typeof childTypesRpc>> {
       const input = childTypesRpc.input.parse(raw); const { config } = await requireConfig();
-      return fetchChildTypes(config, input.workspaceId, input.id);
+      return protectedResult(config, await fetchChildTypes(config, input.workspaceId, input.id));
     },
     async updateLabels(raw: RpcInput<typeof updateLabelsRpc>): Promise<RpcOutput<typeof updateLabelsRpc>> {
       const input = updateLabelsRpc.input.parse(raw);
@@ -107,9 +113,9 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
       return fetchProjectLabels(config, input);
     },
     async board(input: RpcInput<typeof boardRpc>): Promise<RpcOutput<typeof boardRpc>> {
-      const key = JSON.stringify(input.filters ?? null);
-      return boardWithCache(key, async () => {
-        const { config } = await requireConfig();
+      const { config } = await requireConfig();
+      const key = await readCacheKey(config, input.filters ?? null);
+      return protectedResult(config, await boardWithCache(key, async () => {
         const warnings = config.readWarnings ??= [];
         const filters = input.filters ?? DEFAULT_FILTERS;
         const me = await fetchMe(config).catch(() => null);
@@ -172,27 +178,27 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
           fetchedAt: new Date().toISOString(),
           columns: { story, task, bug },
         };
-      }, input.force === true);
+      }, input.force === true));
     },
 
     async filterOptions(): Promise<RpcOutput<typeof filterOptionsRpc>> {
       const { config } = await requireConfig();
-      return fetchFilterOptions(config);
+      return protectedResult(config, await fetchFilterOptions(config));
     },
 
     async members(): Promise<RpcOutput<typeof membersRpc>> {
       const { config } = await requireConfig();
-      return fetchMembers(config);
+      return protectedResult(config, await fetchMembers(config));
     },
 
     async statusOptions(input: RpcInput<typeof statusOptionsRpc>): Promise<RpcOutput<typeof statusOptionsRpc>> {
       const { config } = await requireConfig();
-      return { options: await fetchStatusOptions(config, input.kind, input.workspaceId) };
+      return protectedResult(config, { options: await fetchStatusOptions(config, input.kind, input.workspaceId) });
     },
 
     async filterFields(): Promise<RpcOutput<typeof filterFieldsRpc>> {
       const { config } = await requireConfig();
-      return { fields: await fetchFilterFields(config) };
+      return protectedResult(config, { fields: await fetchFilterFields(config) });
     },
 
     async create(input: RpcInput<typeof createRpc>): Promise<RpcOutput<typeof createRpc>> {
@@ -234,7 +240,7 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
 
     async createFields(input: RpcInput<typeof createFieldsRpc>): Promise<RpcOutput<typeof createFieldsRpc>> {
       const { config } = await requireConfig();
-      return fetchCreateFields(config, input.kind, input.workspaceId, input.workitemTypeId);
+      return protectedResult(config, await fetchCreateFields(config, input.kind, input.workspaceId, input.workitemTypeId));
     },
 
     async updateStatus(input: RpcInput<typeof updateStatusRpc>): Promise<RpcOutput<typeof updateStatusRpc>> {
@@ -254,6 +260,7 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
 
     async addComment(input: RpcInput<typeof addCommentRpc>): Promise<RpcOutput<typeof addCommentRpc>> {
       const { config } = await requireConfig();
+      protectFieldData(config, input);
       const text = input.text.trim();
       if (!text) throw new Error("评论内容不能为空");
       const me = await fetchMe(config).catch(() => null);
@@ -275,14 +282,14 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
       }
       const result = await fetchEntity({ ...config, freshReads: input.fresh ?? false, ...(input.workspaceId ? { workspaceIds: [input.workspaceId] } : {}) }, input.kind, input.id);
       const children = await childOwners([...result.childStories, ...result.childTasks, ...result.childBugs], config, values);
-      return { ...result, childStories: children.filter(item => item.kind === "story"), childTasks: children.filter(item => item.kind === "task"), childBugs: children.filter(item => item.kind === "bug") };
+      return protectedResult(config, { ...result, childStories: children.filter(item => item.kind === "story"), childTasks: children.filter(item => item.kind === "task"), childBugs: children.filter(item => item.kind === "bug") });
     },
 
     async search(input: RpcInput<typeof searchRpc>): Promise<RpcOutput<typeof searchRpc>> {
       const query = input.query.trim();
       if (query.length === 0) return { items: [] };
       const { config } = await requireConfig();
-      return { items: await searchEntities(config, query) };
+      return protectedResult(config, { items: await searchEntities(config, query) });
     },
 
     async check(input: RpcInput<typeof checkRpc>): Promise<RpcOutput<typeof checkRpc>> {
@@ -294,7 +301,8 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
         apiEndpoint: input.apiEndpoint === undefined ? values.apiEndpoint : input.apiEndpoint.trim(),
         siteUrl: input.siteUrl === undefined ? values.siteUrl : input.siteUrl.trim(),
       };
-      const config = resolveConfig(merged);
+      const config = { ...resolveConfig(merged), freshReads: true };
+      config.protectedValues = [...(config.protectedValues ?? []), values.token];
       if (config.token.length === 0) {
         return {
           ok: false,
@@ -305,7 +313,7 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
         };
       }
       try {
-        const me = await fetchMe(config);
+        const me = protectedResult(config, await fetchMe(config));
         if (!me) {
           return {
             ok: false,
@@ -355,7 +363,7 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
           // daemon 查询失败仅缺实时状态，不阻塞详情面板
         }
       }
-      return {
+      return protectedResult(resolveConfig(await getValues()), {
         items: ids.map((agentId) => {
           const live = agents.get(agentId);
           const record = getTurnRecord(agentId);
@@ -369,7 +377,7 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
             turnError: record?.error ?? "",
           };
         }),
-      };
+      });
     },
 
   };

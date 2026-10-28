@@ -216,6 +216,8 @@ Tool inputs are bounded by UTF-8 byte length. Result `warnings` flag tolerated r
 
 看板的读取警告随快照缓存（包括界面先加载及后台刷新），缓存命中不会丢失完整性提示。「我处理的」无法识别当前用户时直接报错，不扩大为全员查询。Board read warnings travel with cached snapshots, including UI-warmed results and background refreshes. If the current user cannot be resolved, a mine query fails rather than broadening to everyone.
 
+读取响应、工作台快照及在途请求按 API/站点、配置项目和凭据作用域隔离；选择缓存前先校验当前连接。缓存作用域只保留凭据的 SHA-256 指纹，不含原始 Token。设置页的连接测试每次重新验证当前草稿凭据，不复用旧用户结果；测试不会保存草稿。
+
 ### Conversation TAPD shortcuts / 会话 TAPD 入口
 
 The `TAPD · N` composer action opens the current Agent task board (N confirmed responsibilities) in the Explorer sidebar, using the same public panel navigation as Progress. Selecting an item opens a separate detail tab; selecting it again reuses its tab. Native mobile uses workspace tabs because Explorer is unavailable there. The entry is hidden when there are no responsibilities, pending associations or recent references. Recent-viewing references remain recent-first and removable even when the item cannot be read; removal does not release responsibility. List panels are scoped by host, workspace and Agent; item tabs also distinguish connection, project, kind and ID. Agents without a workspace retain timeline-card access.
@@ -335,3 +337,8 @@ Story field tools recognize both `rich_edit` and `rich_text`, discover actual pr
 状态修改在 TAPD 接受后立即使看板失效，并实时回读实际项目/单据的当前状态。仅回读匹配时显示已核实成功；读取失败或状态不一致返回 `writeState: accepted` / `outcome: unverified`，界面提示已接受但未核实，不生成状态修改成功卡片，也不自动重复提交。先刷新详情核对。
 
 看板、承担关系和历史归属 RPC 对完整字段使用同一凭据保护规则，包括标签、SDK Agent/工作区标题和缓存摘要；设置令牌、升级兼容期间仍可读取的旧 Git 令牌与被设置覆盖的环境令牌均受保护；新设置迁移会移除旧 Git 字段。敏感摘要显示待确认，敏感关系数据在持久提交前拒绝；部分派发保留已有资源与发送不确定性。子单据的查看引用使用自身标签，未读取时保持未知，不继承父需求标签。
+
+Credential checks are shared by TAPD tools and UI RPC reads. Unsafe complete details fail visibly rather than returning an incomplete successful item; safe partial reads keep their failure indicators. Comments containing configured, daemon, or still-readable legacy credentials are rejected before sending.
+
+TAPD 工具与界面 RPC 共用凭据保护：完整详情含受保护内容时明确读取失败，不伪装成空数据；安全的部分读取保留失败提示。评论正文包含设置、daemon 或兼容期仍可读取的旧凭据时，在发送前拒绝。
+

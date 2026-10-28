@@ -222,6 +222,11 @@ export function describeError(error: unknown): string {
   return String(error);
 }
 
+export async function readCacheKey(config: TapdConfig, request: unknown): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify([config.endpoint, config.site, config.workspaceIds, config.tokenSource, config.token, config.protectedValues ?? [], request]));
+  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
 const DEFAULT_CACHE_TTL_MS = 20_000;
 const responseCache = new Map<string, { at: number; value: unknown }>();
 const inflightRequests = new Map<string, Promise<unknown>>();
@@ -298,9 +303,10 @@ async function requestJson(
   const query = buildQuery(params);
   const generation = cacheGeneration;
   const url = `${config.endpoint}${path}${query ? `?${query}` : ""}`;
-  const cached = responseCache.get(url);
+  const key = await readCacheKey(config, url);
+  const cached = responseCache.get(key);
   if (!fresh && cached && Date.now() - cached.at < ttlMs) return cached.value;
-  const pending = fresh ? undefined : inflightRequests.get(url);
+  const pending = fresh ? undefined : inflightRequests.get(key);
   if (pending) {
     try { return await pending; } catch (error) {
       config.readWarnings?.push("部分 TAPD 读取失败，结果可能不完整。");
@@ -319,7 +325,7 @@ async function requestJson(
       let payload;
       try { payload = await response.json(); } catch { throw requestFailure("read", "invalid_response", response.status); }
       if (!payload || typeof payload !== "object" || payload.status !== 1) throw requestFailure("read", "api_rejected", response.status);
-      if (!fresh && generation === cacheGeneration) responseCache.set(url, { at: Date.now(), value: payload.data });
+      if (!fresh && generation === cacheGeneration) responseCache.set(key, { at: Date.now(), value: payload.data });
       return payload.data;
     } catch (error) {
       if (error instanceof TapdApiError) throw error;
@@ -327,14 +333,14 @@ async function requestJson(
     } finally { clearTimeout(timer); }
   })();
 
-  if (!fresh) inflightRequests.set(url, request);
+  if (!fresh) inflightRequests.set(key, request);
   try {
     return await request;
   } catch (error) {
     config.readWarnings?.push("部分 TAPD 读取失败，结果可能不完整。");
     throw error;
   } finally {
-    if (!fresh && inflightRequests.get(url) === request) inflightRequests.delete(url);
+    if (!fresh && inflightRequests.get(key) === request) inflightRequests.delete(key);
   }
 }
 
@@ -602,6 +608,7 @@ export async function addComment(
   text: string,
   author: string,
 ): Promise<void> {
+  protectFieldData(config, [text, author]);
   const resolved = workspaceId.trim() || (config.workspaceIds[0] ?? "");
   const entryType = kind === "story" ? "stories" : kind === "bug" ? "bug" : "tasks";
   const params: Record<string, QueryValue> = {

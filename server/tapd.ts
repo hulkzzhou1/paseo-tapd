@@ -678,7 +678,7 @@ export async function fetchBugTransitions(config: TapdConfig, workspaceId: strin
       const info = metadata[key];
       const mapped = key === "remarks" ? { kind: "text" as const, single: true } : mapHtmlType(String(info?.html_type ?? ""));
       const supported = spec.DBModel === "Bug" && !["id", "workspace_id", "status", "v_status", "description", "title", "name", "workitem_type_id", "story_id", "parent_id"].includes(key)
-        && !!mapped && (key === "remarks" || !!info && [0, "0", false].includes(info.readonly));
+        && !!mapped && ((key === "remarks" && !info) || !!info && [0, "0", false].includes(info.readonly));
       const label = key === "remarks" ? "流转评论" : String(info?.label ?? key).slice(0, 500);
       const options = info?.options && typeof info.options === "object" && !Array.isArray(info.options)
         ? Object.entries(info.options).map(([value, label]) => ({ value, label: String(label).slice(0, 200) })) : [];

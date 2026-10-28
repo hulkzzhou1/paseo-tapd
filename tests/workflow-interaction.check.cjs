@@ -44,7 +44,12 @@ async function main(){
    assert.equal(await form.getByRole('textbox',{name:'流转评论',exact:true}).inputValue(),'Approved compact result');assert.equal(await form.getByRole('button',{name:'确认修改状态',exact:true}).isDisabled(),true);
    const bounds=await form.boundingBox();assert(bounds.x>=0&&bounds.x+bounds.width<=361&&bounds.y>=0&&bounds.y+bounds.height<=741);
   }
-  assert.equal((await posts()).length,3);assert((await posts()).every(p=>p.path==='/bugs'));assert.deepEqual(errors,[]);
+  assert.equal((await bridge('/scenario',{scenario:'unknown'})).ok,true);await page.goto(url);
+  await page.getByRole('button',{name:'修改状态：处理中',exact:true}).click();
+  const direct=page.getByRole('menuitemradio',{name:'已解决',exact:true});await direct.click();
+  await page.getByText('状态未确认，请关闭并重新打开详情核对后再操作，勿重复提交。',{exact:true}).waitFor();
+  assert.equal(await direct.isDisabled(),true);await direct.click({force:true});
+  assert.equal((await posts()).length,4);assert((await posts()).every(p=>p.path==='/bugs'));assert.deepEqual(errors,[]);
   await bridge('/stop');assert.equal(await new Promise(resolve=>worker.once('exit',resolve)),0);completed=true;
   console.log(JSON.stringify({ok:true,realWorkflowRpc:true,currentEdgesOnly:true,requiredRemarks:true,singleStatusPost:true,discardGuard:true,unknownWriteNoReplay:true,compactDark:true,screenshots:0}));
  }finally{await browser?.close();if(server)await new Promise(resolve=>server.close(resolve));if(worker&&!completed){if(bridgePort)await fetch(`http://127.0.0.1:${bridgePort}/stop`,{method:'POST'}).catch(()=>{});worker.kill('SIGTERM');}rmSync(temp,{recursive:true,force:true});}

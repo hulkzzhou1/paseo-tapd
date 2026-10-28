@@ -153,7 +153,7 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
     tool("tapd_members", "Read and deduplicate member nicknames from configured projects. A partial failure is reported in error; historical users may be absent.",
       z.object({}), (_input, handlers) => handlers.members()),
     tool("tapd_status_options", "Read project status labels; for a defect write include id to read current reachable transitions, required transitionFields, defaults and support. A project-wide status list alone does not authorize a transition.",
-      z.object({ kind: entityKindSchema, workspaceId }), (input, handlers) => handlers.statusOptions(input)),
+      z.object({ kind: entityKindSchema, workspaceId, id: id.optional() }), (input, handlers) => handlers.statusOptions(input)),
     tool("tapd_create_fields", "Read writable creation fields, required flags and choices for one project/kind and optional discovered workitemTypeId, plus the token user's nickname.",
       z.object({ kind: entityKindSchema, workspaceId, workitemTypeId: id.optional() }), (input, handlers) => handlers.createFields(input)),
     tool("tapd_check", "Check the current configured TAPD connection. Does not accept credentials or endpoint overrides.",
@@ -177,9 +177,9 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
       target.extend({ status: z.string().trim().min(1).max(200), expectedStatus: z.string().max(200).optional(), transitionFields: transitionFieldsSchema, confirmed }),
       async ({ confirmed: _confirmed, ...input }, handlers, _config, signal) => {
         const entity = await actualTarget(input, handlers);
+        if (entity.status === input.status) return { ok: true, unchanged: true };
         const { options } = await handlers.statusOptions(input);
         if (!options.some((option) => option.value === input.status)) throw new Error();
-        if (entity.status === input.status) return { ok: true, unchanged: true };
         if (signal.aborted) throw new Error();
         const result = await handlers.updateStatus(input);
         return { ...result, ...(result.outcome === "verified" ? { entity: { ...entity, status: result.status, statusLabel: result.statusLabel ?? "" } } : {}) };

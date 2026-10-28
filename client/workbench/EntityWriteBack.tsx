@@ -28,6 +28,7 @@ export function StatusDropdown({ theme, kind, id, workspaceId, current, currentL
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const [writeError, setWriteError] = useState("");
+  const [writeLocked, setWriteLocked] = useState(false);
 
   const optionsQuery = useQuery({
     queryKey: ["tapd-status-options", workspaceId, kind, id, current],
@@ -37,10 +38,13 @@ export function StatusDropdown({ theme, kind, id, workspaceId, current, currentL
     retry: false,
   });
 
-  const options = (optionsQuery.data?.options ?? []).map(option => ({ ...option, disabled: optionsQuery.data?.transitions?.find(item => item.value === option.value)?.supported === false }));
+  const options = (optionsQuery.data?.options ?? []).map(option => {
+    const unsupported = optionsQuery.data?.transitions?.find(item => item.value === option.value)?.supported === false;
+    return { ...option, label: unsupported ? `${option.label}（请在 TAPD 原站操作）` : option.label, disabled: unsupported };
+  });
 
   async function apply(value: string) {
-    if (submittingRef.current || value === current) return false;
+    if (submittingRef.current || writeLocked || value === current) return false;
     if (kind === "bug") {
       const rules = optionsQuery.data;
       const transition = rules?.transitions?.find(item => item.value === value);
@@ -63,11 +67,14 @@ export function StatusDropdown({ theme, kind, id, workspaceId, current, currentL
       setOpened(false);
       invalidateBoard({kind,id,workspaceId});
       if (result.outcome === "unverified") {
+        if (kind === "bug") setWriteLocked(true);
         toast.show("已接受状态修改，但当前状态未核实；请刷新核对，勿重复提交。");
-        onDone(); return true;
+        if (kind !== "bug") onDone();
+        return true;
       }
     } catch {
-      setWriteError("状态未确认，请读取详情核对后再操作。");
+      if (kind === "bug") setWriteLocked(true);
+      setWriteError(kind === "bug" ? "状态未确认，请关闭并重新打开详情核对后再操作，勿重复提交。" : "状态未确认，请读取详情核对后再操作。");
       return false;
     } finally {
       submittingRef.current = false;
@@ -87,7 +94,7 @@ export function StatusDropdown({ theme, kind, id, workspaceId, current, currentL
       onSelect={apply}
       onOpen={() => { setWriteError(""); if (opened) void optionsQuery.refetch(); else setOpened(true); }}
       loading={opened && optionsQuery.isFetching}
-      disabled={submitting || !workspaceId}
+      disabled={submitting || writeLocked || !workspaceId}
       error={writeError || (optionsQuery.isError ? "读取状态选项失败，请重试。" : null)}
       onRetry={optionsQuery.isError ? () => void optionsQuery.refetch() : undefined}
       theme={theme}

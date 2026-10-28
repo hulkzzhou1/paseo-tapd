@@ -13,7 +13,7 @@ async function fixture(t){
  const home=await mkdtemp(join(tmpdir(),'tapd-workflow-')),env={...process.env};process.env.PASEO_HOME=home;
  for(const k of ['TAPD_TOKEN','TAPD_API_ENDPOINT','TAPD_SITE_URL','TAPD_WORKSPACE_IDS'])delete process.env[k];
  const values=tapdSettingsSchema.parse({token:'example-secret',workspaceIds:target.workspaceId,apiEndpoint:'https://api.example.com',siteUrl:'https://example.com'});
- const state={status:'in_progress',posts:[],reads:[],ruleFailure:false,readbackFailure:false,afterPost:false,
+ const state={remarksMetadata:undefined,status:'in_progress',posts:[],reads:[],ruleFailure:false,readbackFailure:false,afterPost:false,
   transitions:[{Name:'in_progress-status_5',StepPrevious:'in_progress',StepNext:'status_5',Appendfield:[{DBModel:'Bug',FieldName:'remarks',Notnull:'yes'}]},
    {Name:'status_5-closed',StepPrevious:'status_5',StepNext:'closed',Appendfield:[]}]};
  clearTapdCache();t.mock.method(globalThis,'fetch',async(source,init)=>{
@@ -26,7 +26,7 @@ async function fixture(t){
    state.reads.push(u.pathname);
    if(state.readbackFailure&&state.afterPost&&u.pathname==='/bugs')return Response.json({status:0},{status:503});
    if(u.pathname==='/bugs')data=[{Bug:{id:target.id,workspace_id:target.workspaceId,title:'Example defect',status:state.status,current_owner:'example-member',description:'Example body'}}];
-   else if(u.pathname==='/bugs/get_fields_info')data={status:{options:{in_progress:'处理中',status_5:'已解决',closed:'已关闭'}},current_owner:{label:'处理人',html_type:'user_chooser',readonly:0},resolution:{label:'解决方法',html_type:'radio',readonly:0,options:{fixed:'已修复',duplicated:'重复'}},custom_field_one:{label:'说明',html_type:'text',readonly:0}};
+   else if(u.pathname==='/bugs/get_fields_info')data={status:{options:{in_progress:'处理中',status_5:'已解决',closed:'已关闭'}},current_owner:{label:'处理人',html_type:'user_chooser',readonly:0},resolution:{label:'解决方法',html_type:'radio',readonly:0,options:{fixed:'已修复',duplicated:'重复'}},custom_field_one:{label:'说明',html_type:'text',readonly:0},...(state.remarksMetadata?{remarks:state.remarksMetadata}:{})};
    else if(u.pathname==='/workflows/all_transitions'){
     if(state.ruleFailure)return Response.json({status:0},{status:403});data=state.transitions;
    }else if(u.pathname==='/users/info')data={nick:'example-member'};
@@ -46,6 +46,8 @@ test('item-specific defect status options use current workflow edges and expose 
  const project=await f.rpc('tapd.status_options',{kind:'bug',workspaceId:target.workspaceId});assert.equal(project.options.length,3);
  const current=await f.rpc('tapd.status_options',target);
  assert.deepEqual(current.options.map(x=>x.value),['status_5']);
+ const tool=await f.tool('tapd_status_options',target);assert.notEqual(tool.isError,true);
+ assert.deepEqual(tool.structuredContent.options.map(x=>x.value),['status_5']);assert.equal(tool.structuredContent.current,'in_progress');
  assert.equal(current.current,'in_progress');
  assert.deepEqual(current.transitions[0].fields.map(x=>[x.key,x.label,x.required]),[['remarks','流转评论',true]]);
  assert.equal(f.state.posts.length,0);
@@ -112,5 +114,18 @@ test('fields revalidate current rules at submit and credentials are not forwarde
  f.state.transitions[0].Appendfield.push({DBModel:'Bug',FieldName:'resolution',Notnull:'yes'});
  await assert.rejects(f.rpc('tapd.update_status',{...target,status:'status_5',transitionFields:{remarks:'Approved result'}}));
  await assert.rejects(f.rpc('tapd.update_status',{...target,status:'status_5',transitionFields:{remarks:f.values.token,resolution:'fixed'}}));
+ assert.equal(f.state.posts.length,0);
+});
+test('a defect already at the requested status remains a no-op without a self edge',async t=>{
+ const f=await fixture(t);
+ const result=await f.tool('tapd_update_status',{...target,status:'in_progress',confirmed:true});
+ assert.notEqual(result.isError,true);assert.equal(result.structuredContent.unchanged,true);assert.equal(f.state.posts.length,0);
+});
+
+test('explicit readonly remarks metadata prevents both RPC and tool writes',async t=>{
+ const f=await fixture(t);f.state.remarksMetadata={html_type:'textarea',readonly:1};
+ const options=await f.rpc('tapd.status_options',target);assert.equal(options.transitions[0].supported,false);
+ const args={...target,status:'status_5',transitionFields:{remarks:'Approved result'}};
+ await assert.rejects(f.rpc('tapd.update_status',args));assert.equal((await f.tool('tapd_update_status',{...args,confirmed:true})).isError,true);
  assert.equal(f.state.posts.length,0);
 });

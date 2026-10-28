@@ -28,13 +28,14 @@ export async function runNavigationDaemon(root, workflowMode = false){
    let raw='';for await(const chunk of request)raw+=chunk;const body=new URLSearchParams(raw);
    workflowPosts.push({path:request.url,fields:Object.fromEntries(body)});
    assert.equal(request.url,'/bugs');assert.equal(body.get('workspace_id'),'12345678');assert.equal(body.get('id'),'55555555');
+   if(workflowScenario==='unknown'){workflowStatus='status_5';request.socket.destroy();return;}
    if(workflowScenario==='rejected'||!body.get('remarks')){response.writeHead(403,{'content-type':'application/json'}).end(JSON.stringify({status:0}));return;}
    assert.equal(body.get('status'),'status_5');workflowStatus='status_5';
    response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({status:1,data:{Bug:{id:'55555555'}}}));return;
   }
   const url=new URL(request.url,'http://127.0.0.1');reads.push(url.pathname);let data=[];
   if(workflowMode&&url.pathname==='/bugs/get_fields_info')data={status:{options:{in_progress:'处理中',status_5:'已解决',closed:'已关闭'}}};
-  else if(workflowMode&&url.pathname==='/workflows/all_transitions')data=[{Name:'in_progress-status_5',StepPrevious:'in_progress',StepNext:'status_5',Appendfield:[{DBModel:'Bug',FieldName:'remarks',Notnull:'yes'}]},{Name:'status_5-closed',StepPrevious:'status_5',StepNext:'closed',Appendfield:[]}];
+  else if(workflowMode&&url.pathname==='/workflows/all_transitions')data=[{Name:'in_progress-status_5',StepPrevious:'in_progress',StepNext:'status_5',Appendfield:workflowScenario==='unknown'?[]:[{DBModel:'Bug',FieldName:'remarks',Notnull:'yes'}]},{Name:'status_5-closed',StepPrevious:'status_5',StepNext:'closed',Appendfield:[]}];
   else if(workflowMode&&url.pathname==='/bugs'){
    if(workflowStatus==='status_5'&&workflowScenario==='unverified'){response.writeHead(503).end();return;}
    data=[{Bug:{id:'55555555',workspace_id:'12345678',title:'Workflow defect',status:workflowStatus,description:'Complete defect body'}}];

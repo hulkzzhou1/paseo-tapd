@@ -602,6 +602,7 @@ export async function addComment(
   text: string,
   author: string,
 ): Promise<void> {
+  protectFieldData(config, [text, author]);
   const resolved = workspaceId.trim() || (config.workspaceIds[0] ?? "");
   const entryType = kind === "story" ? "stories" : kind === "bug" ? "bug" : "tasks";
   const params: Record<string, QueryValue> = {

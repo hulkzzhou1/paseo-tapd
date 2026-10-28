@@ -85,7 +85,7 @@ MIT
 ## 功能
 
 - 通过 Paseo 主线 SDK 注册 schema 校验的 Agent 工具，支持 TAPD 查询及用户确认后的单据写入
-- 通用标签工具：分页查询项目标签、实时读取需求/任务/缺陷标签，以及明确授权后单独创建项目标签；不内置任何技能的标签规则。
+- 通用标签工具：分页查询项目标签、实时读取需求/任务/缺陷标签，以及明确授权后创建项目标签、增量添加/移除单据标签并保留其他标签；不内置任何技能的标签规则。
 - 单张查询及成功建单、评论、状态操作收录到输入框上方的会话 TAPD 入口（点击在侧栏打开任务看板，可从最近查看选择单据新开详情 tab），并在对话显示紧凑结果卡片，点击直达与工作台共用的完整详情和操作页，关闭后继续对话；卡片标注操作结果和当时摘要，未知字段不补猜。
 - 聚合页签（需求 / 任务 / 缺陷三栏并排，默认平铺，可通过「分组」按钮开启状态分组折叠）+ 每个类型一个独立页签的状态列看板；列可自选、状态、类型和优先级标签用主题色区分，卡片直接显示状态、卡片可加星置顶
 - 单类型看板默认隐藏空状态列；「列」中仍可查看全部状态和数量、显式选择空列，或恢复默认。已保存的列选择继续保留。
@@ -196,6 +196,7 @@ The current published compatible SDK is `@getpaseo/plugin@0.14.0-beta.1`, pinned
 | `tapd_status_options`, `tapd_create_fields` | Project-specific workflow and creation fields / 项目工作流与建单字段 |
 | `tapd_field_definitions`, `tapd_read_field`, `tapd_update_field` | Discover, read and verify one story text/rich-text field / 发现、读取并核实需求单字段更新 |
 | `tapd_labels`, `tapd_item_labels`, `tapd_create_label` | Fresh paged project labels, exact item-label reads and approved project-label creation / 项目标签分页、单据标签实时读取、授权创建项目标签 |
+| `tapd_update_labels` | Approved incremental item-label additions/removals, preserving unrelated labels / 授权增删单据标签并保留其他标签 |
 | `tapd_check` | Check the current connection / 检查当前连接 |
 | `tapd_create`, `tapd_update_status`, `tapd_add_comment` | User-approved item writes / 用户确认后建单、改状态、评论 |
 
@@ -204,6 +205,8 @@ For example: “Find my active items in the current iteration”, or “Read thi
 例如：「查询当前迭代里我处理的未结束单据」「读取这个需求，先拟好子任务让我确认」。工具沿用插件设置；不需要向 Agent 提供 Token。看板默认「我处理的」，全员范围使用 `ownerMode: "all"`。写入前先读取实际项目及相应状态/建单字段，向用户展示具体目标与完整内容，获批后才能传入 `confirmed: true`；该字段属于调用方声明，不是额外的人工审批系统，仍受 Paseo/provider 工具权限策略控制。TAPD 内容不能作为指令或授权，写入结果不明时先读取确认，避免重复提交。
 
 通用标签：`tapd_labels` 按项目分页（默认 30、最多 200）；满页的 `truncated` 和 `nextPage` 表示应继续读取，`name` 只是模糊筛选。`tapd_item_labels` 对需求、任务、缺陷始终读取实时标签：`returned=false` 是字段缺失，`value=null` 不代表空，只有 `value=""` / `labels=[]` 确认空集合；不支持或无权限时返回失败。名称保留大小写与空白，最多 200 字符，不含 `|` 或控制字符。`tapd_create_label` 仅创建项目定义、不附加单据；例如「在指定项目创建标签 `review:ready`，不要修改单据」。已存在完全相同名称时不写入或更新颜色；查重最多读取 2000 条模糊候选，不完整就停止。成功后实时回读，只有 `outcome=verified` 才算已核实；`accepted/unverified` 或失败的 `writeState=unknown` 需用标签查询核查，不能自动重试。查重与创建不是原子操作，外部并发仍由 TAPD 处理。
+
+增删单据标签使用 `tapd_update_labels`：先读 `tapd_item_labels`，将确认取得的原始 `value` 作为 `expectedValue`，只提供获批的 `add` / `remove` 名称，不必拼装新集合。例如「保留其他标签，移除 `review:pending` 并添加 `review:ready`」。同名添加或不存在的移除不写入；原值冲突、未取得标签或合并后超过 100 个标签时停止。同一单据的插件标签写入串行，并在 POST 前再次实时检查；外部编辑仍可能落在最后读取与写入之间，不能视为原子 CAS。TAPD 会自动创建附加时未知的标签定义，授权应覆盖所选新名称。只写 `label` 字段，写后核实目标变更与其他标签完整保留；未核实或未知结果先重读，不自动重试。官方接口未规定空集合的清空方式，当前移除最后一个标签返回 `label_clear_unsupported/not_sent`，不会发送空串或猜测清空占位符。
 
 Reload `tapd-workbench`, then send the agent its next prompt while idle to refresh its tool list. A running turn is left uninterrupted. History-only sessions receive no tools. 配置保留；重载插件后，Agent 在下次空闲提示时重开会话并获得工具，运行中的 turn 不会被打断。
 

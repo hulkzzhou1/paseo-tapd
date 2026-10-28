@@ -65,7 +65,7 @@ export function createAgentLinks() {
       const link = toolLinkSchema.parse(await create());
       if (!sameTask(link, target)) throw new Error("承担关系的目标不一致。");
       const responsibility = link.responsibility;
-      const next = { ...suppressTask(state, link, responsibility?.actorAgentId ?? "user"), links: [...state.links, link], history: responsibility ? [...state.history, { ...ownershipScopeSchema.parse(link), action: target.agentId === "dispatch-reservation" ? "dispatch" as const : responsibility.actorAgentId === "user" ? "assign" as const : "claim" as const, actorAgentId: responsibility.actorAgentId, at: responsibility.confirmedAt, reason: "明确接手", agentId: link.agentId, revision: responsibility.revision }] : state.history };
+      const next = { ...suppressTask(state, link, responsibility?.actorAgentId ?? "user"), links: [...state.links, link], history: responsibility ? [...state.history, { ...ownershipScopeSchema.parse(link), action: target.agentId === "dispatch-reservation" ? "dispatch" as const : responsibility.actorAgentId === "user" ? "assign" as const : "claim" as const, actorAgentId: responsibility.actorAgentId, at: responsibility.confirmedAt, reason: target.agentId === "dispatch-reservation" ? "已批准派发执行" : responsibility.actorAgentId === "user" ? "用户直接指派" : "明确接手", agentId: link.agentId, revision: responsibility.revision }] : state.history };
       return { state: next, result: { changed: true, link } };
     });
   }

@@ -1,5 +1,7 @@
 import { createAgentLinks } from "./server/agent-links";
-import { createAssignmentTools } from "./server/agent-assignment";
+import { createAssignmentService, createAssignmentTools } from "./server/agent-assignment";
+import { createTaskBoard } from "./server/task-board";
+import { taskBoardRpc, taskClaimRpc, taskDispatchRpc } from "./shared/task-board";
 import { agentLinksRpc, removeAgentLinkRpc } from "./shared/agent-links";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { updateFieldRpc, readFieldRpc, fieldDefinitionsRpc, imageRpc, addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, syncPullRpc, syncPushRpc, tapdSettings, updateCheckRpc, updateStatusRpc } from "./shared/contracts";
@@ -24,9 +26,14 @@ export default function contribute(server: PluginServerContext) {
   const syncAccess: SyncSettingsAccess = { read: getValues };
 
   const agentLinks = createAgentLinks();
+  const assignments = createAssignmentService(getValues, agentLinks);
+  const taskBoard = createTaskBoard(getValues, agentLinks);
+  server.handle(taskBoardRpc, ({ agentId }, context) => taskBoard.read(agentId, context));
+  server.handle(taskClaimRpc, (input, context) => assignments.claim(input, context, "user", true));
+  server.handle(taskDispatchRpc, (input, context) => assignments.dispatch(input, context, "user"));
   const visibleLinks = async () => {
     const config = resolveConfig(await getValues());
-    return (await agentLinks.list()).filter(link => link.apiEndpoint === config.endpoint && config.workspaceIds.includes(link.tapdWorkspaceId));
+    return (await agentLinks.list()).filter(link => link.apiEndpoint === config.endpoint && (!link.siteUrl || link.siteUrl === config.site) && config.workspaceIds.includes(link.tapdWorkspaceId));
   };
   server.handle(agentLinksRpc, async () => ({ links: await visibleLinks() }));
   server.handle(removeAgentLinkRpc, async link => { await agentLinks.remove(link); return { ok: true as const }; });

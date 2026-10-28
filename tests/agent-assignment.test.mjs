@@ -72,21 +72,23 @@ test('dispatch success starts exactly once; cancellation after workspace creatio
   const s=await setup(t);
   assert.equal((await s.call('tapd_dispatch_agent',dispatch)).structuredContent.promptSent,true);
   assert.deepEqual(s.calls.map(c=>c[0]),['createWorkspace','createAgent','send']);
+  await s.links.remove((await s.links.list())[0]);
   const abort=new AbortController(); s.context.signal=abort.signal;
   s.context.paseo.workspaces.create=async()=>{abort.abort();return s.workspace;};
   const result=(await s.call('tapd_dispatch_agent',dispatch)).structuredContent;
   assert.equal(result.phase,'agent'); assert.equal(result.workspaceId,'example-workspace');assert.equal(result.agentId,undefined);
 });
-test('invalid stored data is not overwritten and concurrent bindings survive',async t=>{
+test('invalid storage is not overwritten and conflicting bindings are rejected before dispatch resources',async t=>{
   const s=await setup(t);
   await Promise.all([s.call('tapd_bind_agent',target),s.call('tapd_bind_agent',{...target,id:'22222222'})]);
   // Mock returns only the real entity ID, so exercise store concurrency with validated records.
   const [link]=await s.links.list();
-  await Promise.all([s.links.put({...link,agentId:'example-second'}),s.links.put({...link,agentId:'example-third'})]);
-  assert.equal((await s.links.list()).length,3);
+  const attempts=await Promise.allSettled([s.links.put({...link,agentId:'example-second'}),s.links.put({...link,agentId:'example-third'})]);
+  assert.equal(attempts.filter(result=>result.status==='rejected').length,2);
+  assert.equal((await s.links.list()).length,1);
   await writeFile(join(s.dir,'plugin-data/tapd-workbench/agent-links.json'),'broken');
   await assert.rejects(s.links.put(link));
   const result=(await s.call('tapd_dispatch_agent',dispatch)).structuredContent;
-  assert.equal(result.phase,'binding');assert.equal(result.agentId,'example-agent');assert.equal(result.bound,false);assert.equal(result.promptSent,false);
+  assert.equal(result.phase,'reservation');assert.equal(result.agentId,undefined);assert.equal(result.bound,false);assert.equal(result.promptSent,false);
   assert.ok(!s.calls.some(call=>call[0]==='send'));
 });

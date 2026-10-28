@@ -58,13 +58,14 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
     const ok = await readySettings.save(
       {
         ...values,
-        links: [...values.links, input.link],
+        links: toolLinkSchema.safeParse(input.link).success ? values.links : [...values.links, input.link],
         lastRepoPath: input.repoPath ?? values.lastRepoPath,
         lastProvider: input.provider ?? values.lastProvider,
       },
       readySettings.revision,
     );
     if (!ok) toast.error(readySettings.saveError ?? "保存关联失败，请重试");
+    await queryClient.invalidateQueries({ queryKey: ["tapd-agent-links"] });
     setDispatchTarget(null);
   }
 

@@ -1,4 +1,5 @@
 import { toolLinkSchema } from "../../shared/agent-links";
+import { EntityLabels } from "./EntityLabels";
 import { RichText } from "./RichText";
 import type { RpcOutput } from "@getpaseo/plugin";
 import { openExternalUrl, usePaseo, useRpc, type PluginScreenProps } from "@getpaseo/plugin/client";
@@ -348,6 +349,7 @@ function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarge
       {metaRow("创建", data.createdAt)}
       {metaRow("更新", data.modifiedAt)}
       </View>
+      {data.labels?.length || data.labels == null ? <View style={{ gap: 6 }}><Text style={styles.section}>标签</Text><EntityLabels labels={data.labels} theme={theme} compact={false} /></View> : null}
       {entityLinks.length > 0 ? (
         <>
           <Text style={styles.section}>关联任务</Text>

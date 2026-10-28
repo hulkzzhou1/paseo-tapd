@@ -1,5 +1,10 @@
 import { defineAttachmentSource, defineRpc, defineSettings } from "@getpaseo/plugin";
 import { z } from "zod";
+export const labelNameSchema = z.string().min(1).max(200).regex(/^[^|\u0000-\u001f\u007f]+$/)
+  .refine(value => value.trim().length > 0, "Label names cannot be blank");
+// Old snapshots omit labels; null is an unreadable value, while [] confirms an empty set.
+export const entityLabelsSchema = z.array(labelNameSchema).max(100).nullable().optional();
+
 
 export const entityKindSchema = z.enum(["story", "task", "bug"]);
 export type EntityKind = z.infer<typeof entityKindSchema>;
@@ -247,6 +252,7 @@ export const tapdSettings = defineSettings({
 // ---------------------------------------------------------------------------
 
 const entitySummarySchema = z.object({
+  labels: entityLabelsSchema,
   kind: entityKindSchema,
   id: z.string(),
   title: z.string(),
@@ -490,6 +496,7 @@ export const entityRpc = defineRpc({
     fresh: z.boolean().optional(), kind: entityKindSchema, id: z.string(), workspaceId: z.string().min(1).max(100).optional(),
     siteUrl: z.string().max(4096).optional(), apiEndpoint: z.string().max(4096).optional() }),
   output: z.object({
+    labels: entityLabelsSchema,
     kind: entityKindSchema,
     id: z.string(),
     /** 单据实际所在项目（回写状态/评论用） */
@@ -536,6 +543,7 @@ export const searchRpc = defineRpc({
   output: z.object({
     items: z.array(
       z.object({
+        labels: entityLabelsSchema,
         id: z.string(),
         identifier: z.string(),
         title: z.string(),

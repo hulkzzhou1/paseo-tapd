@@ -1,3 +1,4 @@
+import { EntityLabels } from "../workbench/EntityLabels";
 import { Text, View } from "react-native";
 import type { ConversationEntity } from "../../shared/conversation";
 import type { WorkbenchTheme } from "../workbench/bits";
@@ -7,7 +8,7 @@ const labels = { story: "需求", task: "任务", bug: "缺陷" };
 
 /** Shared reading hierarchy for timeline cards and the conversation list. */
 export function EntitySummary({ entity, theme }: {
-  entity: Pick<ConversationEntity, "kind" | "id" | "title" | "status" | "statusLabel" | "owner">;
+  entity: Pick<ConversationEntity, "kind" | "id" | "title" | "status" | "statusLabel" | "owner" | "labels">;
   theme: WorkbenchTheme;
 }) {
   const colors = theme.colors;
@@ -25,5 +26,6 @@ export function EntitySummary({ entity, theme }: {
       </View>
       {entity.owner ? <Text numberOfLines={1} style={{ color: colors.foregroundMuted, fontSize: 12, lineHeight: 18, flexShrink: 1 }}>处理人 · {entity.owner.replace(/;+$/, "")}</Text> : null}
     </View>
+    {entity.labels !== undefined && <EntityLabels labels={entity.labels} theme={theme} />}
   </View>;
 }

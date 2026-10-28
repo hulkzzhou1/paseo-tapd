@@ -311,7 +311,7 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
       if (!stored?.entities.some(item => conversationEntityKey(item) === key)) throw new Error("单据已从会话移除。");
       const detail = await fetchEntitySummary(resolveConfig(await getValues()), target.kind, target.id, target.workspaceId);
       if (detail.id !== target.id || detail.workspaceId !== target.workspaceId) throw new Error("单据项目不匹配。");
-      const [summary] = await validate([{ ...target, title: detail.title.slice(0, 500), status: detail.status.slice(0, 200), statusLabel: detail.statusLabel.slice(0, 200), owner: detail.owner.slice(0, 200) }]);
+      const [summary] = await validate([{ ...target, title: detail.title.slice(0, 500), status: detail.status.slice(0, 200), statusLabel: detail.statusLabel.slice(0, 200), owner: detail.owner.slice(0, 200), labels: detail.labels }]);
       await change(next => {
         const current = next.records.find(item => item.hostId === host && item.agentId === context.agentId);
         const index = current?.entities.findIndex(item => conversationEntityKey(item) === key) ?? -1;

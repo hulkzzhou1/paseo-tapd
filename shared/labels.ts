@@ -1,10 +1,9 @@
 import { defineRpc } from "@getpaseo/plugin";
 import { z } from "zod";
-import { entityKindSchema } from "./contracts";
+import { entityKindSchema, labelNameSchema } from "./contracts";
+export { labelNameSchema } from "./contracts";
 
 const id = z.string().min(1).max(100).regex(/^\d+$/);
-export const labelNameSchema = z.string().min(1).max(200).regex(/^[^|\u0000-\u001f\u007f]+$/)
-  .refine(value => value.trim().length > 0, "Label names cannot be blank");
 export const projectLabelSchema = z.object({ id, name: labelNameSchema, color: z.string().max(20).nullable() });
 export const labelsRpc = defineRpc({
   name: "tapd.labels",

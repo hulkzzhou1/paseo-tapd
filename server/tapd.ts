@@ -23,6 +23,7 @@ export interface TapdConfigInput {
 }
 
 export interface EntitySummary {
+  labels?: string[] | null;
   kind: EntityKind;
   id: string;
   title: string;
@@ -70,6 +71,7 @@ export interface EntityChildItem {
 }
 
 export interface EntityDetailResult {
+  labels: string[] | null;
   kind: EntityKind;
   id: string;
   /** 单据实际所在项目（回写状态/评论必须发到这个项目） */
@@ -102,6 +104,7 @@ export interface EntityDetailResult {
 }
 
 export interface AttachmentSearchItem {
+  labels?: string[] | null;
   id: string;
   identifier: string;
   title: string;
@@ -152,9 +155,9 @@ const FIELDS_INFO_PATH: Record<EntityKind, string> = {
 };
 
 const LIST_FIELDS: Record<EntityKind, string> = {
-  story: "id,name,status,owner,priority_label,iteration_id,modified",
-  task: "id,name,status,owner,priority_label,iteration_id,modified,story_id",
-  bug: "id,title,status,current_owner,priority_label,iteration_id,modified,story_id",
+  story: "id,name,status,owner,priority_label,iteration_id,modified,label",
+  task: "id,name,status,owner,priority_label,iteration_id,modified,story_id,label",
+  bug: "id,title,status,current_owner,priority_label,iteration_id,modified,story_id,label",
 };
 
 // 终态状态：默认「隐藏已完成」时过滤掉这些状态。
@@ -730,6 +733,7 @@ function toSummary(
   const storyId = kind === "story" ? "" : String(row?.story_id ?? "").trim();
   const storyKey = storyId && storyId !== "0" ? `${workspaceId}-${storyId}` : "";
   return {
+    labels: readDisplayLabels(config, row),
     kind,
     id,
     title: String((kind === "bug" ? row?.title : row?.name) ?? ""),
@@ -1045,6 +1049,16 @@ export async function fetchProjectLabels(config: TapdConfig, input: LabelQuery) 
   const truncated = data.length === input.limit;
   return { workspaceId: input.workspaceId, labels, page: input.page, limit: input.limit, truncated, nextPage: truncated && input.page < 10_000 ? input.page + 1 : null };
 }
+function parseLabelNames(value: string): string[] {
+  const labels = value === "" ? [] : value.split("|");
+  if (labels.length > 100 || !labels.every(validLabelName)) throw requestFailure("read", "unsupported_label_response");
+  return labels;
+}
+function readDisplayLabels(config: TapdConfig, row: any): string[] | null {
+  if (typeof row?.label !== "string" || row.label.length > 20_100) return null;
+  try { const labels = parseLabelNames(row.label); protectFieldData(config, labels); return labels; }
+  catch { return null; }
+}
 export async function readItemLabels(config: TapdConfig, input: ItemLabelTarget) {
   validateLabelProject(config, input.workspaceId);
   if (!["story", "task", "bug"].includes(input.kind) || !/^\d{1,100}$/.test(input.id)) throw new TapdApiError("标签单据目标无效。");
@@ -1057,8 +1071,7 @@ export async function readItemLabels(config: TapdConfig, input: ItemLabelTarget)
   const returned = Object.hasOwn(row, "label");
   const value: unknown = returned ? row.label : null;
   if (value !== null && (typeof value !== "string" || value.length > 20_100)) throw requestFailure("read", "unsupported_label_response");
-  const labels = value === null ? null : value === "" ? [] : (value as string).split("|");
-  if (labels && (labels.length > 100 || !labels.every(validLabelName))) throw requestFailure("read", "unsupported_label_response");
+  const labels = value === null ? null : parseLabelNames(value as string);
   const result = { returned, value: value as string | null, labels, entity: { ...input,
     title: String(row[input.kind === "bug" ? "title" : "name"] ?? "").slice(0, 500), status: String(row.status ?? "").slice(0, 200),
     statusLabel: "", owner: String(row[input.kind === "bug" ? "current_owner" : "owner"] ?? "").slice(0, 200) } };
@@ -1684,13 +1697,13 @@ export async function fetchEntitySummary(config: TapdConfig, kind: EntityKind, i
   if (!config.workspaceIds.includes(workspaceId)) throw new TapdApiError("项目未配置");
   const data = await requestJson(config, LIST_PATH[kind], {
     workspace_id: workspaceId, id, limit: 1,
-    fields: kind === "bug" ? "id,workspace_id,title,status,current_owner" : (kind === "story" ? "id,workspace_id,name,status,owner,workitem_type_id,step,flows" : "id,workspace_id,name,status,owner"),
+    fields: kind === "bug" ? "id,workspace_id,title,status,current_owner,label" : (kind === "story" ? "id,workspace_id,name,status,owner,workitem_type_id,step,flows,label" : "id,workspace_id,name,status,owner,label"),
   }, 0);
   const row = unwrapRows(data, [KIND_WRAPPER[kind]])[0];
   if (!row || String(row.id) !== id || (row.workspace_id !== undefined && String(row.workspace_id) !== workspaceId)) throw new TapdApiError("单据摘要不可用");
   const labels = await fetchStatusLabels({ ...config, workspaceIds: [workspaceId] }, kind);
   const status = String(row.status ?? "");
-  return { kind, id, workspaceId, title: String((kind === "bug" ? row.title : row.name) ?? ""),
+  return { labels: readDisplayLabels(config, row), kind, id, workspaceId, title: String((kind === "bug" ? row.title : row.name) ?? ""),
     status, statusLabel: labels[status] ?? status, owner: String((kind === "bug" ? row.current_owner : row.owner) ?? "").trim(),
     workflowAmbiguous: kind === "story" && [row.workitem_type_id, row.step, row.flows].some(value => value !== undefined && value !== null && value !== "" && value !== "0" && value !== 0 && (!Array.isArray(value) || value.length > 0)) };
 }
@@ -1717,6 +1730,7 @@ export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: stri
   const status = String(row.status ?? "");
   const iterationId = String(row.iteration_id ?? "");
   const detail: EntityDetailResult = {
+    labels: readDisplayLabels(config, row),
     kind,
     id: String(row.id ?? id),
     workspaceId,
@@ -1836,6 +1850,7 @@ export async function searchEntities(config: TapdConfig, query: string): Promise
             `- 链接：${summary.url}`,
           ].filter((line): line is string => line !== null);
           items.push({
+            labels: summary.labels,
             id: `${kind}-${summary.id}`,
             identifier: `#${summary.id}`,
             title: summary.title,

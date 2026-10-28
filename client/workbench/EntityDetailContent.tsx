@@ -251,19 +251,23 @@ function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarge
   if (!data) return null;
 
   const tone = statusTone(data.kind, data.status, data.statusLabel);
+  const entityLinks = extras.links.filter(link => link.key === `${data.kind}-${data.id}`);
+  const hasAgent = entityLinks.some(link => link.agentId.trim().length > 0);
 
   return (
     <View style={{ gap: 18 }}>
       <Text accessibilityRole="header" style={styles.title}>{data.title}</Text>
       <View style={styles.actions}>
-        <Pressable accessibilityRole="button" style={styles.action} onPress={() => extras.onDispatch?.(data)}>
-          <Icon name="Bot" size={14} color={theme.colors.foreground} />
-          <Text style={styles.actionLabel}>派给 Agent</Text>
-        </Pressable>
-        <Pressable accessibilityRole="button" style={styles.action} onPress={() => extras.onBindAgent?.(data)}>
-          <Icon name="Link" size={14} color={theme.colors.foreground} />
-          <Text style={styles.actionLabel}>绑定 Agent</Text>
-        </Pressable>
+        {!hasAgent && <>
+          <Pressable accessibilityRole="button" style={styles.action} onPress={() => extras.onDispatch?.(data)}>
+            <Icon name="Bot" size={14} color={theme.colors.foreground} />
+            <Text style={styles.actionLabel}>派给 Agent</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" style={styles.action} onPress={() => extras.onBindAgent?.(data)}>
+            <Icon name="Link" size={14} color={theme.colors.foreground} />
+            <Text style={styles.actionLabel}>绑定 Agent</Text>
+          </Pressable>
+        </>}
         <Pressable accessibilityRole="button" style={styles.action} onPress={() => extras.onComment?.(data)}>
           <Icon name="MessageSquarePlus" size={14} color={theme.colors.foreground} />
           <Text style={styles.actionLabel}>写回评论</Text>
@@ -341,6 +345,20 @@ function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarge
       {metaRow("创建", data.createdAt)}
       {metaRow("更新", data.modifiedAt)}
       </View>
+      {entityLinks.length > 0 ? (
+        <>
+          <Text style={styles.section}>关联任务</Text>
+          {entityLinks.map((link) => (
+            <AgentLinkRow
+              key={`${link.workspaceId}-${link.agentId}`}
+              link={link}
+              theme={theme}
+              extras={extras}
+              status={agentStatusMap.get(link.agentId)}
+            />
+          ))}
+        </>
+      ) : null}
       <Text style={styles.section}>描述</Text>
       <RichText html={data.descriptionHtml} text={data.description} baseUrl={data.url} workspaceId={data.workspaceId} theme={theme} />
       {data.parentStory ? (
@@ -357,25 +375,6 @@ function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarge
           </Pressable>
         </View>
       ) : null}
-      {(() => {
-        const entityKey = `${data.kind}-${data.id}`;
-        const entityLinks = extras.links.filter((link) => link.key === entityKey);
-        if (entityLinks.length === 0) return null;
-        return (
-          <>
-            <Text style={styles.section}>关联任务</Text>
-            {entityLinks.map((link) => (
-              <AgentLinkRow
-                key={`${link.workspaceId}-${link.agentId}`}
-                link={link}
-                theme={theme}
-                extras={extras}
-                status={agentStatusMap.get(link.agentId)}
-              />
-            ))}
-          </>
-        );
-      })()}
       {data.kind === "story" && data.childTasks.length > 0 ? (
         <ChildListSection
           key={`${data.id}-task`}

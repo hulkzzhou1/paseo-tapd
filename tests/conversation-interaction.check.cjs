@@ -44,8 +44,13 @@ async function main(){
  await page.evaluate(()=>{window.toolLinks=[{key:'story-11111111',kind:'story',id:'11111111',tapdWorkspaceId:'12345678',apiEndpoint:'https://api.example.com',workspaceId:'example-workspace',agentId:'example-bound-agent',agentTitle:'工具绑定示例',workspaceTitle:'Example',createdAt:'2026-01-01T00:00:00Z'}];window.showWriteCard('read');});
  await page.getByRole('button',{name:'打开 TAPD 需求 #11111111：示例需求',exact:true}).click();
  await page.getByText('工具绑定示例',{exact:true}).waitFor();
+ for(const action of ['派给 Agent','绑定 Agent'])assert.equal(await page.getByRole('button',{name:action,exact:true}).count(),0,'bound items hide duplicate assignment actions even without live status');
+ const linkedHeading=await page.getByText('关联任务',{exact:true}).boundingBox();const descriptionHeading=await page.getByText('描述',{exact:true}).boundingBox();assert(linkedHeading.y<descriptionHeading.y,'linked Agent section precedes description');
+
  await page.getByText('解除',{exact:true}).click();
  await page.getByText('工具绑定示例',{exact:true}).waitFor({state:'hidden'});
+ for(const action of ['派给 Agent','绑定 Agent'])await page.getByRole('button',{name:action,exact:true}).waitFor();
+
  assert.equal(await page.evaluate(()=>window.calls.filter(c=>c.name==='tapd.remove-agent-link').length),1);
  await page.getByRole('button',{name:'关闭#11111111 · 单据详情',exact:true}).last().click();
  await page.evaluate(()=>window.showWriteCard(null));

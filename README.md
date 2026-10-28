@@ -278,3 +278,5 @@ The bundled [paseo-tapd skill](skills/paseo-tapd/SKILL.md) guides reads, taking 
 字段工具复用现有 RPC、会话卡片与本机恢复，不提供通用字段表单。公开 API 契约与受控测试不证明目标部署兼容；实际 key、权限、清空/HTML 规范化行为需部署验收，见 [验证与限制](docs/design-fields-validation.md)。
 
 Story field tools recognize both `rich_edit` and `rich_text`, discover actual project keys, preserve raw text/HTML and distinguish absent, null and empty values. Updates require the exact old/new values and approval, write one field, then bypass cached and in-flight reads to verify it. The comparison is not atomic concurrency control. An accepted but unverified result requires a fresh read, never an automatic retry. Ordinary ended turns only update local Agent state; legacy auto-report settings no longer post comments. Explicit authorized stage comments remain available. Real deployment permissions and notification chains have not been tested.
+
+单据已有 Agent 关联时，详情隐藏「绑定 Agent」「派给 Agent」，解除关联后恢复；「关联任务」区块置于描述前，方便先查看负责处理的 Agent。

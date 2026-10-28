@@ -8,8 +8,9 @@ import { CardGrid } from "./CardGrid";
 
 const kinds = { story: "需求", task: "任务", bug: "缺陷" };
 const classifications = { unfinished: "未完成", completed: "已完成", unknown: "状态待确认" };
-export function TaskBoardList({ board, theme, loading, failed, recentCount, onRecent, onRefresh, onOpen }: {
+export function TaskBoardList({ board, theme, loading, failed, recentCount, onRecent, onRefresh, onOpen, migrationCount = 0, onMigration }: {
   board: TaskBoard | null; theme: WorkbenchTheme; loading: boolean; failed: boolean; recentCount: number;
+  migrationCount?: number; onMigration?: () => void;
   onRecent: () => void; onRefresh: () => void; onOpen: (entity: ConversationEntity) => void;
 }) {
   const c = theme.colors;
@@ -26,6 +27,7 @@ export function TaskBoardList({ board, theme, loading, failed, recentCount, onRe
       </View>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
         {(Object.keys(classifications) as (keyof typeof classifications)[]).map(value => <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected: selected === value }} onPress={() => setSelected(value)} style={{ minHeight: 36, paddingHorizontal: 10, justifyContent: "center", borderRadius: 8, borderWidth: 1, borderColor: selected === value ? c.accent : c.border, backgroundColor: selected === value ? c.surface2 : c.surface0 }}><Text style={{ color: selected === value ? c.foreground : c.foregroundMuted, fontSize: 12 }}>{classifications[value]}（{items.filter(item => item.classification === value).length}）</Text></Pressable>)}
+        {!!onMigration && <Pressable accessibilityRole="button" onPress={onMigration} style={{ minHeight: 36, paddingHorizontal: 8, justifyContent: "center" }}><Text style={{ color: c.statusWarning, fontSize: 12 }}>待确认归属（{migrationCount}）</Text></Pressable>}
         <Pressable accessibilityRole="button" onPress={onRecent} style={{ minHeight: 36, paddingHorizontal: 8, justifyContent: "center" }}><Text style={{ color: c.foregroundMuted, fontSize: 12 }}>最近查看（{recentCount}）</Text></Pressable>
       </View>
     </View>

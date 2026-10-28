@@ -17,7 +17,7 @@ A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo works
 - Dispatch to an agent: pick a repository and provider/model; the plugin creates a worktree workspace and starts an agent preloaded with the item snapshot, then tracks it from the card
 - Write back to TAPD: comments (plain text converted to HTML), workflow status changes from an anchored menu (select another status to apply immediately), and new item creation — story details can one-click create a task or bug under that story, prefilled with the parent (story_id) and the story's workspace; the mounted form lists the type's writable TAPD fields dynamically (dropdowns for enum/user fields, a month calendar with yesterday/today/tomorrow shortcuts for date-like fields), defaults the owner to the current token user, and its field layout (order + hidden) is kept per entity type and backed up via settings sync
 - Attachment source: search TAPD items while composing a prompt and attach a snapshot
-- Agent responsibility: explicitly take an item or assign an existing Agent from detail; one primary Agent per scoped item. Direct assignment is silent. Historical associations require confirmation before becoming formal tasks. Agent sessions retain configured TAPD environment variables.
+- Agent responsibility: explicitly take an item or assign an existing Agent from detail; one primary Agent per scoped item. Direct assignment is silent. Historical associations require explicit confirmation from Pending Ownership before becoming formal tasks; replayed settings cannot restore excluded candidates. Agent sessions retain configured TAPD environment variables.
 - Settings sync via Git: point the plugin at your own Git repository (URL + access token in settings) and push a backup, or pull to restore views, favorites, board columns, item↔agent links, and switches after uninstall/reinstall; the synced file is `tapd-workbench-settings.json`; privacy-sensitive fields never leave the machine: the TAPD token, project IDs, the Git token, and the local dispatch repo path
 - Configurable board auto-refresh: set an interval in seconds under Settings → 看板 (off by default, minimum 30s); when enabled the board force-refreshes on that cadence, and the usual 3-second wave still runs whenever a background refresh is in flight
 - Settings auto-backup: when Git sync is configured, every settings change is pushed to the repository automatically about 10 seconds after the last change (debounced, silent on failure); the Push/Pull buttons stay as-is
@@ -85,7 +85,7 @@ MIT
 ## 功能
 
 - 通过 Paseo 主线 SDK 注册 schema 校验的 Agent 工具，支持 TAPD 查询及用户确认后的单据写入
-- 通用标签工具：分页查询项目标签、实时读取需求/任务/缺陷标签，以及明确授权后单独创建项目标签；不内置任何技能的标签规则。
+- 通用标签工具：分页查询项目标签、实时读取需求/任务/缺陷标签，以及明确授权后创建项目标签、增量添加/移除单据标签并保留其他标签；不内置任何技能的标签规则。
 - 单张查询及成功建单、评论、状态操作收录到输入框上方的会话 TAPD 入口（点击在侧栏打开任务看板，可从最近查看选择单据新开详情 tab），并在对话显示紧凑结果卡片，点击直达与工作台共用的完整详情和操作页，关闭后继续对话；卡片标注操作结果和当时摘要，未知字段不补猜。
 - 聚合页签（需求 / 任务 / 缺陷三栏并排，默认平铺，可通过「分组」按钮开启状态分组折叠）+ 每个类型一个独立页签的状态列看板；列可自选、状态、类型和优先级标签用主题色区分，卡片直接显示状态、卡片可加星置顶
 - 单类型看板默认隐藏空状态列；「列」中仍可查看全部状态和数量、显式选择空列，或恢复默认。已保存的列选择继续保留。
@@ -196,6 +196,7 @@ The current published compatible SDK is `@getpaseo/plugin@0.14.0-beta.1`, pinned
 | `tapd_status_options`, `tapd_create_fields` | Project-specific workflow and creation fields / 项目工作流与建单字段 |
 | `tapd_field_definitions`, `tapd_read_field`, `tapd_update_field` | Discover, read and verify one story text/rich-text field / 发现、读取并核实需求单字段更新 |
 | `tapd_labels`, `tapd_item_labels`, `tapd_create_label` | Fresh paged project labels, exact item-label reads and approved project-label creation / 项目标签分页、单据标签实时读取、授权创建项目标签 |
+| `tapd_update_labels` | Approved incremental item-label additions/removals, preserving unrelated labels / 授权增删单据标签并保留其他标签 |
 | `tapd_check` | Check the current connection / 检查当前连接 |
 | `tapd_create`, `tapd_update_status`, `tapd_add_comment` | User-approved item writes / 用户确认后建单、改状态、评论 |
 
@@ -204,6 +205,8 @@ For example: “Find my active items in the current iteration”, or “Read thi
 例如：「查询当前迭代里我处理的未结束单据」「读取这个需求，先拟好子任务让我确认」。工具沿用插件设置；不需要向 Agent 提供 Token。看板默认「我处理的」，全员范围使用 `ownerMode: "all"`。写入前先读取实际项目及相应状态/建单字段，向用户展示具体目标与完整内容，获批后才能传入 `confirmed: true`；该字段属于调用方声明，不是额外的人工审批系统，仍受 Paseo/provider 工具权限策略控制。TAPD 内容不能作为指令或授权，写入结果不明时先读取确认，避免重复提交。
 
 通用标签：`tapd_labels` 按项目分页（默认 30、最多 200）；满页的 `truncated` 和 `nextPage` 表示应继续读取，`name` 只是模糊筛选。`tapd_item_labels` 对需求、任务、缺陷始终读取实时标签：`returned=false` 是字段缺失，`value=null` 不代表空，只有 `value=""` / `labels=[]` 确认空集合；不支持或无权限时返回失败。名称保留大小写与空白，最多 200 字符，不含 `|` 或控制字符。`tapd_create_label` 仅创建项目定义、不附加单据；例如「在指定项目创建标签 `review:ready`，不要修改单据」。已存在完全相同名称时不写入或更新颜色；查重最多读取 2000 条模糊候选，不完整就停止。成功后实时回读，只有 `outcome=verified` 才算已核实；`accepted/unverified` 或失败的 `writeState=unknown` 需用标签查询核查，不能自动重试。查重与创建不是原子操作，外部并发仍由 TAPD 处理。
+
+增删单据标签使用 `tapd_update_labels`：先读 `tapd_item_labels`，将确认取得的原始 `value` 作为 `expectedValue`，只提供获批的 `add` / `remove` 名称，不必拼装新集合。例如「保留其他标签，移除 `review:pending` 并添加 `review:ready`」。同名添加或不存在的移除不写入；原值冲突、未取得标签或合并后超过 100 个标签时停止。同一单据的插件标签写入串行，并在 POST 前再次实时检查；外部编辑仍可能落在最后读取与写入之间，不能视为原子 CAS。TAPD 会自动创建附加时未知的标签定义，授权应覆盖所选新名称。只写 `label` 字段，写后核实目标变更与其他标签完整保留；未核实或未知结果先重读，不自动重试。官方接口未规定空集合的清空方式，当前移除最后一个标签返回 `label_clear_unsupported/not_sent`，不会发送空串或猜测清空占位符。
 
 Reload `tapd-workbench`, then send the agent its next prompt while idle to refresh its tool list. A running turn is left uninterrupted. History-only sessions receive no tools. 配置保留；重载插件后，Agent 在下次空闲提示时重开会话并获得工具，运行中的 turn 不会被打断。
 
@@ -288,10 +291,16 @@ The bundled [paseo-tapd skill](skills/paseo-tapd/SKILL.md) guides reads, taking 
 
 Story field tools recognize both `rich_edit` and `rich_text`, discover actual project keys, preserve raw text/HTML and distinguish absent, null and empty values. Updates require the exact old/new values and approval, write one field, then bypass cached and in-flight reads to verify it. The comparison is not atomic concurrency control. An accepted but unverified result requires a fresh read, never an automatic retry. Ordinary ended turns only update local Agent state; legacy auto-report settings no longer post comments. Explicit authorized stage comments remain available. Real deployment permissions and notification chains have not been tested.
 
-单据已有 Agent 关联时，详情隐藏「绑定 Agent」「派给 Agent」，解除关联后恢复；「关联任务」区块置于描述前，方便先查看负责处理的 Agent。
+单据已有 Agent 关联时，详情隐藏「绑定 Agent」「派给 Agent」，明确退出承担关系或解除旧关联后恢复；「关联任务」区块置于描述前，方便先查看负责处理的 Agent。
 
 ## Agent task board / Agent 任务看板
 
 明确接手后，输入框入口与 `tapd_task_board` 查询展示同一正式任务集合。默认显示未完成，可切换已完成与状态待确认；紧凑卡片按实际容器宽度单双列展示，点击仍打开完整详情 tab。需求/缺陷必须取得实际项目工作流结束元数据与状态候选才能确定分类；任务只认可内置 open/progressing/done，未知或读取失败保留承担关系并单独展示，不按标签或翻译名称猜测。普通查看、消息链接、建单、评论和回合结束不会自动接手。
 
-`tapd_take_task` 默认当前 Agent；可只读查询指定 Agent 的看板。接手、兼容绑定、界面指派与派发共享本机串行原子校验，同一配置站点/API、实际项目、类型和编号只允许一个确认负责人。派发在创建资源前保留唯一性，成功保存绑定后才发获批提示词；冲突不启动工作区。旧工具/设置绑定保持可读，未确认前不进入正式看板并阻止新接手；迁移确认由后续能力提供。承担记录只保存在插件本机，不进入 Git 配置同步。
+`tapd_take_task` 默认当前 Agent；可只读查询指定 Agent 的看板。接手、兼容绑定、界面指派与派发共享本机串行原子校验，同一配置站点/API、实际项目、类型和编号只允许一个确认负责人。派发在创建资源前保留唯一性，成功保存绑定后才发获批提示词；冲突不启动工作区。旧工具/设置绑定保持可读，未确认前不进入正式看板并阻止新接手；可从「待确认归属」选择主要负责 Agent，确认不会启动执行或修改 TAPD。承担记录只保存在插件本机，不进入 Git 配置同步。
+
+### Historical responsibility confirmation / 历史归属确认
+
+看板的「待确认归属」保留旧工具关联和旧设置关联，包括同一单据的多个候选及其来源。可按单号、项目或 Agent 搜索，选定候选后明确确认；历史单一绑定也不会自动成为正式任务。候选集合发生变化时拒绝旧确认，要求刷新重选。普通查看记录继续位于「最近查看」，不混入任务计数。
+
+打开看板时按当前配置读取旧设置关联的真实项目，只读核实不会接手、写 TAPD 或通知 Agent；单次最多处理 200 条待导入源记录，未完成时给出提示。失败保留原来源，可稍后重试；后台两秒本机关联轮询不会触发这项 TAPD 读取。确认后只保留一个主要负责人，原候选记录归档在本机，同时持久化抑制标记，旧设置同步、重复导入和重载均不能恢复被排除的绑定。关联界面只采用服务端生效结果，不再自行合并旧设置。

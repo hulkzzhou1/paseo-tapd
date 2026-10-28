@@ -7,6 +7,8 @@ import { EntityDetailExperience } from "../workbench/EntityDetailExperience";
 import type { DetailTarget } from "../workbench/EntityDetailContent";
 import { agentLinksRpc, type ToolLink } from "../../shared/agent-links";
 import { taskBoardRpc, type TaskBoard } from "../../shared/task-board";
+import { migrationListRpc, migrationConfirmRpc, type MigrationGroup } from "../../shared/ownership-migration";
+import { MigrationList } from "./MigrationList";
 import { TaskBoardList } from "./TaskBoardList";
 import { ConversationList } from "./ConversationList";
 
@@ -20,6 +22,7 @@ export function contributeConversationAccess(client: PluginClientContext) {
   const listeners = new Set<() => void>();
   let summaries: ConversationSummary[] = [];
   let assignments: ToolLink[] = [];
+  let pendingAgents: {agentId:string;workspaceId:string}[] = [];
   const refreshRequests = new Map<string, number>();
   let stopped = false;
   let pending = false;
@@ -95,20 +98,32 @@ export function contributeConversationAccess(client: PluginClientContext) {
     const conversations = useSyncExternalStore(subscribe, snapshot);
     const requested = useSyncExternalStore(subscribe, () => refreshRequests.get(agentId) ?? 0);
     const [recent, setRecent] = useState(false);
+    const [migrationOpen, setMigrationOpen] = useState(false);
+    const [migrationGroups, setMigrationGroups] = useState<MigrationGroup[]>([]);
+    const [migrationWarnings, setMigrationWarnings] = useState<string[]>([]);
+    const [confirming, setConfirming] = useState(false);
+    const [migrationError, setMigrationError] = useState(false);
     const [board, setBoard] = useState<TaskBoard | null>(null);
     const [loading, setLoading] = useState(false);
     const [failed, setFailed] = useState(false);
     const [retry, setRetry] = useState(0);
-    const revision = assignments.filter(link => link.agentId === agentId && link.responsibility).map(link => link.responsibility!.revision).sort().join(",");
+    const revision = assignments.filter(link => link.agentId === agentId).map(link => link.responsibility?.revision ?? `${link.kind}/${link.id}/${link.agentId}`).sort().join(",");
     useEffect(() => {
       let cancelled = false;
       setLoading(true);
-      void client.rpc(taskBoardRpc, { agentId }).then(result => { if (!cancelled) { setBoard(result); setFailed(false); } }, () => { if (!cancelled) setFailed(true); }).finally(() => { if (!cancelled) setLoading(false); });
+      void Promise.all([client.rpc(taskBoardRpc, { agentId }), client.rpc(migrationListRpc, {agentId})]).then(([result,migration]) => { if (!cancelled) { setBoard(result); setMigrationGroups(migration.groups); setMigrationWarnings(migration.warnings); setFailed(false); } }, () => { if (!cancelled) setFailed(true); }).finally(() => { if (!cancelled) setLoading(false); });
       return () => { cancelled = true; };
     }, [agentId, workspaceId, requested, retry, revision]);
     const toast = useToast();
+    async function confirm(group:MigrationGroup,targetAgentId:string){
+      if(confirming)return;
+      setConfirming(true);setMigrationError(false);
+      try{await client.rpc(migrationConfirmRpc,{kind:group.kind,id:group.id,workspaceId:group.workspaceId,agentId:targetAgentId,expectedRevision:group.revision,confirmed:true});await refresh();setRetry(value=>value+1);}
+      catch{setMigrationError(true);}finally{setConfirming(false);}
+    }
+    if(migrationOpen)return <MigrationList groups={migrationGroups} warnings={migrationWarnings} theme={theme} pending={confirming} error={migrationError} onBack={()=>setMigrationOpen(false)} onConfirm={(group,id)=>void confirm(group,id)} />;
     if (recent) return <View style={{ flex: 1 }}><Pressable accessibilityRole="button" onPress={() => setRecent(false)} style={{ minHeight: 36, justifyContent: "center", paddingHorizontal: 12, backgroundColor: theme.colors.surface0 }}><Text style={{ color: theme.colors.accent, fontSize: 12 }}>返回任务看板</Text></Pressable><RecentPanel {...props} /></View>;
-    return <TaskBoardList board={board} theme={theme} loading={loading} failed={failed} recentCount={conversations.find(item => item.agentId === agentId)?.entities.length ?? 0} onRecent={() => setRecent(true)} onRefresh={() => setRetry(value => value + 1)} onOpen={entity => { void openEntity(agentId, workspaceId, entity).catch(() => toast.error("单据详情暂不可用，请重试。")); }} />;
+    return <TaskBoardList migrationCount={migrationGroups.length} onMigration={migrationGroups.length||migrationWarnings.length?()=>setMigrationOpen(true):undefined} board={board} theme={theme} loading={loading} failed={failed} recentCount={conversations.find(item => item.agentId === agentId)?.entities.length ?? 0} onRecent={() => setRecent(true)} onRefresh={() => setRetry(value => value + 1)} onOpen={entity => { void openEntity(agentId, workspaceId, entity).catch(() => toast.error("单据详情暂不可用，请重试。")); }} />;
   }
   const stopList = client.addAgentPanel({ id: listId, title: "TAPD 任务看板", icon: "ClipboardList", locations: [location], Component: ConversationPanel });
   function publish() {
@@ -116,7 +131,7 @@ export function contributeConversationAccess(client: PluginClientContext) {
     for (const conversation of summaries) {
       const { agentId, workspaceId, entities } = conversation;
       const owned = assignments.filter(link => link.agentId === agentId && link.responsibility).length;
-      if (!workspaceId || (!entities.length && !assignments.some(link => link.agentId === agentId))) continue;
+      if (!workspaceId || (!entities.length && !assignments.some(link => link.agentId === agentId) && !pendingAgents.some(item=>item.agentId===agentId))) continue;
       for (const entity of entities) detailPanel(entity);
       present.add(agentId);
       const old = pills.get(agentId);
@@ -138,8 +153,9 @@ export function contributeConversationAccess(client: PluginClientContext) {
       const [result, saved] = await Promise.all([client.rpc(conversationListRpc, {}), client.rpc(agentLinksRpc, {})]);
       if (!stopped) {
         assignments = saved.links;
+        pendingAgents = saved.pendingAgents??[];
         summaries = [...result.conversations];
-        for (const link of assignments) if (link.agentId && link.workspaceId && !summaries.some(item => item.agentId === link.agentId)) summaries.push({ agentId: link.agentId, workspaceId: link.workspaceId, entities: [] });
+        for (const link of [...assignments,...pendingAgents]) if (link.agentId && link.workspaceId && !summaries.some(item => item.agentId === link.agentId)) summaries.push({ agentId: link.agentId, workspaceId: link.workspaceId, entities: [] });
         publish();
       }
     }

@@ -1,8 +1,10 @@
+import { createOwnershipMigration } from "./server/ownership-migration";
+import { migrationListRpc, migrationConfirmRpc } from "./shared/ownership-migration";
 import { createAgentLinks, sameTask, suppressTask } from "./server/agent-links";
 import { createAssignmentService, createAssignmentTools } from "./server/agent-assignment";
 import { createTaskBoard } from "./server/task-board";
 import { taskBoardRpc, taskClaimRpc, taskDispatchRpc, taskReleaseRpc, taskTransferRpc } from "./shared/task-board";
-import { labelsRpc, itemLabelsRpc, createLabelRpc } from "./shared/labels";
+import { labelsRpc, itemLabelsRpc, createLabelRpc, updateLabelsRpc } from "./shared/labels";
 import { agentLinksRpc, removeAgentLinkRpc } from "./shared/agent-links";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { updateFieldRpc, readFieldRpc, fieldDefinitionsRpc, imageRpc, addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, syncPullRpc, syncPushRpc, tapdSettings, updateCheckRpc, updateStatusRpc } from "./shared/contracts";
@@ -27,6 +29,9 @@ export default function contribute(server: PluginServerContext) {
   const syncAccess: SyncSettingsAccess = { read: getValues };
 
   const agentLinks = createAgentLinks();
+  const migration = createOwnershipMigration(getValues, agentLinks);
+  server.handle(migrationListRpc, ({agentId}, context) => migration.list(agentId, context));
+  server.handle(migrationConfirmRpc, (input, context) => migration.confirm(input, context));
   const assignments = createAssignmentService(getValues, agentLinks);
   const taskBoard = createTaskBoard(getValues, agentLinks);
   server.handle(taskBoardRpc, ({ agentId }, context) => taskBoard.read(agentId, context));
@@ -35,10 +40,12 @@ export default function contribute(server: PluginServerContext) {
   server.handle(taskTransferRpc, (input, context) => assignments.transfer(input, context));
   server.handle(taskReleaseRpc, (input, context) => assignments.release(input, context, "user", input.agentId));
   const visibleLinks = async () => {
-    const config = resolveConfig(await getValues());
-    return (await agentLinks.list()).filter(link => link.apiEndpoint === config.endpoint && (!link.siteUrl || link.siteUrl === config.site) && config.workspaceIds.includes(link.tapdWorkspaceId));
+    const values = await getValues(), config = resolveConfig(values);
+    const result = (await agentLinks.list()).filter(link => link.apiEndpoint === config.endpoint && (!link.siteUrl || link.siteUrl === config.site) && config.workspaceIds.includes(link.tapdWorkspaceId));
+    if ([config.token, values.syncGitToken].filter(Boolean).some(secret => JSON.stringify(result).includes(secret))) throw new Error("关联包含敏感配置，无法安全展示；原记录已保留。");
+    return result;
   };
-  server.handle(agentLinksRpc, async () => ({ links: await visibleLinks() }));
+  server.handle(agentLinksRpc, async () => ({ links: await visibleLinks(), pendingAgents: await migration.pendingAgents() }));
   server.handle(removeAgentLinkRpc, link => agentLinks.stateTransaction(async state => {
     const matches = (item: typeof link) => sameTask(item, link) && item.agentId === link.agentId;
     if (state.links.some(item => matches(item) && item.responsibility)) throw new Error("已确认承担关系请使用退出操作并填写原因。");
@@ -48,6 +55,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(labelsRpc, handlers.labels);
   server.handle(itemLabelsRpc, handlers.itemLabels);
   server.handle(createLabelRpc, handlers.createLabel);
+  server.handle(updateLabelsRpc, handlers.updateLabels);
   const conversations = createConversationRuntime(getValues);
   const tools = [...createTapdTools(getValues, conversations), ...createAssignmentTools(getValues, agentLinks)];
   server.handle(conversationBatchPageRpc, (input, context) => conversations.batchPage({ paseo: context.paseo, agentId: input.agentId }, input));

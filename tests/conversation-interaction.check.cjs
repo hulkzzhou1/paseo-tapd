@@ -15,6 +15,8 @@ async function main(){
  export const useAgent=(id,select)=>select({workspaceId:window.workspaceId});
  export const usePaseo=()=>({agents:{subscribe:()=>()=>{},list:async()=>({entries:window.assignableAgents??[]})},projects:{list:async()=>({projects:[]})},providers:{snapshot:async()=>({entries:[]})}});
  export const useRpc=rpc=>useCallback(input=>window.rpc(rpc,input),[rpc]);window.rpc=async(rpc,input)=>{window.calls.push({name:rpc.name,input});
+ if(rpc.name==='tapd.task.migration')return {groups:window.migrationGroups??[],warnings:[]};
+ if(rpc.name==='tapd.task.migration.confirm'){if(window.migrationFail)throw Error('changed');const group=window.migrationGroups.find(group=>group.id===input.id);window.toolLinks=group.candidates.filter(link=>link.agentId===input.agentId).map(link=>({...link,responsibility:{confirmedAt:'2026-01-01',actorAgentId:'user',revision:'migrated'}}));window.migrationGroups=[];return {ok:true,changed:true,link:window.toolLinks[0]};}
  if(rpc.name==='tapd.task-board')return {agentId:input.agentId,workspaceId:window.workspaceId,items:window.boardItems??[],fetchedAt:'2026-01-01T00:00:00Z',partial:false};
  if(rpc.name==='tapd.task.claim'){const link={key:input.kind+'-'+input.id,kind:input.kind,id:input.id,tapdWorkspaceId:input.workspaceId,apiEndpoint:'https://api.example.com',siteUrl:'https://example.com',agentId:input.agentId,agentTitle:'新负责人',workspaceId:'example-workspace',workspaceTitle:'Example',createdAt:'2026-01-01',responsibility:{confirmedAt:'2026-01-01',actorAgentId:'user',revision:'assignment'}};window.toolLinks=[link];return {ok:true,changed:true,link};}
  if(rpc.name==='tapd.task.release'){if(window.failRelease)throw new Error('storage unavailable');window.toolLinks=[];return {ok:true,changed:true};}
@@ -107,6 +109,21 @@ async function main(){
  await page.getByRole('button',{name:'打开任务 #11111111：明确接手的任务',exact:true}).focus();await page.keyboard.press('Enter');
  await page.getByText('完整正文',{exact:true}).waitFor();
  await page.evaluate(()=>{window.boardItems=[];window.toolLinks=[];window.refresh();window.panelCalls=[];});
+ const legacyLink={key:'story-33333333',kind:'story',id:'33333333',tapdWorkspaceId:'12345678',apiEndpoint:'https://api.example.com',siteUrl:'https://example.com',agentId:'example-agent',agentTitle:'历史候选 A',workspaceId:'example-workspace',workspaceTitle:'Example',createdAt:'2026-01-01',legacyOrigins:['settings']};
+ await page.evaluate(link=>{window.toolLinks=[link];window.migrationGroups=[{kind:'story',id:link.id,workspaceId:link.tapdWorkspaceId,revision:'legacy-revision',candidates:[link,{...link,agentId:'example-other',agentTitle:'历史候选 B',legacyOrigins:['tool']}]}];window.refresh();},legacyLink);
+ await page.getByRole('button',{name:'TAPD 任务看板（0）',exact:true}).click();
+ await page.getByRole('button',{name:'待确认归属（1）',exact:true}).click();
+ await page.getByText('#33333333 · 负责人待确认',{exact:true}).waitFor();
+ await page.getByRole('textbox',{name:'搜索历史关联'}).fill('不存在');await page.getByText('没有匹配的历史关联',{exact:true}).waitFor();
+ await page.getByRole('textbox',{name:'搜索历史关联'}).fill('');
+ await page.getByRole('radio',{name:'选择历史候选 A 负责 #33333333',exact:true}).focus();await page.keyboard.press('Enter');
+ await page.evaluate(()=>window.migrationFail=true);await page.getByRole('button',{name:'确认负责人 #33333333',exact:true}).click();
+ await page.getByText('确认未成功，请刷新核对候选后重试；原关联已保留。',{exact:true}).waitFor();
+ await page.evaluate(()=>window.migrationFail=false);await page.getByRole('button',{name:'确认负责人 #33333333',exact:true}).click();
+ await page.getByText('没有匹配的历史关联',{exact:true}).waitFor();
+ assert.equal(await page.evaluate(()=>window.calls.filter(call=>call.name==='tapd.task.migration.confirm').length),2,'explicit confirmation retries require another user action');
+ await page.getByRole('button',{name:'返回任务看板',exact:true}).click();
+ await page.evaluate(()=>{window.toolLinks=[];window.refresh();window.panelCalls=[];});
  const ref={siteUrl:'https://example.com',apiEndpoint:'https://api.example.com',workspaceId:'12345678',kind:'story',id:'11111111',title:'第一张单据',status:'open',statusLabel:'待处理',owner:''};
  await page.evaluate(ref=>{window.refs=[ref];window.refresh();},ref);
  await page.getByRole('button',{name:'TAPD 任务看板（0）'}).click();

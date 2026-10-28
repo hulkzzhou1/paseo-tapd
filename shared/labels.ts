@@ -27,3 +27,15 @@ export const createLabelRpc = defineRpc({
     outcome: z.enum(["unchanged", "verified", "unverified"]), writeState: z.enum(["not_sent", "accepted"]),
   }),
 });
+export const updateLabelsRpc = defineRpc({
+  name: "tapd.update_labels",
+  input: itemLabelTargetSchema.extend({
+    expectedValue: z.string().max(20_100).describe("Exact raw value from a successful fresh tapd_item_labels read; never substitute for missing/null."),
+    add: z.array(labelNameSchema).max(100).default([]), remove: z.array(labelNameSchema).max(100).default([]), confirmed: z.literal(true),
+  }).refine(input => input.add.length + input.remove.length > 0 && input.add.length + input.remove.length <= 100
+    && !input.add.some(name => input.remove.includes(name)), "Supply 1-100 non-overlapping label additions/removals"),
+  output: z.object({
+    ok: z.boolean(), outcome: z.enum(["unchanged", "verified", "unverified"]), writeState: z.enum(["not_sent", "accepted"]),
+    labels: z.array(labelNameSchema).max(100).nullable(), entity: itemLabelsRpc.output.shape.entity,
+  }),
+});

@@ -11,6 +11,8 @@ export interface TapdConfig {
   workspaceIds: string[];
   writeSignal?: AbortSignal;
   readWarnings?: string[];
+  freshReads?: boolean;
+  protectedValues?: string[];
 }
 
 export interface TapdConfigInput {
@@ -107,11 +109,31 @@ export interface AttachmentSearchItem {
 
 export class TapdApiError extends Error {
   detail?: string;
-  constructor(message: string, detail?: string) {
+  failure: TapdFailure;
+  constructor(message: string, detail?: string, failure: TapdFailure = { code: "invalid_input", phase: "validation", writeState: "not_sent" }) {
     super(message);
     this.name = "TapdApiError";
     this.detail = detail;
+    this.failure = failure;
   }
+}
+
+export interface TapdFailure {
+  code: string;
+  phase: "validation" | "read" | "write";
+  writeState: "not_sent" | "rejected" | "unknown";
+  httpStatus?: number;
+}
+export function safeFailure(error: unknown): TapdFailure {
+  return error instanceof TapdApiError ? error.failure : { code: "invalid_input", phase: "validation", writeState: "not_sent" };
+}
+function requestFailure(phase: "read" | "write", code: string, httpStatus?: number, rejected = false) {
+  const writeState = phase === "read" ? "not_sent" : rejected ? "rejected" : "unknown";
+  return new TapdApiError(
+    writeState === "unknown" ? "TAPD 写入结果未知；请重新读取核对，勿重复提交。"
+      : writeState === "rejected" ? "TAPD 拒绝了写入；请核查权限、字段或工作流条件。"
+        : "TAPD 读取失败；未发送写入，请检查连接或权限。",
+    undefined, { code, phase, writeState, ...(httpStatus === undefined ? {} : { httpStatus }) });
 }
 
 export const KIND_LABELS: Record<EntityKind, string> = { story: "需求", task: "任务", bug: "缺陷" };
@@ -195,6 +217,7 @@ export function describeError(error: unknown): string {
 const DEFAULT_CACHE_TTL_MS = 20_000;
 const responseCache = new Map<string, { at: number; value: unknown }>();
 const inflightRequests = new Map<string, Promise<unknown>>();
+let cacheGeneration = 0;
 
 // ---------------------------------------------------------------------------
 // 看板整体缓存（SWR）：过期先回旧数据 + 后台刷新，避免进工作台全量重拉白屏
@@ -204,6 +227,7 @@ const boardCache = new Map<string, { at: number; result: unknown }>();
 const boardRefreshes = new Map<string, Promise<unknown>>();
 
 export function clearTapdCache(): void {
+  cacheGeneration++;
   responseCache.clear();
   inflightRequests.clear();
   boardCache.clear();
@@ -261,12 +285,14 @@ async function requestJson(
   path: string,
   params: Record<string, QueryValue>,
   ttlMs: number = DEFAULT_CACHE_TTL_MS,
+  fresh = config.freshReads ?? false,
 ): Promise<any> {
   const query = buildQuery(params);
+  const generation = cacheGeneration;
   const url = `${config.endpoint}${path}${query ? `?${query}` : ""}`;
   const cached = responseCache.get(url);
-  if (cached && Date.now() - cached.at < ttlMs) return cached.value;
-  const pending = inflightRequests.get(url);
+  if (!fresh && cached && Date.now() - cached.at < ttlMs) return cached.value;
+  const pending = fresh ? undefined : inflightRequests.get(url);
   if (pending) {
     try { return await pending; } catch (error) {
       config.readWarnings?.push("部分 TAPD 读取失败，结果可能不完整。");
@@ -277,43 +303,30 @@ async function requestJson(
   const request = (async () => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20_000);
-    let response: Response;
     try {
-      response = await fetch(url, {
-        redirect: "error",
-        headers: { Authorization: `Bearer ${config.token}` },
-        signal: controller.signal,
+      const response = await fetch(url, {
+        redirect: "error", headers: { Authorization: `Bearer ${config.token}` }, signal: controller.signal,
       });
+      if (!response.ok) throw requestFailure("read", response.status === 401 ? "unauthenticated" : response.status === 403 ? "forbidden" : "request_failed", response.status);
+      let payload;
+      try { payload = await response.json(); } catch { throw requestFailure("read", "invalid_response", response.status); }
+      if (!payload || typeof payload !== "object" || payload.status !== 1) throw requestFailure("read", "api_rejected", response.status);
+      if (!fresh && generation === cacheGeneration) responseCache.set(url, { at: Date.now(), value: payload.data });
+      return payload.data;
     } catch (error) {
-      const detail = controller.signal.aborted ? "请求超时（20 秒）" : describeError(error);
-      throw new TapdApiError(`TAPD 请求失败：${path}`, detail);
-    } finally {
-      clearTimeout(timer);
-    }
-    if (!response.ok) {
-      throw new TapdApiError(`TAPD 接口返回 HTTP ${response.status}：${path}`);
-    }
-    let payload: any;
-    try {
-      payload = await response.json();
-    } catch (error) {
-      throw new TapdApiError(`TAPD 返回内容不是 JSON：${path}`, describeError(error));
-    }
-    if (!payload || typeof payload !== "object" || payload.status !== 1) {
-      throw new TapdApiError(`TAPD 接口错误：${path}`, String(payload?.info ?? "未知错误"));
-    }
-    responseCache.set(url, { at: Date.now(), value: payload.data });
-    return payload.data;
+      if (error instanceof TapdApiError) throw error;
+      throw requestFailure("read", controller.signal.aborted ? "timeout" : "request_failed");
+    } finally { clearTimeout(timer); }
   })();
 
-  inflightRequests.set(url, request);
+  if (!fresh) inflightRequests.set(url, request);
   try {
     return await request;
   } catch (error) {
     config.readWarnings?.push("部分 TAPD 读取失败，结果可能不完整。");
     throw error;
   } finally {
-    inflightRequests.delete(url);
+    if (!fresh && inflightRequests.get(url) === request) inflightRequests.delete(url);
   }
 }
 
@@ -858,45 +871,39 @@ async function requestPost(
   config: TapdConfig,
   path: string,
   params: Record<string, QueryValue>,
+  preserveEmpty = false,
 ): Promise<any> {
   if (config.writeSignal?.aborted) throw new TapdApiError("TAPD 操作已取消");
   const body = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined) continue;
     const text = String(value);
-    if (text.length === 0) continue;
+    if (text.length === 0 && !preserveEmpty) continue;
     body.set(key, text);
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
-  let response: Response;
   try {
-    response = await fetch(`${config.endpoint}${path}`, {
-      redirect: "error",
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${config.token}`,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: body.toString(),
-      signal: controller.signal,
+    const response = await fetch(`${config.endpoint}${path}`, {
+      redirect: "error", method: "POST",
+      headers: { Authorization: `Bearer ${config.token}`, "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(), signal: controller.signal,
     });
+    if (!response.ok) {
+      const rejected = response.status >= 400 && response.status < 500 && response.status !== 408;
+      throw requestFailure("write", response.status === 401 ? "unauthenticated" : response.status === 403 ? "forbidden" : "request_failed", response.status, rejected);
+    }
+    let payload;
+    try { payload = await response.json(); } catch { throw requestFailure("write", "invalid_response", response.status); }
+    if (!payload || payload.status !== 1) throw requestFailure("write", "api_rejected", response.status, payload?.status === 0);
+    return payload.data;
   } catch (error) {
-    const detail = controller.signal.aborted ? "请求超时（20 秒）" : describeError(error);
-    throw new TapdApiError(`TAPD 请求失败：${path}`, detail);
+    if (error instanceof TapdApiError) throw error;
+    throw requestFailure("write", controller.signal.aborted ? "timeout" : "request_failed");
   } finally {
     clearTimeout(timer);
+    clearTapdCache();
   }
-  let payload: any = null;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = null;
-  }
-  if (!response.ok || !payload || payload.status !== 1) {
-    throw new TapdApiError(`TAPD 接口错误：${path}`, String(payload?.info ?? `HTTP ${response.status}`));
-  }
-  return payload.data;
 }
 
 /** 「我相关的」：找到我参与（处理/创建/抄送/评论）的任务所关联的 story ID */
@@ -950,6 +957,101 @@ const CREATE_FIELD_DENYLIST = new Set([
   "owner", "current_owner", "priority_label", "iteration_id", "status",
   "created", "modified", "creator", "reporter", "cc", "follower",
 ]);
+
+export interface FieldDefinition {
+  key: string;
+  label: string;
+  htmlType: string;
+  readonly: boolean | null;
+  supported: boolean;
+}
+
+function validateFieldProject(config: TapdConfig, kind: string, workspaceId: string) {
+  if (kind !== "story" || !/^\d{1,100}$/.test(workspaceId) || !config.workspaceIds.includes(workspaceId)) {
+    throw new TapdApiError("需求字段的项目或类型无效。");
+  }
+}
+
+const designFieldKey = /^(description|custom_field_[a-zA-Z0-9_]+)$/;
+const fieldFailureMessages = {
+  field_not_returned: "项目元数据未返回该字段，不能判断其是否存在或有权限。",
+  unsupported_field: "该字段类型暂不支持。",
+  readonly_field: "字段元数据标记为只读，未提交。",
+  permission_unknown: "字段可编辑性未知，未提交。",
+  value_not_returned: "接口未返回字段旧值，未提交。",
+  conflict: "字段旧值冲突，请重新读取并保留已有内容。",
+};
+function fieldFailure(code: keyof typeof fieldFailureMessages) {
+  return new TapdApiError(fieldFailureMessages[code], undefined, { code, phase: "validation", writeState: "not_sent" });
+}
+function protectFieldData(config: TapdConfig, data: unknown) {
+  const text = JSON.stringify(data);
+  if ([config.token, ...(config.protectedValues ?? [])].filter(Boolean)
+    .some(secret => text.includes(JSON.stringify(secret).slice(1, -1)))) {
+    throw new TapdApiError("字段数据包含受保护内容，无法安全读取或写入。");
+  }
+}
+export async function fetchFieldDefinitions(config: TapdConfig, kind: string, workspaceId: string): Promise<{ fields: FieldDefinition[] }> {
+  validateFieldProject(config, kind, workspaceId);
+  const data = await requestJson(config, FIELDS_INFO_PATH.story, { workspace_id: workspaceId }, 0, true);
+  if (!data || typeof data !== "object" || Array.isArray(data)) throw new TapdApiError("字段元数据格式不支持。");
+  const fields: FieldDefinition[] = [];
+  for (const [key, raw] of Object.entries(data)) {
+    if (!designFieldKey.test(key) || key.length > 100) continue;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new TapdApiError("字段元数据格式不支持。");
+    const info = raw as Record<string, unknown>;
+    const htmlType = typeof info.html_type === "string" ? info.html_type.slice(0, 100) : "";
+    fields.push({ key, label: typeof info.label === "string" ? info.label.slice(0, 500) : "", htmlType,
+      readonly: info.readonly === true || info.readonly === 1 || info.readonly === "1" ? true
+        : info.readonly === false || info.readonly === 0 || info.readonly === "0" ? false : null,
+      supported: ["text", "input", "textarea", "rich_edit", "rich_text"].includes(htmlType),
+    });
+  }
+  protectFieldData(config, fields);
+  return { fields };
+}
+
+export interface FieldTarget { kind: "story"; workspaceId: string; id: string; fieldKey: string }
+export async function readEntityField(config: TapdConfig, input: FieldTarget) {
+  validateFieldProject(config, input.kind, input.workspaceId);
+  if (!/^\d{1,100}$/.test(input.id) || input.fieldKey.length > 100 || !designFieldKey.test(input.fieldKey)) throw new TapdApiError("字段目标无效。");
+  const { fields } = await fetchFieldDefinitions(config, input.kind, input.workspaceId);
+  const field = fields.find(field => field.key === input.fieldKey);
+  if (!field) throw fieldFailure("field_not_returned");
+  if (!field.supported) throw fieldFailure("unsupported_field");
+  const data = await requestJson(config, "/stories", { workspace_id: input.workspaceId, id: input.id, limit: 1,
+    fields: `id,workspace_id,name,status,owner,modified,${input.fieldKey}` }, 0, true);
+  const row = unwrapRows(data, ["Story"])[0];
+  if (!row || String(row.id) !== input.id || (row.workspace_id !== undefined && String(row.workspace_id) !== input.workspaceId)) throw new TapdApiError("目标需求未返回或项目不匹配。");
+  const returned = Object.hasOwn(row, input.fieldKey);
+  const value: unknown = returned ? row[input.fieldKey] : null;
+  if (value !== null && (typeof value !== "string" || value.length > 50_000)) throw new TapdApiError("字段值格式或长度不支持。");
+  const result = { field, returned, value, modifiedAt: String(row.modified ?? ""),
+    entity: { kind: input.kind, workspaceId: input.workspaceId, id: input.id, title: String(row.name ?? ""),
+      status: String(row.status ?? ""), statusLabel: "", owner: String(row.owner ?? "") } };
+  protectFieldData(config, result);
+  return result;
+}
+
+export async function updateEntityField(config: TapdConfig, input: FieldTarget & { expectedValue: string | null; value: string; confirmed: true }) {
+  if (input.confirmed !== true || typeof input.value !== "string" || input.value.length > 50_000
+    || (input.expectedValue !== null && (typeof input.expectedValue !== "string" || input.expectedValue.length > 50_000))) throw new TapdApiError("字段更新输入无效。");
+  protectFieldData(config, [input.expectedValue, input.value]);
+  const before = await readEntityField(config, input);
+  if (before.field.readonly !== false) throw fieldFailure(before.field.readonly ? "readonly_field" : "permission_unknown");
+  if (!before.returned) throw fieldFailure("value_not_returned");
+  if (before.value !== input.expectedValue) throw fieldFailure("conflict");
+  if (before.value === input.value) return { ok: true, outcome: "unchanged" as const, writeState: "not_sent" as const, entity: before.entity };
+  await requestPost(config, "/stories", { workspace_id: input.workspaceId, id: input.id, [input.fieldKey]: input.value }, true);
+  clearTapdCache();
+  try {
+    const after = await readEntityField(config, input);
+    const verified = after.returned && after.value === input.value;
+    return { ok: verified, outcome: verified ? "verified" as const : "unverified" as const, writeState: "accepted" as const, entity: after.entity };
+  } catch {
+    return { ok: false, outcome: "unverified" as const, writeState: "accepted" as const, entity: before.entity };
+  }
+}
 
 export interface CreateFieldInfo {
   key: string;
@@ -1046,7 +1148,7 @@ export async function createEntity(
   const data = await requestPost(config, LIST_PATH[input.kind], params);
   const row = unwrapRow(data, [KIND_WRAPPER[input.kind]]);
   const id = String(row?.id ?? "");
-  if (!id) throw new TapdApiError("TAPD 创建成功但未返回单据 ID");
+  if (!id) throw requestFailure("write", "missing_created_id");
   return { id, kind: input.kind, url: entityUrl(config, workspaceId, input.kind, id) };
 }
 

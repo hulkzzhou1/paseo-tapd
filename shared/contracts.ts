@@ -118,7 +118,7 @@ export const tapdSettingsSchema = z.object({
   /** 上次派活使用的仓库与模型（默认值） */
   lastRepoPath: z.string().default(""),
   lastProvider: z.string().default(""),
-  /** Agent 完成工作后自动回写 TAPD 评论（默认关，避免到处刷评论） */
+  /** Legacy setting retained for saved configuration compatibility; no longer triggers writes. */
   autoReportAgentResult: z.boolean().default(false),
   /** Git 配置同步：把非密配置（视图/收藏/看板列/关联记录等）备份到用户自己的仓库，卸载重装后可一键恢复 */
   syncGitUrl: z.string().default(""),
@@ -352,6 +352,47 @@ export const filterFieldsRpc = defineRpc({
   }),
 });
 
+const fieldProjectSchema = z.object({
+  kind: z.literal("story"),
+  workspaceId: z.string().regex(/^\d+$/).min(1).max(100),
+});
+export const fieldDefinitionSchema = z.object({
+  key: z.string().max(100), label: z.string().max(500), htmlType: z.string().max(100),
+  readonly: z.boolean().nullable(), supported: z.boolean(),
+});
+export const fieldDefinitionsRpc = defineRpc({
+  name: "tapd.field_definitions",
+  input: fieldProjectSchema,
+  output: z.object({ fields: z.array(fieldDefinitionSchema) }),
+});
+const fieldTargetSchema = fieldProjectSchema.extend({
+  id: z.string().regex(/^\d+$/).min(1).max(100),
+  fieldKey: z.string().max(100).regex(/^(description|custom_field_[a-zA-Z0-9_]+)$/),
+});
+const fieldEntitySchema = fieldProjectSchema.extend({
+  id: z.string(), title: z.string(), status: z.string(), statusLabel: z.string(), owner: z.string(),
+});
+const fieldReadSchema = z.object({
+  field: fieldDefinitionSchema, returned: z.boolean(), value: z.string().max(50_000).nullable(),
+  modifiedAt: z.string(), entity: fieldEntitySchema,
+});
+export const readFieldRpc = defineRpc({
+  name: "tapd.read_field", input: fieldTargetSchema, output: fieldReadSchema,
+});
+export const updateFieldRpc = defineRpc({
+  name: "tapd.update_field",
+  input: fieldTargetSchema.extend({
+    expectedValue: z.string().max(50_000).nullable(),
+    value: z.string().max(50_000),
+    confirmed: z.literal(true),
+  }),
+  output: z.object({
+    ok: z.boolean(), outcome: z.enum(["unchanged", "verified", "unverified"]),
+    writeState: z.enum(["not_sent", "accepted", "unknown"]),
+    entity: fieldEntitySchema,
+  }),
+});
+
 export const createRpc = defineRpc({
   name: "tapd.create",
   input: z.object({
@@ -433,7 +474,8 @@ const entityChildItemSchema = z.object({
 
 export const entityRpc = defineRpc({
   name: "tapd.entity",
-  input: z.object({ kind: entityKindSchema, id: z.string(), workspaceId: z.string().min(1).max(100).optional(),
+  input: z.object({
+    fresh: z.boolean().optional(), kind: entityKindSchema, id: z.string(), workspaceId: z.string().min(1).max(100).optional(),
     siteUrl: z.string().max(4096).optional(), apiEndpoint: z.string().max(4096).optional() }),
   output: z.object({
     kind: entityKindSchema,

@@ -4,11 +4,11 @@ import { randomUUID } from "node:crypto";
 import type { ConversationRuntime } from "./conversation";
 import { batchEntitySchema, batchResultSchema, conversationEntitySchema, entityResultSchema } from "../shared/conversation";
 import {
-  boardRpc, createRpc, entityKindSchema, filtersSchema, tapdSettingsSchema,
+  updateFieldRpc, readFieldRpc, fieldDefinitionsRpc, boardRpc, createRpc, entityKindSchema, filtersSchema, tapdSettingsSchema,
   type TapdSettingsValues,
 } from "../shared/contracts";
 import { createHandlers } from "./handlers";
-import { resolveConfig, type TapdConfig } from "./tapd";
+import { safeFailure, resolveConfig, type TapdConfig } from "./tapd";
 
 type Handlers = ReturnType<typeof createHandlers>;
 const id = z.string().trim().min(1).max(100).regex(/^\d+$/);
@@ -39,8 +39,8 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
             && !config.workspaceIds.includes(String(parsed.workspaceId))) throw new Error();
           const warnings: string[] = [];
           const result = await run(parsed, createHandlers(async () => values, { writeSignal: signal, readWarnings: warnings }), config, signal);
-          const operation = ({ tapd_entity: "read", tapd_create: "create", tapd_update_status: "status", tapd_add_comment: "comment" } as const)[name as "tapd_entity" | "tapd_create" | "tapd_update_status" | "tapd_add_comment"];
-          writeCompleted = operation !== undefined && operation !== "read";
+          const operation = ({ tapd_entity: "read", tapd_create: "create", tapd_update_status: "status", tapd_add_comment: "comment", tapd_update_field: "field" } as const)[name as "tapd_entity" | "tapd_create" | "tapd_update_status" | "tapd_add_comment" | "tapd_update_field"];
+          writeCompleted = operation !== undefined && operation !== "read" && (operation !== "field" || ("writeState" in result && result.writeState === "accepted"));
           if (signal.aborted && !writeCompleted) throw new Error();
           // Errors from TAPD may echo request data; keep them out of model-visible results.
           let serialized = JSON.stringify(warnings.length ? { ...result, warnings: [...new Set(warnings)] } : result, (key, value) =>
@@ -75,8 +75,8 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
               else await paseo.agents.ref(agent.id).timeline.append({ type: "plugin", id: data.batchId, kind: "tapd-batch-result", version: 1, data });
             } catch { structuredContent.presentationWarning = "查询已完成，批量快捷卡片未能显示；可以重新查询。"; }
           }
-          if (writeCompleted) structuredContent.ok = true;
-          if (operation && !("unchanged" in structuredContent && structuredContent.unchanged)) {
+          if (writeCompleted && operation !== "field") structuredContent.ok = true;
+          if (operation && !("unchanged" in structuredContent && structuredContent.unchanged) && (operation !== "field" || structuredContent.outcome === "verified")) {
             try {
               const entity = operation === "read" ? structuredContent : structuredContent.entity;
               if ([config.token, values.syncGitToken, process.env.TAPD_TOKEN].filter(Boolean)
@@ -98,21 +98,24 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
             }
           }
           return { structuredContent };
-        } catch {
-          if (writeCompleted) return { structuredContent: { ok: true, presentationWarning: "TAPD 操作已成功，结果展示暂不可用；请查询确认，勿重复提交。" } };
-          return { isError: true, text: failure };
+        } catch (error) {
+          if (writeCompleted) return { structuredContent: { ...(name === "tapd_update_field" ? { ok: false, writeState: "accepted", outcome: "unverified" } : { ok: true }), presentationWarning: "TAPD 操作已成功，结果展示暂不可用；请查询确认，勿重复提交。" } };
+          return { isError: true, text: failure, structuredContent: { failure: safeFailure(error) } };
         }
       },
     });
   }
 
   async function actualTarget(input: z.output<typeof target>, handlers: Handlers) {
-    const entity = await handlers.entity({ kind: input.kind, id: input.id });
+    const entity = await handlers.entity({ kind: input.kind, id: input.id, workspaceId: input.workspaceId, fresh: true });
     if (entity.workspaceId !== input.workspaceId || entity.id !== input.id) throw new Error();
     return { kind: entity.kind, id: entity.id, workspaceId: entity.workspaceId, title: entity.title, status: entity.status, statusLabel: entity.statusLabel, owner: entity.owner };
   }
 
   return [
+    tool("tapd_update_field", "WRITE: replace one discovered story text/rich-text field only after approval of the exact project, item, key, old and new value. Preserve human content and raw HTML. Empty value explicitly clears. Checks expectedValue then reads back fresh; this is not atomic concurrency control. Inspect outcome and writeState. Never retry an unverified write; read the field first.", updateFieldRpc.input, (input, handlers) => handlers.updateField(input)),
+    tool("tapd_read_field", "Read one discovered story text/rich-text field fresh. Preserves exact text/HTML, null and not-returned; never treat a missing value as empty. Use the actual project and field key.", readFieldRpc.input, (input, handlers) => handlers.readField(input)),
+    tool("tapd_field_definitions", "Discover story description/custom fields for one project. Keeps raw types, readonly and unsupported fields; readonly=null is unknown, not permission. Actual item permissions remain server-enforced.", fieldDefinitionsRpc.input, (input, handlers) => handlers.fieldDefinitions(input)),
     tool("tapd_projects", "List configured TAPD project IDs. No credentials are returned.", z.object({}),
       async (_input, _handlers, config) => ({ workspaceIds: config.workspaceIds })),
     tool("tapd_board", "Read story/task/bug columns with workbench filters. Default ownerMode is mine; use all for everyone. Results can be partial or truncated; inspect errors, stale and truncated flags.",
@@ -121,7 +124,7 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
     tool("tapd_search", "Search configured projects by item ID or title keyword, at most 5 per project/kind and 15 total; inspect warnings for failures or truncation. Use tapd_entity to obtain the actual project and full detail.",
       z.object({ query: z.string().trim().min(1).max(200) }), (input, handlers) => handlers.search(input)),
     tool("tapd_entity", "Read an item's actual TAPD project, full description, recent comments and related items. kind: story=requirement, task=task, bug=defect.",
-      z.object({ kind: entityKindSchema, id }), (input, handlers) => handlers.entity(input)),
+      z.object({ kind: entityKindSchema, id, fresh: z.boolean().default(true) }), (input, handlers) => handlers.entity(input)),
     tool("tapd_filter_options", "Read iteration date ranges, priority, severity and status filter options across configured projects. For a write use project-specific tapd_status_options.",
       z.object({}), (_input, handlers) => handlers.filterOptions()),
     tool("tapd_filter_fields", "Read supported advanced filter fields and their options, including per-kind workflow status fields.",

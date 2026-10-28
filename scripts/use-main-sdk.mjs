@@ -1,7 +1,7 @@
 import { readFile, rm, cp, mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
-// The published 0.13.2 SDK predates agent tools; use a trusted local Paseo main checkout.
+// Optional override for development against a trusted local Paseo main checkout.
 const root = process.argv[2];
 if (!root) throw new Error("Usage: npm run sdk:main -- /path/to/paseo-main");
 const source = resolve(root, "packages/plugin");

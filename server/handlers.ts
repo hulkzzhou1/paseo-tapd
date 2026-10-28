@@ -1,8 +1,8 @@
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import type { imageRpc, addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, updateCheckRpc, updateStatusRpc } from "../shared/contracts";
-import { DEFAULT_FILTERS, type EntityKind, type TapdSettingsValues } from "../shared/contracts";
-import { getTurnRecord, type AgentTurnRecord } from "./agent-state";
+import { updateFieldRpc, readFieldRpc, fieldDefinitionsRpc, DEFAULT_FILTERS, type EntityKind, type TapdSettingsValues } from "../shared/contracts";
+import { getTurnRecord } from "./agent-state";
 import {
   addComment,
   boardWithCache,
@@ -18,6 +18,9 @@ import {
   fetchStatusOptions,
   fetchMyCommentedIds,
   fetchCreateFields,
+  fetchFieldDefinitions,
+  readEntityField,
+  updateEntityField,
   fetchRelatedStoryIdsFromTasks,
   isoDateDaysAgo,
   resolveConfig,
@@ -33,7 +36,7 @@ type GetValues = () => Promise<TapdSettingsValues>;
 export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig, "writeSignal" | "readWarnings"> = {}) {
   async function requireConfig(): Promise<{ config: TapdConfig; values: TapdSettingsValues }> {
     const values = await getValues();
-    const config = { ...resolveConfig(values), ...execution };
+    const config = { ...resolveConfig(values), ...execution, protectedValues: [values.syncGitToken, process.env.TAPD_TOKEN ?? ""] };
     if (config.token.length === 0) {
       throw new Error("未配置 TAPD Token：请在「TAPD 工作台设置」中填写，或为 daemon 配置环境变量 TAPD_TOKEN。");
     }
@@ -150,6 +153,24 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
       });
     },
 
+    async updateField(raw: RpcInput<typeof updateFieldRpc>): Promise<RpcOutput<typeof updateFieldRpc>> {
+      const input = updateFieldRpc.input.parse(raw);
+      const { config } = await requireConfig();
+      return updateEntityField(config, input);
+    },
+
+    async readField(raw: RpcInput<typeof readFieldRpc>): Promise<RpcOutput<typeof readFieldRpc>> {
+      const input = readFieldRpc.input.parse(raw);
+      const { config } = await requireConfig();
+      return readEntityField(config, input);
+    },
+
+    async fieldDefinitions(raw: RpcInput<typeof fieldDefinitionsRpc>): Promise<RpcOutput<typeof fieldDefinitionsRpc>> {
+      const input = fieldDefinitionsRpc.input.parse(raw);
+      const { config } = await requireConfig();
+      return fetchFieldDefinitions(config, input.kind, input.workspaceId);
+    },
+
     async createFields(input: RpcInput<typeof createFieldsRpc>): Promise<RpcOutput<typeof createFieldsRpc>> {
       const { config } = await requireConfig();
       return fetchCreateFields(config, input.kind, input.workspaceId);
@@ -184,7 +205,7 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
         || (input.workspaceId !== undefined && !config.workspaceIds.includes(input.workspaceId))) {
         throw new Error("此单据与当前 TAPD 连接或项目不匹配，请检查插件设置。");
       }
-      return fetchEntity(input.workspaceId ? { ...config, workspaceIds: [input.workspaceId] } : config, input.kind, input.id);
+      return fetchEntity({ ...config, freshReads: input.fresh ?? false, ...(input.workspaceId ? { workspaceIds: [input.workspaceId] } : {}) }, input.kind, input.id);
     },
 
     async search(input: RpcInput<typeof searchRpc>): Promise<RpcOutput<typeof searchRpc>> {
@@ -281,28 +302,5 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
       };
     },
 
-    /** turn_ended 钩子触发：开关打开且该 agent 关联了 TAPD 单据时，自动回写一条结果评论。 */
-    async autoReportAfterTurn(input: { agentId: string; record: AgentTurnRecord }): Promise<void> {
-      try {
-        const values = await getValues();
-        if (!values.autoReportAgentResult) return;
-        const link = values.links.find((item) => item.agentId === input.agentId);
-        if (!link) return;
-        const config = resolveConfig(values);
-        if (config.token.length === 0 || config.workspaceIds.length === 0) return;
-        const header =
-          input.record.outcome === "failed"
-            ? "Agent 结果反馈：执行失败"
-            : input.record.outcome === "canceled"
-              ? "Agent 结果反馈：已取消"
-              : "Agent 结果反馈：已完成";
-        const text = [header, input.record.error || input.record.summary].filter(Boolean).join("\n");
-        const me = await fetchMe(config).catch(() => null);
-        const entity = await fetchEntity(config, link.kind, link.id);
-        await addComment(config, entity.workspaceId, link.kind, link.id, text, me?.nick ?? "");
-      } catch {
-        // 自动回评失败不打扰用户（无 UI 处），静默
-      }
-    },
   };
 }

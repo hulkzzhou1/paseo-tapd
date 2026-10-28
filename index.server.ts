@@ -2,7 +2,7 @@ import { createAgentLinks } from "./server/agent-links";
 import { createAssignmentTools } from "./server/agent-assignment";
 import { agentLinksRpc, removeAgentLinkRpc } from "./shared/agent-links";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { imageRpc, addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, syncPullRpc, syncPushRpc, tapdSettings, updateCheckRpc, updateStatusRpc } from "./shared/contracts";
+import { updateFieldRpc, readFieldRpc, fieldDefinitionsRpc, imageRpc, addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, syncPullRpc, syncPushRpc, tapdSettings, updateCheckRpc, updateStatusRpc } from "./shared/contracts";
 import { createHandlers } from "./server/handlers";
 import { createConversationRuntime } from "./server/conversation";
 import { conversationRefreshRpc, conversationBatchPageRpc, conversationListRpc, conversationFocusRpc, conversationRemoveRpc } from "./shared/conversation";
@@ -31,10 +31,6 @@ export default function contribute(server: PluginServerContext) {
   server.handle(agentLinksRpc, async () => ({ links: await visibleLinks() }));
   server.handle(removeAgentLinkRpc, async link => { await agentLinks.remove(link); return { ok: true as const }; });
   const handlers = createHandlers(getValues);
-  const reportingHandlers = createHandlers(async () => {
-    const values = await getValues();
-    return { ...values, links: [...values.links, ...await visibleLinks()] };
-  });
   const conversations = createConversationRuntime(getValues);
   const tools = [...createTapdTools(getValues, conversations), ...createAssignmentTools(getValues, agentLinks)];
   server.handle(conversationBatchPageRpc, (input, context) => conversations.batchPage({ paseo: context.paseo, agentId: input.agentId }, input));
@@ -46,6 +42,9 @@ export default function contribute(server: PluginServerContext) {
     try { await conversations.bootstrap(context); await conversations.reconcile(agent.id); if (event === "agent.created") await conversations.observeMessages({ paseo: context.paseo, agentId: agent.id }); } catch { /* Retry through the next public context. */ }
   });
   server.handle(boardRpc, handlers.board);
+  server.handle(updateFieldRpc, handlers.updateField);
+  server.handle(readFieldRpc, handlers.readField);
+  server.handle(fieldDefinitionsRpc, handlers.fieldDefinitions);
   server.handle(createRpc, handlers.create);
   server.handle(createFieldsRpc, handlers.createFields);
   server.handle(updateStatusRpc, handlers.updateStatus);
@@ -108,17 +107,15 @@ export default function contribute(server: PluginServerContext) {
     return { ...withTools, env };
   });
 
-  // Agent turn 结束：记台账；开关打开且该 agent 关联了 TAPD 单据时自动回写评论
+  // 回合结束仅记录本机状态；阶段成果由明确授权的评论工具提交。
   server.on("agent.turn_ended", async (event, context) => {
     if (!event.agent.id) return;
     if (context?.paseo) { try { await conversations.observeMessages({ paseo: context.paseo, agentId: event.agent.id }, true); } catch { /* Retry message catch-up on reconnect. */ } }
-    const record = recordTurnEnd({
+    recordTurnEnd({
       agentId: event.agent.id,
       outcome: event.outcome,
       endedAt: new Date().toISOString(),
-      timeline: event.timeline,
     });
-    void reportingHandlers.autoReportAfterTurn({ agentId: event.agent.id, record });
   });
 
   console.log("[tapd-workbench] server ready");

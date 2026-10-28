@@ -626,13 +626,13 @@ function AgentLinkRow({ link, theme, extras, status }: {
   const turnedAt = formatIsoTime(status?.turnEndedAt ?? "");
   const turnLabel =
     status?.turnOutcome === "completed"
-      ? "上次完成"
+      ? "上轮已结束"
       : status?.turnOutcome === "failed"
-        ? "上次失败"
+        ? "上轮失败"
         : status?.turnOutcome === "canceled"
-          ? "上次取消"
+          ? "上轮取消"
           : "";
-  const turnText = (status?.turnError || status?.turnSummary || "").trim();
+  const turnText = (status?.turnError || status?.turnSummary || (hasTurn ? "本轮摘要未提取，请查看 Agent 会话；回合结束不代表业务完成。" : "")).trim();
   const turnColor =
     status?.turnOutcome === "failed"
       ? theme.colors.statusDanger

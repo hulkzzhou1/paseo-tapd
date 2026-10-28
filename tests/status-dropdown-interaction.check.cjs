@@ -76,7 +76,7 @@ async function main() {
       await page.getByRole('menuitemradio',{name:'待处理',exact:true}).click();
       assert.equal((await calls('tapd.update_status')).length,0);
       await page.getByRole('menuitemradio',{name:'已完成',exact:true}).dblclick();
-      await page.getByText('修改状态失败，请重试。',{exact:true}).waitFor();
+      await page.getByText('状态未确认，请读取详情核对后再操作。',{exact:true}).waitFor();
       assert.equal((await calls('tapd.update_status')).length,1,'double click writes only once');
       assert.equal(await page.getByRole('menuitemradio',{name:'待处理',exact:true}).getAttribute('aria-checked'),'true');
       assert.equal(await page.getByText('private write error must stay hidden',{exact:true}).count(),0);

@@ -1,9 +1,9 @@
 import { PLUGIN_VERSION } from "../shared/version";
 
-const RECORD_RAW = "https://raw.githubusercontent.com/getpaseo/plugins/main/plugins/casonmo/tapd-workbench.json";
-const RECORD_API = "https://api.github.com/repos/getpaseo/plugins/contents/plugins/casonmo/tapd-workbench.json";
-const REPO_RAW = "https://raw.githubusercontent.com/CasonMo/paseo-tapd";
-const REPO_API = "https://api.github.com/repos/CasonMo/paseo-tapd/contents";
+const RECORD_RAW = "https://raw.githubusercontent.com/getpaseo/plugins/main/plugins/hulkzzhou1/tapd-workbench.json";
+const RECORD_API = "https://api.github.com/repos/getpaseo/plugins/contents/plugins/hulkzzhou1/tapd-workbench.json";
+const REPO_RAW = "https://raw.githubusercontent.com/hulkzzhou1/paseo-tapd";
+const REPO_API = "https://api.github.com/repos/hulkzzhou1/paseo-tapd/contents";
 const CACHE_TTL_MS = 3_600_000;
 const FETCH_TIMEOUT_MS = 10_000;
 

@@ -353,6 +353,11 @@ Creation, status and comment writes share configured-project validation. Existin
 
 建单、改状态与评论共用配置项目校验。现有单据写入前实时核实类型、编号及实际项目；目标无法读取或不匹配时停止，不猜测写入。仅未指定项目的独立建单默认使用首个配置项目。
 
+
+看板与子单据可首次直接打开详情：直接指派、接受委派或展开的真实子单据无需先查询或生成历史卡片。新引用会核实可访问 Agent、当前连接及实际项目/类型/编号，再读取标题、状态、处理人和标签；客户端携带的摘要不作为真实数据。打开只更新最近查看，不接手、转移或创建任务；既有卡片和已知引用继续沿用原摘要。
+
+`PASEO_RUNTIME_DIR=/path/to/trusted/paseo-main npm run test:navigation` 使用隔离真实 daemon、合成 TAPD/provider 和实际看板/详情组件，验证首次指派、接受委派和子单据的真实 focus/详情 RPC、详情 tab 复用及只读行为；不访问当前安装、不生成截图。
+
 New single-item and batch result cards are saved locally before direct timeline append. Long conversations do not rescan their entire history for each new card; restart, reconnect and timeline replacement still restore missing cards without repeating TAPD writes. One Agent's presentation recovery does not block another Agent's new cards.
 
 单张与批量结果卡片先保存本机，再直接追加到时间线，长会话不会因每张新卡片重扫全部历史；重启、重连和时间线替换仍可恢复缺失卡片，不重复 TAPD 写入。某个 Agent 的展示恢复不会阻塞其他 Agent 的新卡片。

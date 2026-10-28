@@ -1744,14 +1744,15 @@ export async function fetchColumn(
 }
 
 /** Conversation summaries read only list fields; descriptions, comments and related items stay lazy. */
-export async function fetchEntitySummary(config: TapdConfig, kind: EntityKind, id: string, workspaceId: string) {
+export async function fetchEntitySummary(config: TapdConfig, kind: EntityKind, id: string, workspaceId: string, verifyTarget = false) {
   if (!config.workspaceIds.includes(workspaceId)) throw new TapdApiError("项目未配置");
   const data = await requestJson(config, LIST_PATH[kind], {
     workspace_id: workspaceId, id, limit: 1,
     fields: kind === "bug" ? "id,workspace_id,title,status,current_owner,label" : (kind === "story" ? "id,workspace_id,name,status,owner,workitem_type_id,step,flows,label" : "id,workspace_id,name,status,owner,label"),
   }, 0);
   const row = unwrapRows(data, [KIND_WRAPPER[kind]])[0];
-  if (!row || String(row.id) !== id || (row.workspace_id !== undefined && String(row.workspace_id) !== workspaceId)) throw new TapdApiError("单据摘要不可用");
+  if (!row || String(row.id) !== id || (row.workspace_id !== undefined && String(row.workspace_id) !== workspaceId)
+    || (verifyTarget && (String(row.workspace_id ?? "") !== workspaceId || (row.entity_type !== undefined && row.entity_type !== kind)))) throw new TapdApiError("单据摘要不可用");
   const labels = await fetchStatusLabels({ ...config, workspaceIds: [workspaceId] }, kind);
   const status = String(row.status ?? "");
   return { labels: readDisplayLabels(config, row), kind, id, workspaceId, title: String((kind === "bug" ? row.title : row.name) ?? ""),

@@ -2,7 +2,7 @@ import { createAgentLinks } from "./server/agent-links";
 import { createAssignmentService, createAssignmentTools } from "./server/agent-assignment";
 import { createTaskBoard } from "./server/task-board";
 import { taskBoardRpc, taskClaimRpc, taskDispatchRpc } from "./shared/task-board";
-import { labelsRpc, itemLabelsRpc, createLabelRpc } from "./shared/labels";
+import { labelsRpc, itemLabelsRpc, createLabelRpc, updateLabelsRpc } from "./shared/labels";
 import { agentLinksRpc, removeAgentLinkRpc } from "./shared/agent-links";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
 import { updateFieldRpc, readFieldRpc, fieldDefinitionsRpc, imageRpc, addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, syncPullRpc, syncPushRpc, tapdSettings, updateCheckRpc, updateStatusRpc } from "./shared/contracts";
@@ -42,6 +42,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(labelsRpc, handlers.labels);
   server.handle(itemLabelsRpc, handlers.itemLabels);
   server.handle(createLabelRpc, handlers.createLabel);
+  server.handle(updateLabelsRpc, handlers.updateLabels);
   const conversations = createConversationRuntime(getValues);
   const tools = [...createTapdTools(getValues, conversations), ...createAssignmentTools(getValues, agentLinks)];
   server.handle(conversationBatchPageRpc, (input, context) => conversations.batchPage({ paseo: context.paseo, agentId: input.agentId }, input));

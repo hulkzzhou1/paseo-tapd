@@ -59,7 +59,7 @@ test("main SDK tools expose valid schemas, names and required write confirmation
     assert.ok(tool.name.length <= 64);
     const schema = z.toJSONSchema(tool.input);
     for (const key of ["token", "apiEndpoint", "siteUrl", "syncGitToken"]) assert.equal(key in schema.properties, false);
-    if (["tapd_create", "tapd_update_status", "tapd_add_comment", "tapd_update_field", "tapd_create_label"].includes(tool.name)) {
+    if (["tapd_create", "tapd_update_status", "tapd_add_comment", "tapd_update_field", "tapd_create_label", "tapd_update_labels"].includes(tool.name)) {
       assert.ok(schema.required.includes("confirmed"));
       assert.equal(schema.properties.confirmed.const, true);
       assert.ok(schema.required.includes("workspaceId"));

@@ -1059,6 +1059,47 @@ export async function readItemLabels(config: TapdConfig, input: ItemLabelTarget)
   protectFieldData(config, result);
   return result;
 }
+const itemLabelUpdates = new Map<string, Promise<unknown>>();
+type ItemLabelUpdate = ItemLabelTarget & { expectedValue: string; add: string[]; remove: string[]; confirmed: true };
+export async function updateItemLabels(config: TapdConfig, input: ItemLabelUpdate) {
+  const key = JSON.stringify([config.endpoint, input.workspaceId, input.kind, input.id]);
+  const previous = itemLabelUpdates.get(key) ?? Promise.resolve();
+  const running = previous.catch(() => {}).then(() => applyItemLabelChanges(config, input));
+  itemLabelUpdates.set(key, running);
+  try { return await running; }
+  finally { if (itemLabelUpdates.get(key) === running) itemLabelUpdates.delete(key); }
+}
+async function applyItemLabelChanges(config: TapdConfig, input: ItemLabelUpdate) {
+  validateLabelProject(config, input.workspaceId);
+  if (input.confirmed !== true || typeof input.expectedValue !== "string" || input.expectedValue.length > 20_100
+    || !Array.isArray(input.add) || !Array.isArray(input.remove) || input.add.length + input.remove.length < 1 || input.add.length + input.remove.length > 100
+    || ![...input.add, ...input.remove].every(validLabelName) || input.add.some(name => input.remove.includes(name))) throw new TapdApiError("标签增删输入无效。");
+  protectFieldData(config, input);
+  if (config.writeSignal?.aborted) throw new TapdApiError("TAPD 操作已取消");
+  const target = { kind: input.kind, id: input.id, workspaceId: input.workspaceId };
+  const before = await readItemLabels(config, target);
+  if (!before.returned || before.labels === null) throw new TapdApiError("标签旧值未知，未提交。", undefined, { code: "labels_not_returned", phase: "validation", writeState: "not_sent" });
+  if (before.value !== input.expectedValue) throw new TapdApiError("标签旧值冲突，请实时重读。", undefined, { code: "label_conflict", phase: "validation", writeState: "not_sent" });
+  const labels = before.labels.filter(name => !input.remove.includes(name));
+  for (const name of input.add) if (!labels.includes(name)) labels.push(name);
+  const value = labels.join("|");
+  if (value === before.value) return { ok: true, outcome: "unchanged" as const, writeState: "not_sent" as const, labels: before.labels, entity: before.entity };
+  if (labels.length > 100) throw new TapdApiError("标签总数超过安全上限，未提交。");
+  // The documented update APIs do not specify clearing semantics; never invent a destructive sentinel.
+  if (labels.length === 0) throw new TapdApiError("该部署的最后标签清空语义尚未核实，未提交。", undefined, { code: "label_clear_unsupported", phase: "validation", writeState: "not_sent" });
+  const check = await readItemLabels(config, target);
+  if (!check.returned || check.value !== before.value) throw new TapdApiError("写入前标签已变化，请实时重读。", undefined, { code: "label_conflict", phase: "validation", writeState: "not_sent" });
+  await requestPost(config, LIST_PATH[input.kind], { workspace_id: input.workspaceId, id: input.id, label: value });
+  try {
+    const after = await readItemLabels(config, target);
+    const expected = [...labels].sort();
+    const verified = after.returned && after.labels !== null && after.labels.length === labels.length
+      && [...after.labels].sort().every((name, index) => name === expected[index]);
+    return { ok: verified, outcome: verified ? "verified" as const : "unverified" as const, writeState: "accepted" as const, labels: after.labels, entity: after.entity };
+  } catch {
+    return { ok: false, outcome: "unverified" as const, writeState: "accepted" as const, labels: null, entity: before.entity };
+  }
+}
 export async function createProjectLabel(config: TapdConfig, input: { workspaceId: string; name: string; color?: number; confirmed: true }) {
   validateLabelProject(config, input.workspaceId);
   if (input.confirmed !== true || !validLabelName(input.name)

@@ -37,7 +37,8 @@ async function main(){
   browser=await fromApp('@playwright/test').chromium.launch({headless:true,args:['--no-sandbox']});const page=await browser.newPage({viewport:{width:1200,height:1000}}),errors=[],remote=[];page.setDefaultTimeout(8000);page.on('pageerror',error=>errors.push(error.message));page.on('request',request=>{if(!request.url().startsWith('http://127.0.0.1:'))remote.push(request.url());});
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   const pill=page.getByRole('button',{name:'TAPD 任务看板（2）',exact:true});await pill.click();
-  await page.getByRole('button',{name:'打开任务 #11111111：Direct task',exact:true}).click();await page.getByRole('heading',{name:'Full direct detail',exact:true}).waitFor();await page.getByText('Complete body from TAPD',{exact:true}).waitFor();
+  const firstFocus=page.waitForResponse(response=>response.url().endsWith('/rpc')&&response.request().postDataJSON()?.name==='tapd.conversation.focus');
+  await page.getByRole('button',{name:'打开任务 #11111111：Direct task',exact:true}).click();assert.equal((await firstFocus).status(),200,'first assigned task must pass real focus RPC');await page.getByRole('heading',{name:'Full direct detail',exact:true}).waitFor();await page.getByText('Complete body from TAPD',{exact:true}).waitFor();
   for(const action of ['写回评论','创建该需求下的任务','刷新'])await page.getByRole('button',{name:action,exact:true}).waitFor();
   await pill.click();await page.getByRole('button',{name:'展开需求 #11111111 的子单据',exact:true}).click();await page.getByRole('button',{name:'打开子单据 #33333333',exact:true}).click();await page.getByRole('heading',{name:'Full child detail',exact:true}).waitFor();await page.getByText('Child body from TAPD',{exact:true}).waitFor();
   await pill.click();await page.getByRole('button',{name:'打开任务 #22222222：Accepted task',exact:true}).click();await page.getByRole('heading',{name:'Full accepted detail',exact:true}).waitFor();

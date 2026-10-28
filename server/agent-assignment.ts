@@ -122,7 +122,7 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
         const owner = expected(owners, input.expectedOwnerAgentId, input.expectedRevision)!;
         await available(owner.agentId, context, true);
         const agent = await available(input.targetAgentId, context);
-        if (agent.id === owner.agentId) return { result: { ok: true as const, changed: false, link: owner } };
+        if (agent.id === owner.agentId) return { result: await checked({ ok: true as const, changed: false, link: owner }) };
         const record = { ...scope, agentId: agent.id, workspaceId: agent.workspaceId ?? "", agentTitle: agent.current()?.title ?? agent.id, responsibility: { actorAgentId: "user", confirmedAt: new Date().toISOString(), revision: randomUUID() } };
         const next = suppressTask(state, scope, "user");
         return { state: await checked({ ...next, links: [...state.links.filter(item => !sameTask(item, scope)), record], history: [...state.history, event(scope, "transfer", "user", input.reason, owner.agentId, agent.id, record.responsibility.revision, owner.responsibility?.revision)] }), result: { ok: true as const, changed: true, link: record } };
@@ -198,11 +198,10 @@ export function createAssignmentTools(getValues: () => Promise<TapdSettingsValue
         try {
           if (context.signal?.aborted || Buffer.byteLength(JSON.stringify(raw)) > 64_000) throw new Error();
           const values = tapdSettingsSchema.parse(await getValues());
-          secrets = [values.token, values.syncGitToken, process.env.TAPD_TOKEN].filter((value): value is string => !!value);
+          const config = resolveConfig(values);
+          secrets = [config.token, ...(config.protectedValues ?? [])].filter(Boolean);
           const result = await run(input.parse(raw), context, values);
-          let text = JSON.stringify(result);
-          for (const secret of secrets) text = text.split(JSON.stringify(secret).slice(1, -1)).join("[redacted]");
-          return { structuredContent: JSON.parse(text) };
+          return { structuredContent: redactProtectedData(config, result) };
         } catch (error) {
           if (error instanceof AssignmentError) return { isError: true, structuredContent: { ok: false, code: error.code }, text: error.message };
           if (error instanceof OwnershipConflict) return { isError: true, structuredContent: { ok: false, conflict: true, owners: error.candidates.map(link => ({ agentId: secrets.some(secret => link.agentId.includes(secret)) ? "[redacted]" : link.agentId, confirmed: "responsibility" in link && !!link.responsibility })) }, text: error.message };

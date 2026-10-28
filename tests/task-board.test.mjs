@@ -157,6 +157,7 @@ test('assignment, migration and visible-link RPCs reject SDK credentials before 
  const s=await setup(t,{syncGitToken:'sync"\\example-secret'}),secret=s.values.syncGitToken;
  s.agents.get('example-agent').title=secret;
  await assert.rejects(s.rpc('tapd.task.claim',{...target,agentId:'example-agent'}));
+ assert.equal((await s.call('tapd_take_task',target)).isError,true);
  const file=join(s.home,'plugin-data/tapd-workbench/agent-links.json');const {readFile}=await import('node:fs/promises');
  assert.ok(!(await readFile(file,'utf8').catch(()=>'' )).includes(JSON.stringify(secret).slice(1,-1)));
  s.agents.get('example-agent').title='Safe';
@@ -168,8 +169,9 @@ test('assignment, migration and visible-link RPCs reject SDK credentials before 
  assert.equal(partial.ok,false);assert.equal(partial.bound,false);assert.equal(partial.promptSent,false);assert.equal(s.sends.length,0);
  assert.ok(!(await readFile(file,'utf8')).includes(JSON.stringify(secret).slice(1,-1)));
  await s.rpc('tapd.task.claim',{...target,agentId:'example-agent'});
- const stored=JSON.parse(await readFile(file,'utf8'));stored.links[0].agentTitle=secret;await writeFile(file,JSON.stringify(stored));
+ const stored=JSON.parse(await readFile(file,'utf8')),owner=stored.links.find(item=>item.id===target.id&&item.responsibility);owner.agentTitle=secret;await writeFile(file,JSON.stringify(stored));
  await assert.rejects(s.rpc('tapd.agent-links'));
+ await assert.rejects(s.rpc('tapd.task.transfer',{...target,targetAgentId:owner.agentId,expectedOwnerAgentId:owner.agentId,expectedRevision:owner.responsibility.revision,reason:'Keep current owner'}));
 });
 
 test('status RPC and registered tool freshly verify accepted writes without fabricating status or replaying POST',async t=>{

@@ -6,7 +6,7 @@ import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { batchResultSchema, batchEntitySchema, conversationEntityKey, conversationEntitySchema, entityResultSchema, type ConversationEntity, type ConversationSummary } from "../shared/conversation";
 import type { TapdSettingsValues } from "../shared/contracts";
-import { fetchEntitySummary, resolveConfig } from "./tapd";
+import { fetchEntitySummary, resolveConfig, protectFieldData } from "./tapd";
 import { createMessageObserver } from "./conversation-messages";
 
 type Paseo = AgentToolContext["paseo"];
@@ -324,9 +324,19 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
     },
     focus: async (context: ConversationContext, entity: ConversationEntity) => {
       await bootstrap(context);
+      const [target] = await validate([entity]);
+      if (!await reconcile(context.paseo, context.agentId)) throw new Error("单据引用不可用，请重新查询。");
       const stored = (await load()).records.find(item => item.hostId === hostId(context.paseo, context.agentId) && item.agentId === context.agentId);
-      const known = [...(stored?.entities ?? []), ...(stored?.cards.toReversed().flatMap(cardEntities) ?? [])].find(item => conversationEntityKey(item) === conversationEntityKey(entity));
-      if (!known) throw new Error("单据引用不可用，请重新查询。");
+      let known = [...(stored?.entities ?? []), ...(stored?.cards.toReversed().flatMap(cardEntities) ?? [])].find(item => conversationEntityKey(item) === conversationEntityKey(target));
+      if (!known) {
+        try {
+          const config = resolveConfig(await getValues());
+          if (!config.token) throw new Error();
+          const detail = await fetchEntitySummary({ ...config, freshReads: true }, target.kind, target.id, target.workspaceId, true);
+          protectFieldData(config, detail);
+          [known] = await validate([{ ...target, title: detail.title.slice(0, 500), status: detail.status.slice(0, 200), statusLabel: detail.statusLabel.slice(0, 200), owner: detail.owner.slice(0, 200), labels: detail.labels }]);
+        } catch { throw new Error("单据引用不可用，请重新查询。"); }
+      }
       await collect(context, [known]); return { ok: true as const };
     },
     restorePresentation: async (context: ConversationContext) => {

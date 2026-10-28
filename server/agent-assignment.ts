@@ -6,7 +6,7 @@ import type { ToolLink } from "../shared/agent-links";
 import { taskClaimSchema, taskDispatchSchema, taskDelegateSchema, taskAcceptSchema, taskReleaseSchema, taskTransferSchema, taskTargetSchema, type taskDispatchRpc } from "../shared/task-board";
 import type { RpcOutput } from "@getpaseo/plugin";
 import { OwnershipConflict, sameTask, suppressTask, type AgentLinks } from "./agent-links";
-import { fetchEntitySummary, resolveConfig } from "./tapd";
+import { fetchEntitySummary, resolveConfig, protectFieldData, redactProtectedData } from "./tapd";
 import { createOwnershipLifecycle } from "./ownership-lifecycle";
 import { createOwnershipMigration } from "./ownership-migration";
 import { createTaskBoard } from "./task-board";
@@ -28,8 +28,10 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
     return config;
   }
   function link(input: z.infer<typeof taskTargetSchema>, config: ReturnType<typeof resolveConfig>, agentId: string, actorAgentId: string, workspaceId = "", agentTitle = ""): ToolLink {
-    return { key: `${input.kind}-${input.id}`, kind: input.kind, id: input.id, tapdWorkspaceId: input.workspaceId, apiEndpoint: config.endpoint, siteUrl: config.site, workspaceId, agentId, agentTitle, workspaceTitle: "", createdAt: new Date().toISOString(), responsibility: { confirmedAt: new Date().toISOString(), actorAgentId, revision: randomUUID() } };
+    const record = { key: `${input.kind}-${input.id}`, kind: input.kind, id: input.id, tapdWorkspaceId: input.workspaceId, apiEndpoint: config.endpoint, siteUrl: config.site, workspaceId, agentId, agentTitle, workspaceTitle: "", createdAt: new Date().toISOString(), responsibility: { confirmedAt: new Date().toISOString(), actorAgentId, revision: randomUUID() } };
+    protectFieldData(config, record); return record;
   }
+  async function checked<T>(data: T): Promise<T> { protectFieldData(resolveConfig(await getValues()), data); return data; }
   async function target(raw: z.infer<typeof taskTargetSchema> & { reason?: string }, context: Context, validateEntity = true) {
     await lifecycle.reconcile(context);
     const values = tapdSettingsSchema.parse(await getValues());
@@ -38,6 +40,7 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
     if (validateEntity) await entity(raw, values);
     if ([config.token, values.syncGitToken, process.env.TAPD_TOKEN].filter(Boolean).some(secret => raw.reason?.includes(secret!))) throw new Error("原因包含敏感配置。");
     if (context.signal?.aborted) throw new Error("操作已取消。");
+    protectFieldData(config, raw);
     const scope = link(raw, config, "", "");
     if (!validateEntity) return scope;
     await migration.importLegacy();
@@ -70,13 +73,14 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
       await lifecycle.reconcile(context);
       const values = tapdSettingsSchema.parse(await getValues());
       const config = await entity(input, values);
+      protectFieldData(config, input);
       const agent = await available(agentId, context);
       const record = link(input, config, agent.id, actorAgentId, agent.workspaceId ?? "", agent.current()?.title ?? agent.id);
       const result = await links.claim(record, values.links, async () => {
         await available(agentId, context);
         return record;
       });
-      return { ok: true as const, ...result };
+      return checked({ ok: true as const, ...result });
     },
     async delegate(raw: z.infer<typeof taskDelegateSchema>, context: Context, actorAgentId: string) {
       const input = taskDelegateSchema.parse(raw), scope = await target(input, context);
@@ -90,7 +94,7 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
         const existing = state.offers.find(offer => sameTask(offer, scope) && offer.actorAgentId === actorAgentId && offer.targetAgentId === input.targetAgentId && offer.expectedRevision === input.expectedRevision && !offer.acceptedRevision);
         if (existing) return { result: { ok: true, changed: false, offer: existing } };
         const offer = { apiEndpoint: scope.apiEndpoint, siteUrl: scope.siteUrl, tapdWorkspaceId: scope.tapdWorkspaceId, kind: scope.kind, id: scope.id, offerId: randomUUID(), actorAgentId, targetAgentId: input.targetAgentId, expectedOwnerAgentId: input.expectedOwnerAgentId, expectedRevision: input.expectedRevision, reason: input.reason, createdAt: new Date().toISOString() };
-        return { state: { ...state, offers: [...state.offers, offer], history: [...state.history, event(scope, "offer", actorAgentId, input.reason, owner?.agentId, input.targetAgentId)] }, result: { ok: true, changed: false, offer } };
+        return { state: await checked({ ...state, offers: [...state.offers, offer], history: [...state.history, event(scope, "offer", actorAgentId, input.reason, owner?.agentId, input.targetAgentId)] }), result: { ok: true, changed: false, offer } };
       });
     },
     async accept(raw: z.infer<typeof taskAcceptSchema>, context: Context, actorAgentId: string) {
@@ -100,13 +104,13 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
         if (!offer || offer.targetAgentId !== actorAgentId) throw new AssignmentError("not_target", "只能由委派目标本人接受。");
         const agent = await available(actorAgentId, context);
         const owners = state.links.filter(item => sameTask(item, scope));
-        if (offer.acceptedRevision && owners.length === 1 && owners[0].agentId === actorAgentId && owners[0].responsibility?.revision === offer.acceptedRevision) return { result: { ok: true, changed: false, link: owners[0] } };
+        if (offer.acceptedRevision && owners.length === 1 && owners[0].agentId === actorAgentId && owners[0].responsibility?.revision === offer.acceptedRevision) return { result: await checked({ ok: true, changed: false, link: owners[0] }) };
         if (offer.acceptedRevision) throw new AssignmentError("stale_offer", "委派已失效，请刷新核查。");
         const owner = expected(owners, offer.expectedOwnerAgentId, offer.expectedRevision);
         await available(offer.actorAgentId, context, true);
         const record = { ...scope, agentId: actorAgentId, workspaceId: agent.workspaceId ?? "", agentTitle: agent.current()?.title ?? actorAgentId, responsibility: { actorAgentId, confirmedAt: new Date().toISOString(), revision: randomUUID() } };
         const next = suppressTask(state, scope, actorAgentId);
-        return { state: { ...next, links: [...state.links.filter(item => !sameTask(item, scope)), record], offers: state.offers.map(item => item.offerId === offer.offerId ? { ...item, acceptedRevision: record.responsibility.revision } : item), history: [...state.history, event(scope, "transfer", actorAgentId, input.reason, owner?.agentId, actorAgentId, record.responsibility.revision)] }, result: { ok: true, changed: true, link: record } };
+        return { state: await checked({ ...next, links: [...state.links.filter(item => !sameTask(item, scope)), record], offers: state.offers.map(item => item.offerId === offer.offerId ? { ...item, acceptedRevision: record.responsibility.revision } : item), history: [...state.history, event(scope, "transfer", actorAgentId, input.reason, owner?.agentId, actorAgentId, record.responsibility.revision)] }), result: { ok: true, changed: true, link: record } };
       });
     },
     async transfer(raw: z.infer<typeof taskTransferSchema>, context: Context) {
@@ -114,14 +118,14 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
       return links.stateTransaction(async state => {
         const owners = state.links.filter(item => sameTask(item, scope));
         const prior = state.history.find(item => sameTask(item, scope) && item.action === "transfer" && item.actorAgentId === "user" && item.previousAgentId === input.expectedOwnerAgentId && item.previousRevision === input.expectedRevision && item.agentId === input.targetAgentId && item.revision === owners[0]?.responsibility?.revision);
-        if (prior && owners.length === 1) { await available(input.targetAgentId, context); return { result: { ok: true as const, changed: false, link: owners[0] } }; }
+        if (prior && owners.length === 1) { await available(input.targetAgentId, context); return { result: await checked({ ok: true as const, changed: false, link: owners[0] }) }; }
         const owner = expected(owners, input.expectedOwnerAgentId, input.expectedRevision)!;
         await available(owner.agentId, context, true);
         const agent = await available(input.targetAgentId, context);
-        if (agent.id === owner.agentId) return { result: { ok: true as const, changed: false, link: owner } };
+        if (agent.id === owner.agentId) return { result: await checked({ ok: true as const, changed: false, link: owner }) };
         const record = { ...scope, agentId: agent.id, workspaceId: agent.workspaceId ?? "", agentTitle: agent.current()?.title ?? agent.id, responsibility: { actorAgentId: "user", confirmedAt: new Date().toISOString(), revision: randomUUID() } };
         const next = suppressTask(state, scope, "user");
-        return { state: { ...next, links: [...state.links.filter(item => !sameTask(item, scope)), record], history: [...state.history, event(scope, "transfer", "user", input.reason, owner.agentId, agent.id, record.responsibility.revision, owner.responsibility?.revision)] }, result: { ok: true as const, changed: true, link: record } };
+        return { state: await checked({ ...next, links: [...state.links.filter(item => !sameTask(item, scope)), record], history: [...state.history, event(scope, "transfer", "user", input.reason, owner.agentId, agent.id, record.responsibility.revision, owner.responsibility?.revision)] }), result: { ok: true as const, changed: true, link: record } };
       });
     },
     async release(raw: z.infer<typeof taskReleaseSchema>, context: Context, actorAgentId: string, userOwnerId?: string) {
@@ -132,12 +136,12 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
         const owner = expected(owners, ownerId, input.expectedRevision)!;
         await available(ownerId, context, !!userOwnerId);
         const next = suppressTask(state, scope, actorAgentId);
-        return { state: { ...next, links: state.links.filter(item => !sameTask(item, scope)), history: [...state.history, event(scope, "release", actorAgentId, input.reason, owner.agentId, undefined, input.expectedRevision)] }, result: { ok: true as const, changed: true } };
+        return { state: await checked({ ...next, links: state.links.filter(item => !sameTask(item, scope)), history: [...state.history, event(scope, "release", actorAgentId, input.reason, owner.agentId, undefined, input.expectedRevision)] }), result: { ok: true as const, changed: true } };
       });
     },
     async history(raw: z.infer<typeof taskTargetSchema>, context: Context) {
       const scope = await target(taskTargetSchema.parse(raw), context, false);
-      return { history: (await links.state()).history.filter(item => sameTask(item, scope)) };
+      return checked({ history: (await links.state()).history.filter(item => sameTask(item, scope)) });
     },
     async dispatch(raw: z.infer<typeof taskDispatchSchema>, context: Context, actorAgentId: string): Promise<RpcOutput<typeof taskDispatchRpc>> {
       const input = taskDispatchSchema.parse(raw);
@@ -162,7 +166,7 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
           phase = "binding";
           await agent.refresh();
           if (!agent.current() || context.signal?.aborted) throw new Error();
-          return { ...link(input, config, agent.id, actorAgentId, workspace.id, agent.current()?.title ?? agent.id), workspaceTitle: workspace.name ?? "" };
+          return checked({ ...link(input, config, agent.id, actorAgentId, workspace.id, agent.current()?.title ?? agent.id), workspaceTitle: workspace.name ?? "" });
         });
         bound = true;
         phase = "binding-check";
@@ -178,7 +182,7 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
         return { ok: true, workspaceId, agentId, bound, promptSent: true, link: result.link };
       } catch (error) {
         if (error instanceof OwnershipConflict) throw error;
-        return { ok: false, partial: !!workspaceId, phase, workspaceId, agentId, bound, promptSent: phase === "prompt" ? "unknown" : false, warning: "派发未全部完成；保留已创建资源。先核查这些 ID 和 Agent 活动，勿重复派发或重复发送提示词。" };
+        return redactProtectedData(config, { ok: false, partial: !!workspaceId, phase, workspaceId, agentId, bound, promptSent: phase === "prompt" ? "unknown" : false, warning: "派发未全部完成；保留已创建资源。先核查这些 ID 和 Agent 活动，勿重复派发或重复发送提示词。" });
       }
     },
   };
@@ -194,11 +198,10 @@ export function createAssignmentTools(getValues: () => Promise<TapdSettingsValue
         try {
           if (context.signal?.aborted || Buffer.byteLength(JSON.stringify(raw)) > 64_000) throw new Error();
           const values = tapdSettingsSchema.parse(await getValues());
-          secrets = [values.token, values.syncGitToken, process.env.TAPD_TOKEN].filter((value): value is string => !!value);
+          const config = resolveConfig(values);
+          secrets = [config.token, ...(config.protectedValues ?? [])].filter(Boolean);
           const result = await run(input.parse(raw), context, values);
-          let text = JSON.stringify(result);
-          for (const secret of secrets) text = text.split(JSON.stringify(secret).slice(1, -1)).join("[redacted]");
-          return { structuredContent: JSON.parse(text) };
+          return { structuredContent: redactProtectedData(config, result) };
         } catch (error) {
           if (error instanceof AssignmentError) return { isError: true, structuredContent: { ok: false, code: error.code }, text: error.message };
           if (error instanceof OwnershipConflict) return { isError: true, structuredContent: { ok: false, conflict: true, owners: error.candidates.map(link => ({ agentId: secrets.some(secret => link.agentId.includes(secret)) ? "[redacted]" : link.agentId, confirmed: "responsibility" in link && !!link.responsibility })) }, text: error.message };

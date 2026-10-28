@@ -10,3 +10,5 @@ export function invalidateTaskBoards(config:TapdConfig){const key=connection(con
 export function boardSnapshotKey(config:TapdConfig,project:string,kind:string,id:string){return JSON.stringify([connection(config),project,kind,id]);}
 export function getBoardSnapshot(key:string){return snapshots.get(key);}
 export function saveBoardSnapshot(key:string,item:TaskBoardItem){snapshots.delete(key);snapshots.set(key,{entity:item.entity,fetchedAt:item.fetchedAt});if(snapshots.size>500)snapshots.delete(snapshots.keys().next().value!);}
+
+export function deleteBoardSnapshot(key:string){snapshots.delete(key);}

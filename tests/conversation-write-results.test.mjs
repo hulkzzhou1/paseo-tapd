@@ -21,10 +21,10 @@ function host(serverId='example-host') {
 function plugin(){const rpcs=new Map(),before=new Map(),events=new Map();const close=contribute({registerSettings:()=>({read:async()=>({status:'ready',values}),subscribe:()=>()=>{}}),handle:(rpc,fn)=>rpcs.set(rpc.name,fn),before:(name,fn)=>before.set(name,fn),on:(name,fn)=>events.set(name,fn)});return {rpcs,before,events,close};}
 const ctx=h=>({paseo:h.paseo,signal:new AbortController().signal});
 async function call(p,h,name,input,signal=new AbortController().signal){const {tools}=await p.before.get('agent.session_open')({request:{purpose:'interactive',agentId:'example-agent',tools:[],env:{}}},ctx(h));return tools.find(t=>t.name===name).execute(input,{paseo:h.paseo,signal,agent:{id:'example-agent'}});}
-function mockTapd(t,afterRequest=()=>{}){clearTapdCache();const requests=[];let fieldValue="原值";t.mock.method(globalThis,'fetch',async (source,init)=>{const u=new URL(source),body=new URLSearchParams(init.body);requests.push({u,init,body});afterRequest({u,init,body});
+function mockTapd(t,afterRequest=()=>{}){clearTapdCache();const requests=[];let fieldValue="原值",status="open";t.mock.method(globalThis,'fetch',async (source,init)=>{const u=new URL(source),body=new URLSearchParams(init.body);requests.push({u,init,body});afterRequest({u,init,body});
  let data=[];
- if(init.method==='POST'){if(body.has('custom_field_one'))fieldValue=body.get('custom_field_one');data={Story:{id:'22222222'}};}
- else if(u.pathname==='/stories'&&u.searchParams.has('id'))data=[{Story:{id:u.searchParams.get('id'),name:'示例需求',status:'open',description:'不应持久化的正文',custom_field_one:fieldValue}}];
+ if(init.method==='POST'){if(body.has('status'))status=body.get('status');if(body.has('custom_field_one'))fieldValue=body.get('custom_field_one');data={Story:{id:'22222222'}};}
+ else if(u.pathname==='/stories'&&u.searchParams.has('id'))data=[{Story:{id:u.searchParams.get('id'),name:'示例需求',status,description:'不应持久化的正文',custom_field_one:fieldValue}}];
  else if(u.pathname.endsWith('get_fields_info'))data={status:{options:{open:'待处理',done:'已完成'}},custom_field_one:{label:'方案',html_type:'rich_edit',readonly:0}};
  else if(u.pathname==='/users/info')data={User:{nick:'example-member'}};
  return Response.json({status:1,data});});return requests;}
@@ -49,7 +49,7 @@ test('confirmed status and comment outcomes carry known target snapshots and a n
  await p.rpcs.get('tapd.conversation.remove')({agentId:'example-agent',entity},ctx(h));assert.equal((await p.rpcs.get('tapd.conversations')({},ctx(h))).conversations[0].entities.length,0);
  const comment=await call(p,h,'tapd_add_comment',{...target,text:'不可保存的评论'});assert.equal(comment.structuredContent.ok,true);
  data=await p.rpcs.get('tapd.conversations')({},ctx(h));assert.equal(data.conversations[0].entities[0].title,'示例需求');
- const cards=h.rows.get('example-agent');assert.deepEqual(cards.map(x=>x.data.operation),['status','comment']);assert.equal(cards[1].data.entity.status,'open','comment uses the observed target snapshot rather than inventing a new state');
+ const cards=h.rows.get('example-agent');assert.deepEqual(cards.map(x=>x.data.operation),['status','comment']);assert.equal(cards[1].data.entity.status,'done','comment uses the observed target snapshot rather than inventing a new state');
  assert.equal(JSON.stringify(cards).includes('不可保存的评论'),false);assert.equal(JSON.stringify(cards).includes('不应持久化的正文'),false);assert.equal(requests.filter(x=>x.init.method==='POST').length,2);
  });
 });
@@ -103,4 +103,11 @@ test('verified field updates use recoverable compact cards without storing field
  f.reload();await f.p.rpcs.get('tapd.conversations')({},ctx(f.h));
  assert.equal(requests.filter(x=>x.init.method==='POST').length,1);
  });
+});
+
+
+test('accepted status writes with failed verification create no success card or implicit replay',async t=>{
+ let posted=false,posts=0,verificationReads=0;
+ t.mock.method(globalThis,'fetch',async(source,init)=>{const u=new URL(source);if(init.method==='POST'){posted=true;posts++;return Response.json({status:1,data:{Story:{id:'11111111'}}});}if(posted&&u.pathname==='/stories'){verificationReads++;throw Error('offline');}return Response.json({status:1,data:u.pathname==='/stories'?[{Story:{id:'11111111',status:'open',name:'Example'}}]:u.pathname.endsWith('get_fields_info')?{status:{options:{open:'Open',done:'Done'}}}:[]});});
+ await fixture(t,async({p,h})=>{const result=await call(p,h,'tapd_update_status',{kind:'story',id:'11111111',workspaceId:'12345678',status:'done',confirmed:true});assert.equal(result.isError,undefined);assert.equal(result.structuredContent.writeState,'accepted');assert.equal(result.structuredContent.outcome,'unverified');assert.equal(h.rows.size,0);assert.equal(posts,1);assert.ok(verificationReads>0);});
 });

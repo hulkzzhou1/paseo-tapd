@@ -16,6 +16,7 @@ export interface TapdConfig {
 }
 
 export interface TapdConfigInput {
+  syncGitToken?: string;
   token: string;
   workspaceIds: string;
   apiEndpoint?: string;
@@ -199,7 +200,7 @@ export function resolveConfig(settings: TapdConfigInput): TapdConfig {
       .map((part) => part.trim())
       .filter((part) => part.length > 0),
   )];
-  return { endpoint, site, token, tokenSource, workspaceIds };
+  return { endpoint, site, token, tokenSource, workspaceIds, protectedValues: [settings.syncGitToken ?? "", envToken, settingsToken].filter(Boolean) };
 }
 
 function normalizeBaseUrl(value: string): string {
@@ -1012,7 +1013,12 @@ const fieldFailureMessages = {
 function fieldFailure(code: keyof typeof fieldFailureMessages) {
   return new TapdApiError(fieldFailureMessages[code], undefined, { code, phase: "validation", writeState: "not_sent" });
 }
-function protectFieldData(config: TapdConfig, data: unknown) {
+export function redactProtectedData<T>(config: TapdConfig, data: T): T {
+  let text = JSON.stringify(data);
+  for (const secret of [config.token, ...(config.protectedValues ?? [])].filter(Boolean)) text = text.split(JSON.stringify(secret).slice(1, -1)).join("[redacted]");
+  return JSON.parse(text);
+}
+export function protectFieldData(config: TapdConfig, data: unknown) {
   const text = JSON.stringify(data);
   if ([config.token, ...(config.protectedValues ?? [])].filter(Boolean)
     .some(secret => text.includes(JSON.stringify(secret).slice(1, -1)))) {

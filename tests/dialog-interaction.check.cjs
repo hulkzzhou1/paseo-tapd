@@ -187,7 +187,12 @@ async function main() {
       await detail.getByRole('button',{name:'创建该需求下的任务',exact:true}).click();
       await create.getByLabel('标题（必填）',{exact:true}).fill('新建示例任务');
       await create.getByRole('button',{name:'创建',exact:true}).click();
-      assert.equal(await page.evaluate(()=>window.toast),'模拟创建失败');
+      assert.match(await page.evaluate(()=>window.toast),/创建失败或结果未知/);
+      assert.equal(await create.getByRole('button',{name:'创建',exact:true}).isDisabled(),true,'ambiguous creation must block blind resubmission');
+      await create.getByRole('button',{name:'返回详情',exact:true}).click();
+      await page.getByRole('button',{name:'放弃修改',exact:true}).click();
+      await detail.getByRole('button',{name:'创建该需求下的任务',exact:true}).click();
+      await create.getByLabel('标题（必填）',{exact:true}).fill('新建示例任务');
       await create.getByRole('button',{name:'创建',exact:true}).click();
       await page.getByRole('dialog',{name:'#87654321 · 单据详情',exact:true}).waitFor();
       const created=(await calls('tapd.create')).at(-1).input;assert.equal(created.storyId,'12345678');assert.equal(created.workspaceId,'12345678');

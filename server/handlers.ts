@@ -1,3 +1,5 @@
+import type { AgentLinks } from "./agent-links";
+import { childrenRpc, childTypesRpc } from "../shared/contracts";
 import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { labelsRpc, itemLabelsRpc, createLabelRpc, updateLabelsRpc } from "../shared/labels";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
@@ -19,6 +21,9 @@ import {
   fetchStatusOptions,
   fetchMyCommentedIds,
   fetchCreateFields,
+  fetchChildHierarchy,
+  fetchChildTypes,
+  type EntityChildItem,
   fetchFieldDefinitions,
   fetchProjectLabels,
   readItemLabels,
@@ -38,7 +43,7 @@ import { checkForUpdate } from "./update-check";
 
 type GetValues = () => Promise<TapdSettingsValues>;
 
-export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig, "writeSignal" | "readWarnings"> = {}) {
+export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig, "writeSignal" | "readWarnings"> = {}, agentLinks?: Pick<AgentLinks, "list">) {
   async function requireConfig(): Promise<{ config: TapdConfig; values: TapdSettingsValues }> {
     const values = await getValues();
     const config = { ...resolveConfig(values), ...execution, protectedValues: [values.syncGitToken, process.env.TAPD_TOKEN ?? ""] };
@@ -51,7 +56,29 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
     return { config, values };
   }
 
+  async function childOwners(items: EntityChildItem[], config: TapdConfig) {
+    let links: Awaited<ReturnType<AgentLinks["list"]>> | null = null;
+    try { if (agentLinks) links = await agentLinks.list(); } catch { /* Keep the child data; ownership stays unknown. */ }
+    return items.map(item => {
+      const matches = links?.filter(link => link.kind === item.kind && link.id === item.id && link.tapdWorkspaceId === item.workspaceId
+        && link.apiEndpoint === config.endpoint && (!link.siteUrl || link.siteUrl === config.site)) ?? [];
+      const owner = matches.length === 1 && matches[0].responsibility ? { id: matches[0].agentId, title: matches[0].agentTitle } : null;
+      const unsafe = owner && [config.token, ...(config.protectedValues ?? [])].filter(Boolean).some(secret => JSON.stringify(owner).includes(secret));
+      return { ...item, responsibleAgent: unsafe ? null : owner, ownershipUnknown: links === null || !!unsafe || (matches.length > 0 && !owner) };
+    });
+  }
+
   return {
+    async children(raw: RpcInput<typeof childrenRpc>): Promise<RpcOutput<typeof childrenRpc>> {
+      const input = childrenRpc.input.parse(raw);
+      const { config } = await requireConfig();
+      const result = await fetchChildHierarchy(config, input.workspaceId, input.id);
+      return { ...result, items: await childOwners(result.items, config) };
+    },
+    async childTypes(raw: RpcInput<typeof childTypesRpc>): Promise<RpcOutput<typeof childTypesRpc>> {
+      const input = childTypesRpc.input.parse(raw); const { config } = await requireConfig();
+      return fetchChildTypes(config, input.workspaceId, input.id);
+    },
     async updateLabels(raw: RpcInput<typeof updateLabelsRpc>): Promise<RpcOutput<typeof updateLabelsRpc>> {
       const input = updateLabelsRpc.input.parse(raw);
       const { config } = await requireConfig();
@@ -173,6 +200,8 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
         priority: input.priority,
         iterationId: input.iterationId,
         storyId: input.storyId,
+        parentStoryId: input.parentStoryId,
+        workitemTypeId: input.workitemTypeId,
         workspaceId: input.workspaceId,
         extraFields: input.extraFields,
       });
@@ -198,7 +227,7 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
 
     async createFields(input: RpcInput<typeof createFieldsRpc>): Promise<RpcOutput<typeof createFieldsRpc>> {
       const { config } = await requireConfig();
-      return fetchCreateFields(config, input.kind, input.workspaceId);
+      return fetchCreateFields(config, input.kind, input.workspaceId, input.workitemTypeId);
     },
 
     async updateStatus(input: RpcInput<typeof updateStatusRpc>): Promise<RpcOutput<typeof updateStatusRpc>> {
@@ -230,7 +259,9 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
         || (input.workspaceId !== undefined && !config.workspaceIds.includes(input.workspaceId))) {
         throw new Error("此单据与当前 TAPD 连接或项目不匹配，请检查插件设置。");
       }
-      return fetchEntity({ ...config, freshReads: input.fresh ?? false, ...(input.workspaceId ? { workspaceIds: [input.workspaceId] } : {}) }, input.kind, input.id);
+      const result = await fetchEntity({ ...config, freshReads: input.fresh ?? false, ...(input.workspaceId ? { workspaceIds: [input.workspaceId] } : {}) }, input.kind, input.id);
+      const children = await childOwners([...result.childStories, ...result.childTasks, ...result.childBugs], config);
+      return { ...result, childStories: children.filter(item => item.kind === "story"), childTasks: children.filter(item => item.kind === "task"), childBugs: children.filter(item => item.kind === "bug") };
     },
 
     async search(input: RpcInput<typeof searchRpc>): Promise<RpcOutput<typeof searchRpc>> {

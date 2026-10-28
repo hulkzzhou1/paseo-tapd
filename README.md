@@ -2,6 +2,8 @@
 
 A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo workspace: a three-column board, reusable views, agent dispatch, comment/status write-back, and Agent task boards, recent viewing and recoverable tool cards.
 
+Version 0.4.42 removes configuration Git backups while preserving local settings and tasks, strengthens credential/project checks, fixes first-time board navigation and bounds connection-scoped caches. Existing external backups are left untouched.
+
 ![TAPD workbench](assets/screenshots/workbench-v2.png)
 
 ## Features
@@ -53,7 +55,7 @@ Pick an Agent from item detail to assign responsibility without sending a messag
 - The daemon uses the TAPD OpenAPI for TAPD item data. The API base URL and web link base can be set in the plugin settings, falling back to `TAPD_API_ENDPOINT` and `TAPD_SITE_URL`. API credentials go only to the configured API address; redirects are rejected. Addresses stay local.
 - Site-local TAPD images use their actual project and the configured API’s `/files/get_image` endpoint. The daemon reads the API-issued download URL once without Authorization/cookies, validates PNG/JPEG/GIF/BMP bytes (up to 8 MiB), and returns inline image data to the client. Other HTTP(S) images load directly in the client without configured TAPD credentials. Image data stays in memory; nothing is written to disk.
 - Opening a person filter reads configured projects’ member nicknames only, without names or email addresses. Candidate failures retain exact-nickname input and allow retry. Status-menu options come from the item’s project.
-- Reads cover every configured project. Write operations (comments, status changes, item creation) target the item's actual project when known, falling back to the first configured TAPD project.
+- Reads cover every configured project. Existing-item writes verify the actual configured project before sending; unreadable or mismatched targets stop. Only standalone creation without a specified project defaults to the first configured TAPD project.
 - Agent dispatch sends the item snapshot (used as the prompt) to the selected agent provider through the Paseo SDK.
 - Update checks fetch the public registry record and this repository's manifest at the pinned commit from GitHub (`raw.githubusercontent.com`, falling back to `api.github.com`). No credentials are attached and no user data is sent; the result is cached for an hour.
 
@@ -135,7 +137,7 @@ paseo plugin add git:<repo-url>
 - 优先使用环境变量（`TAPD_TOKEN`、`TAPD_WORKSPACE_IDS`）。保存在插件设置中的 token 以明文 JSON 存于 daemon 主机，可被已连接的设置界面读取。
 - daemon 通过 TAPD OpenAPI 读取与处理单据。API 基地址与网页链接基地址可用 `TAPD_API_ENDPOINT`、`TAPD_SITE_URL` 按 daemon 覆盖。
 - 本站 TAPD 图片使用单据实际项目，通过配置的 API `/files/get_image` 获取下载地址；daemon 不附加 Authorization/Cookie，仅读取一次下载地址，校验 PNG/JPEG/GIF/BMP 数据（最多 8 MiB），通过 RPC 返回内嵌图片。其他 HTTP(S) 图片仍由客户端直接加载，不附加配置凭据。图片只保留在内存，不落盘。
-- 读取覆盖所有已配置项目。写操作（评论、状态变更、建单）优先作用于单据实际所在项目（无法确定时回退第一个配置的 TAPD 项目）。
+- 读取覆盖所有已配置项目。现有单据写入前核实实际配置项目；目标无法读取或不匹配时停止。仅未指定项目的独立建单默认使用首个配置项目。
 - 看板与单条接口结果缓存在 daemon 内存（看板整体 90 秒 SWR、单条请求 20 秒、元数据最长 30 分钟），跨项目列表请求按项目并行发出。缓存只在本机 daemon 内存里，不落盘不外传；修改插件设置会清空全部缓存，「刷新」按钮可强制取最新。
 - 派给 Agent 时，单据快照（作为提示词）经 Paseo SDK 发送给所选的 agent provider。
 - Agent 状态与回合结果通过插件自身的 daemon RPC 读取，不新增外部网络目的地；阶段评论沿用 TAPD OpenAPI 评论通道。
@@ -321,7 +323,7 @@ Story field tools recognize both `rich_edit` and `rich_text`, discover actual pr
 
 删除抑制记录和导入指纹保留在本机，防止旧设置、历史归档或迟到操作恢复已删除 Agent。存储损坏、清理写盘失败会提示可重试错误并保留原文件；修复后再次读取可完成清理。
 
-`PASEO_RUNTIME_DIR=/path/to/trusted/paseo-main npm run test:ownership` 通过公开 daemon/client 入口，在 Linux 用户与挂载命名空间、临时 home 和回环 TAPD 中运行两个独立进程，验收迁移/转交/退出恢复、关闭/归档/重开/删除、旧来源重放与损坏文件保留。合成 provider 遇到任何提示词执行即失败；TAPD 写入和写入重放均必须为零。可信主线源码当前仍保留旧包版本号，验收显式声明插件要求的 `0.14.0-beta.1` SDK 合约，不能据此声称支持稳定版 `0.13.2`。不访问运行中的安装。
+`PASEO_RUNTIME_DIR=/path/to/trusted/paseo-main npm run test:ownership` 通过公开 daemon/client 入口，在 Linux 用户与挂载命名空间、临时 home 和回环 TAPD 中运行两个独立进程，验收迁移/转交/退出恢复、关闭/归档/重开/删除、旧来源重放、损坏文件保留，以及真实工具卡片在重载和进程重启后按稳定 ID 恢复一次。合成 provider 遇到任何提示词执行即失败；TAPD 写入和写入重放均必须为零。可信主线源码当前仍保留旧包版本号，验收显式声明插件要求的 `0.14.0-beta.1` SDK 合约，不能据此声称支持稳定版 `0.13.2`。不访问运行中的安装。
 
 ### Fresh task status / 任务状态刷新
 

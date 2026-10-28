@@ -89,6 +89,8 @@ Tool inputs are bounded by UTF-8 byte length. Result `warnings` flag tolerated r
 
 读取响应、工作台快照及在途请求按 API/站点、配置项目和凭据作用域隔离；选择缓存前先校验当前连接。缓存作用域只保留凭据的 SHA-256 指纹，不含原始 Token。设置页的连接测试每次重新验证当前草稿凭据，不复用旧用户结果；测试不会保存草稿。设置变更或写入会使旧读取失效：过时的前台结果提示刷新，后台结果不能覆盖新快照或清除较新的刷新任务；允许回退的旧快照保留原成功时间及连接作用域。
 
+响应缓存最多 500 项，工作台快照最多 50 项；后续缓存访问会回收过期条目。工作台快照在 90 秒后仅作为过期结果后台刷新，原成功时间超过 30 分钟后不再用于回退。零有效期摘要不保存响应，只允许共享在途读取。缓存淘汰不删除承担关系、最近查看或历史卡片。
+
 
 Single-item tool queries also append a clickable result card to the calling conversation through the public Paseo timeline API. Card data contains only the item project, kind, ID, bounded title/status/owner, connection identifiers and generic completeness warnings; full descriptions, comment bodies and credentials are excluded. Timeline rows are presented by the daemon; the plugin separately retains compact records to recover them after restart. Opening the card explicitly reads current detail through the configured API after checking the recorded site/API identifiers and project, then uses the same detail/action pages as the workbench. No additional remote destination is introduced. A failed card append leaves the completed TAPD read successful with a presentation warning.
 

@@ -42,7 +42,7 @@ async function main() {
       if(rpc.name==='tapd.entity')return {kind:input.kind,id:input.id,workspaceId:input.kind==='bug'?'87654321':'23456789',title:'示例单据',status:window.savedStatus||'open',statusLabel:window.savedStatus==='done'?'已完成':'待处理',owner:'',creator:'',priority:'',description:'示例描述',comments:[],commentsError:null,childTasks:[],childBugs:[],childTasksTotal:0,childBugsTotal:0,parentStory:null,url:'https://example.com'};
       if(rpc.name==='tapd.status_options'){
         if(window.optionFailure){window.optionFailure=false;throw new Error('private host error must stay hidden');}
-        return {options:[{value:'open',label:'待处理'},{value:'done',label:input.kind==='bug'?'缺陷完成':'已完成'}]};
+        return {options:[{value:'open',label:'待处理'},{value:'done',label:input.kind==='bug'?'缺陷完成':'已完成'}],...(input.kind==='bug'?{current:window.savedStatus||'open',transitions:[{value:'done',label:'缺陷完成',fields:[],supported:true},{value:'open',label:'待处理',fields:[],supported:true}]}:{})};
       }
       if(rpc.name==='tapd.update_status'){
         await new Promise(r=>setTimeout(r,180));
@@ -100,10 +100,10 @@ async function main() {
       await page.getByRole('button',{name:'重试',exact:true}).click();
       await page.getByRole('menuitemradio',{name:'缺陷完成',exact:true}).waitFor();
       const optionCalls=await calls('tapd.status_options');
-      assert.deepEqual(optionCalls.slice(1).map(c=>c.input),[{kind:'bug',workspaceId:'87654321'},{kind:'bug',workspaceId:'87654321'}]);
+      assert.deepEqual(optionCalls.slice(1).map(c=>c.input),[{kind:'bug',workspaceId:'87654321',id:'12345678'},{kind:'bug',workspaceId:'87654321',id:'12345678'}]);
       await page.getByRole('menuitemradio',{name:'缺陷完成',exact:true}).click();
       await page.getByRole('button',{name:'修改状态：已完成',exact:true}).waitFor();
-      assert.deepEqual((await calls('tapd.update_status')).at(-1).input,{kind:'bug',id:'12345678',workspaceId:'87654321',status:'done'});
+      assert.deepEqual((await calls('tapd.update_status')).at(-1).input,{kind:'bug',id:'12345678',workspaceId:'87654321',status:'done',expectedStatus:'open',transitionFields:{}});
       assert.equal(await page.evaluate(()=>window.refreshed),2);
       await page.evaluate(()=>window.unverified=true);
       await page.getByRole('button',{name:'修改状态：已完成',exact:true}).click();
@@ -111,7 +111,8 @@ async function main() {
       await page.waitForFunction(()=>window.toast==='已接受状态修改，但当前状态未核实；请刷新核对，勿重复提交。');
       await page.getByRole('button',{name:'修改状态：已完成',exact:true}).waitFor();
       assert.equal(await page.evaluate(()=>window.savedStatus),'done','accepted-unverified must not display the requested status');
-      assert.equal(await page.evaluate(()=>window.refreshed),3);await page.waitForTimeout(250);
+      assert.equal(await page.getByRole('button',{name:'修改状态：已完成',exact:true}).isDisabled(),true,'unverified defect writes cannot be directly repeated');
+      assert.equal(await page.evaluate(()=>window.refreshed),2,'unverified defect feedback keeps the submission lock until explicit detail reconciliation');await page.waitForTimeout(250);
       assert.equal((await calls('tapd.update_status')).length,4,'unverified feedback never retries the write');
       assert.deepEqual(errors,[]);
       console.log('PASS status detail dropdown: lazy project/kind candidates, current/no-op, double submit, safe failure/retry, detail/board refresh, compact dark detail');

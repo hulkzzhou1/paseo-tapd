@@ -14,7 +14,7 @@ import { CreateEntityModal, type CreateChildPreset, type CreatedEntity } from ".
 import { DispatchModal } from "./DispatchModal";
 import { EntityDetailModal } from "./EntityDetailModal";
 import { EntityDetailContent, type DetailExtras, type DetailTarget, type EntityDetailData } from "./EntityDetailContent";
-import { CommentModal } from "./EntityWriteBack";
+import { CommentModal, StatusTransitionModal, type StatusChangeTarget } from "./EntityWriteBack";
 import type { WorkbenchTheme } from "./bits";
 
 export function EntityDetailExperience({ target: detail, onTargetChange: setDetail, theme, navigation, createOpen: controlledCreateOpen, onCreateOpenChange, onChanged, onDismiss, onRemoveFromConversation, presentation = "dialog" }: {
@@ -46,6 +46,7 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
   const [detailVersion, setDetailVersion] = useState(0);
   const [dispatchTarget, setDispatchTarget] = useState<EntityDetailData | null>(null);
   const [commentTarget, setCommentTarget] = useState<{ kind: EntityKind; id: string; workspaceId?: string } | null>(null);
+  const [transitionTarget, setTransitionTarget] = useState<StatusChangeTarget | null>(null);
   const [bindTarget, setBindTarget] = useState<EntityDetailData | null>(null);
   if (settings.status !== "ready" && presentation === "panel") return <Text style={{ color: theme.colors.foreground, padding: 24 }}>TAPD 配置暂不可用，请检查插件设置后重试。</Text>;
   if (settings.status !== "ready") return <WorkbenchDialog onDismiss={onDismiss} title="单据详情" theme={theme} open={!!detail} onOpenChange={() => setDetail(null)}><Text style={{ color: theme.colors.foreground, padding: 24 }}>TAPD 配置暂不可用，请检查插件设置后重试。</Text></WorkbenchDialog>;
@@ -129,10 +130,11 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
       setCreateOpen(true);
     },
     onStatusDone: () => onChanged?.(),
+    onTransition: setTransitionTarget,
     onOpenEntity: (target) => setDetail({ ...detail, ...target }),
   };
   return <>
-      {presentation === "panel" ? <EntityDetailContent target={detail} theme={theme} extras={detailExtras} hidden={createOpen || !!dispatchTarget || !!commentTarget || !!bindTarget} /> : <EntityDetailModal onDismiss={() => { if (!detail) onDismiss?.(); }} hidden={createOpen || !!dispatchTarget || !!commentTarget || !!bindTarget} target={detail} onClose={() => setDetail(null)} theme={theme} extras={detailExtras} />}
+      {presentation === "panel" ? <EntityDetailContent target={detail} theme={theme} extras={detailExtras} hidden={createOpen || !!dispatchTarget || !!commentTarget || !!bindTarget || !!transitionTarget} /> : <EntityDetailModal onDismiss={() => { if (!detail) onDismiss?.(); }} hidden={createOpen || !!dispatchTarget || !!commentTarget || !!bindTarget || !!transitionTarget} target={detail} onClose={() => setDetail(null)} theme={theme} extras={detailExtras} />}
         <CreateEntityModal
           backToDetail={!!detail}
           open={createOpen}
@@ -168,6 +170,7 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
           onDone={handleWriteDone}
         />
       ) : null}
+      {transitionTarget ? <StatusTransitionModal target={transitionTarget} theme={theme} onClose={() => setTransitionTarget(null)} onDone={handleWriteDone} /> : null}
       {releaseLink ? <WorkbenchDialog open title={`退出任务 · #${releaseLink.id}`} theme={theme} pending={releasing} dirty={!!releaseReason} onOpenChange={open => { if (!open) setReleaseLink(null); }}>
         <WorkbenchDialog.Content>
           <Text style={{ color: theme.colors.foreground }}>确认让「{releaseLink.agentTitle || releaseLink.agentId}」退出这张任务？只释放本机承担关系，TAPD 保持原样。</Text>

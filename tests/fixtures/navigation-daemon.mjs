@@ -9,22 +9,38 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {settingsRpc} from '@getpaseo/plugin';
 import {ownershipProvider} from './ownership-provider.mjs';
 const pluginDir=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
-export async function runNavigationDaemon(root){
+export async function runNavigationDaemon(root, workflowMode = false){
  assert.equal(await readFile(join(homedir(),'tapd-test-home-marker'),'utf8'),'isolated');
  const req=createRequire(join(process.env.PASEO_RUNTIME_DIR,'packages/cli/package.json')),load=name=>import(pathToFileURL(req.resolve(name)).href);
  const {createPaseoDaemon,BUILTIN_PROVIDER_IDS}=await load('@getpaseo/server'),{createHostClient}=await load('@getpaseo/client/node');
  const {Client}=await load('@modelcontextprotocol/sdk/client/index.js'),{StreamableHTTPClientTransport}=await load('@modelcontextprotocol/sdk/client/streamableHttp.js');
  const logger=req('pino')({level:'silent'}),home=join(root,'home');await mkdir(home);await mkdir(join(root,'static'));
  process.env.PASEO_HOME=home;let prompts=0,writes=0,fixtureError;const reads=[];
+ let workflowStatus="in_progress",workflowScenario="verified";const workflowPosts=[];
  const rows=new Map([
   ['11111111',{id:'11111111',workspace_id:'12345678',name:'Direct task',status:'open',owner:'example-member',label:'example-label',workitem_type_id:'44444444',description:'<h2>Full direct detail</h2><p>Complete body from TAPD</p>'}],
   ['22222222',{id:'22222222',workspace_id:'12345678',name:'Accepted task',status:'open',owner:'example-member',label:'example-label',workitem_type_id:'44444444',description:'<h2>Full accepted detail</h2><p>Accepted delegated body</p>'}],
   ['33333333',{id:'33333333',workspace_id:'12345678',name:'Child task',status:'open',owner:'example-child',label:'child-label',story_id:'11111111',description:'<h2>Full child detail</h2><p>Child body from TAPD</p>'}],
  ]);
- const tapd=createServer((request,response)=>{try{
-  if(request.method!=='GET'){writes++;throw Error('No business writes allowed');}
+ const tapd=createServer(async(request,response)=>{try{
+  if(request.method!=='GET'){
+   if(!workflowMode)throw Error('No business writes allowed');
+   let raw='';for await(const chunk of request)raw+=chunk;const body=new URLSearchParams(raw);
+   workflowPosts.push({path:request.url,fields:Object.fromEntries(body)});
+   assert.equal(request.url,'/bugs');assert.equal(body.get('workspace_id'),'12345678');assert.equal(body.get('id'),'55555555');
+   if(workflowScenario==='unknown'){workflowStatus='status_5';request.socket.destroy();return;}
+   if(workflowScenario==='rejected'||!body.get('remarks')){response.writeHead(403,{'content-type':'application/json'}).end(JSON.stringify({status:0}));return;}
+   assert.equal(body.get('status'),'status_5');workflowStatus='status_5';
+   response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({status:1,data:{Bug:{id:'55555555'}}}));return;
+  }
   const url=new URL(request.url,'http://127.0.0.1');reads.push(url.pathname);let data=[];
-  if(url.pathname.endsWith('/get_fields_info'))data={status:{options:{open:'Open',done:'Done'}}};
+  if(workflowMode&&url.pathname==='/bugs/get_fields_info')data={status:{options:{in_progress:'处理中',status_5:'已解决',closed:'已关闭'}}};
+  else if(workflowMode&&url.pathname==='/workflows/all_transitions')data=[{Name:'in_progress-status_5',StepPrevious:'in_progress',StepNext:'status_5',Appendfield:workflowScenario==='unknown'?[]:[{DBModel:'Bug',FieldName:'remarks',Notnull:'yes'}]},{Name:'status_5-closed',StepPrevious:'status_5',StepNext:'closed',Appendfield:[]}];
+  else if(workflowMode&&url.pathname==='/bugs'){
+   if(workflowStatus==='status_5'&&workflowScenario==='unverified'){response.writeHead(503).end();return;}
+   data=[{Bug:{id:'55555555',workspace_id:'12345678',title:'Workflow defect',status:workflowStatus,description:'Complete defect body'}}];
+  }
+  else if(url.pathname.endsWith('/get_fields_info'))data={status:{options:{open:'Open',done:'Done'}}};
   else if(url.pathname==='/workflows/last_steps')data={done:'Done'};
   else if(['/stories','/tasks','/bugs'].includes(url.pathname)){
    const kind={'/stories':'Story','/tasks':'Task','/bugs':'Bug'}[url.pathname],id=url.searchParams.get('id');
@@ -55,7 +71,8 @@ export async function runNavigationDaemon(root){
   bridge=createServer(async(request,response)=>{try{
    let raw='';for await(const chunk of request)raw+=chunk;const input=raw?JSON.parse(raw):{};let result;
    if(request.url==='/rpc')result=await rpc(input.name,input.input);
-   else if(request.url==='/state')result={agentId:agent.id,workspaceId:agent.workspaceId,apiEndpoint:api,reads:reads.length,writes,prompts};
+   else if(request.url==='/state')result={agentId:agent.id,workspaceId:agent.workspaceId,apiEndpoint:api,reads:reads.length,writes,prompts,workflowPosts};
+   else if(request.url==='/scenario'&&workflowMode){workflowScenario=input.scenario;workflowStatus='in_progress';await client.reloadPlugin('tapd-workbench');result={ok:true};}
    else if(request.url==='/stop'){result={ok:true};finish();}
    else throw Error('Unavailable');
    response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify(result));

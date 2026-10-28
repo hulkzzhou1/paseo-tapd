@@ -1,3 +1,4 @@
+import { transitionFieldsSchema } from "../shared/contracts";
 import { defineAgentTool, type AgentToolDefinition } from "@getpaseo/plugin/server";
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
@@ -151,8 +152,8 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
       z.object({}), (_input, handlers) => handlers.filterFields()),
     tool("tapd_members", "Read and deduplicate member nicknames from configured projects. A partial failure is reported in error; historical users may be absent.",
       z.object({}), (_input, handlers) => handlers.members()),
-    tool("tapd_status_options", "Read valid workflow status keys and labels for one configured project and item kind.",
-      z.object({ kind: entityKindSchema, workspaceId }), (input, handlers) => handlers.statusOptions(input)),
+    tool("tapd_status_options", "Read project status labels; for a defect write include id to read current reachable transitions, required transitionFields, defaults and support. A project-wide status list alone does not authorize a transition.",
+      z.object({ kind: entityKindSchema, workspaceId, id: id.optional() }), (input, handlers) => handlers.statusOptions(input)),
     tool("tapd_create_fields", "Read writable creation fields, required flags and choices for one project/kind and optional discovered workitemTypeId, plus the token user's nickname.",
       z.object({ kind: entityKindSchema, workspaceId, workitemTypeId: id.optional() }), (input, handlers) => handlers.createFields(input)),
     tool("tapd_check", "Check the current configured TAPD connection. Does not accept credentials or endpoint overrides.",
@@ -172,13 +173,13 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
         const result = await handlers.create(input);
         return { ...result, entity: { kind: result.kind, id: result.id, workspaceId: input.workspaceId, title: input.title, owner: input.owner } };
       }),
-    tool("tapd_update_status", "WRITE: change status only after the user approves the exact item, project and new status. Read tapd_entity and tapd_status_options first; use a status key, not a label. Fresh read-back determines verified versus accepted/unverified; failed or mismatched verification never retries the POST.",
-      target.extend({ status: z.string().trim().min(1).max(200), confirmed }),
+    tool("tapd_update_status", "WRITE: change status only after the user approves the exact item, project and new status. Read tapd_entity and tapd_status_options with the actual item id first; use a returned reachable status key and approved transitionFields (including required remarks). Pass expectedStatus from that read. Defect workflow rules are revalidated before POST; other kinds do not accept transitionFields. Fresh read-back determines verified versus accepted/unverified; failed or mismatched verification never retries the POST.",
+      target.extend({ status: z.string().trim().min(1).max(200), expectedStatus: z.string().max(200).optional(), transitionFields: transitionFieldsSchema, confirmed }),
       async ({ confirmed: _confirmed, ...input }, handlers, _config, signal) => {
         const entity = await actualTarget(input, handlers);
+        if (entity.status === input.status) return { ok: true, unchanged: true };
         const { options } = await handlers.statusOptions(input);
         if (!options.some((option) => option.value === input.status)) throw new Error();
-        if (entity.status === input.status) return { ok: true, unchanged: true };
         if (signal.aborted) throw new Error();
         const result = await handlers.updateStatus(input);
         return { ...result, ...(result.outcome === "verified" ? { entity: { ...entity, status: result.status, statusLabel: result.statusLabel ?? "" } } : {}) };

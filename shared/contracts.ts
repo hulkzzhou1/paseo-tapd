@@ -335,13 +335,24 @@ export const membersRpc = defineRpc({
   }),
 });
 
+export const transitionFieldSchema = z.object({
+  key: z.string().max(100), label: z.string().max(500), inputKind: z.enum(["text", "textarea", "enum", "user", "date"]),
+  single: z.boolean(), options: z.array(candidateOptionSchema), required: z.boolean(),
+  value: z.string().max(50_000), supported: z.boolean(),
+});
+export const statusTransitionSchema = z.object({ value: z.string(), label: z.string(), fields: z.array(transitionFieldSchema), supported: z.boolean() });
+export type StatusTransition = z.infer<typeof statusTransitionSchema>;
+export const transitionFieldsSchema = z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,99}$/), z.string().max(50_000)).refine(value => Object.keys(value).length <= 50).default({});
 export const statusOptionsRpc = defineRpc({
   name: "tapd.status_options",
   input: z.object({
     kind: entityKindSchema,
     workspaceId: z.string().trim().min(1).max(128),
+    id: z.string().regex(/^\d{1,100}$/).optional(),
   }),
-  output: z.object({ options: z.array(candidateOptionSchema) }),
+  output: z.object({ options: z.array(candidateOptionSchema), current: z.string().optional(),
+    transitions: z.array(statusTransitionSchema).optional(),
+  }),
 });
 
 export const filterFieldsRpc = defineRpc({
@@ -459,6 +470,8 @@ export const updateStatusRpc = defineRpc({
     kind: entityKindSchema,
     id: z.string(),
     status: z.string(),
+    expectedStatus: z.string().max(200).optional(),
+    transitionFields: transitionFieldsSchema,
     /** 单据实际所在项目；未指定时读取已配置项目以核实实际归属 */
     workspaceId: z.string().default(""),
   }),

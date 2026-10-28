@@ -2,7 +2,7 @@
 
 A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo workspace: a three-column board, reusable views, agent dispatch, comment/status write-back, and Agent task boards, recent viewing and recoverable tool cards.
 
-Version 0.4.42 removes configuration Git backups while preserving local settings and tasks, strengthens credential/project checks, fixes first-time board navigation and bounds connection-scoped caches. Existing external backups are left untouched.
+Version 0.4.43 reads current defect workflow transitions and collects required transition fields, including remarks, in the same confirmed status request. Unreachable states and incomplete rules stop before writing.
 
 ![TAPD workbench](assets/screenshots/workbench-v2.png)
 
@@ -17,7 +17,7 @@ Version 0.4.42 removes configuration Git backups while preserving local settings
 - Detail window up to 1040px wide with complete structured descriptions/comments, readable paragraph spacing, headings, lists, code and horizontally scrollable tables. Images load inline with loading/error feedback and retry; original-image and external links open on click; story details additionally list the tasks and bugs attached to the story (paginated, with a truncation hint past 200), and task/bug details link back to their parent story
 - Task/bug cards show `#id` on its own line under the title plus a "story: title" chip; details-page child-list row titles show the full text in a hover tooltip
 - Dispatch to an agent: pick a repository and provider/model; the plugin creates a worktree workspace and starts an agent preloaded with the item snapshot, then tracks it from the card
-- Write back to TAPD: comments (plain text converted to HTML), workflow status changes from an anchored menu (select another status to apply immediately), and new item creation — story details can one-click create a task or bug under that story, prefilled with the parent (story_id) and the story's workspace; the mounted form lists the type's writable TAPD fields dynamically (dropdowns for enum/user fields, a month calendar with yesterday/today/tomorrow shortcuts for date-like fields), defaults the owner to the current token user, and its field layout (order + hidden) is kept per entity type locally
+- Write back to TAPD: comments (plain text converted to HTML), workflow status changes from an anchored menu (defects use current transitions; required fields open a confirmation page, while field-free transitions apply on selection), and new item creation — story details can one-click create a task or bug under that story, prefilled with the parent (story_id) and the story's workspace; the mounted form lists the type's writable TAPD fields dynamically (dropdowns for enum/user fields, a month calendar with yesterday/today/tomorrow shortcuts for date-like fields), defaults the owner to the current token user, and its field layout (order + hidden) is kept per entity type locally
 - Attachment source: search TAPD items while composing a prompt and attach a snapshot
 - Agent responsibility: explicitly take an item or assign an existing Agent from detail; one primary Agent per scoped item. Direct assignment is silent. Historical associations require explicit confirmation from Pending Ownership before becoming formal tasks; replayed settings cannot restore excluded candidates. Agent sessions retain configured TAPD environment variables.
 - Local settings: connection, views, favorites and layouts stay on this daemon. Configuration Git backup, restore and automatic push are removed; upgrading preserves existing local settings and task data and leaves external backups untouched.
@@ -54,7 +54,7 @@ Pick an Agent from item detail to assign responsibility without sending a messag
 - Prefer environment variables (`TAPD_TOKEN`, `TAPD_WORKSPACE_IDS`). A token saved in the plugin settings is stored as plain JSON on the daemon host and is readable by the connected settings interface.
 - The daemon uses the TAPD OpenAPI for TAPD item data. The API base URL and web link base can be set in the plugin settings, falling back to `TAPD_API_ENDPOINT` and `TAPD_SITE_URL`. API credentials go only to the configured API address; redirects are rejected. Addresses stay local.
 - Site-local TAPD images use their actual project and the configured API’s `/files/get_image` endpoint. The daemon reads the API-issued download URL once without Authorization/cookies, validates PNG/JPEG/GIF/BMP bytes (up to 8 MiB), and returns inline image data to the client. Other HTTP(S) images load directly in the client without configured TAPD credentials. Image data stays in memory; nothing is written to disk.
-- Opening a person filter reads configured projects’ member nicknames only, without names or email addresses. Candidate failures retain exact-nickname input and allow retry. Status-menu options come from the item’s project.
+- Opening a person filter reads configured projects’ member nicknames only, without names or email addresses. Candidate failures retain exact-nickname input and allow retry. Defect status-menu options come from the actual item’s current workflow; project-wide options remain available for filters.
 - Reads cover every configured project. Existing-item writes verify the actual configured project before sending; unreadable or mismatched targets stop. Only standalone creation without a specified project defaults to the first configured TAPD project.
 - Agent dispatch sends the item snapshot (used as the prompt) to the selected agent provider through the Paseo SDK.
 - Update checks fetch the public registry record and this repository's manifest at the pinned commit from GitHub (`raw.githubusercontent.com`, falling back to `api.github.com`). No credentials are attached and no user data is sent; the result is cached for an hour.
@@ -99,7 +99,7 @@ MIT
 - 看板秒开：90 秒内的看板数据直接复用（同一过滤条件各自独立缓存）；过期先显示上次数据并在顶部提示「后台刷新中…」，同时后台重拉，刷新完成后自动更新；「刷新」按钮强制绕过缓存
 - Agent 状态：看板卡片与详情实时显示运行状态和最近回合结果；回合结束不等于业务完成，完整成果请查看 Agent 会话。
 - 阶段回评：用户授权的阶段成果通过显式评论工具记录；普通回合结束不自动评论或推进业务状态，旧自动回评设置不再生效。
-- 回写 TAPD：评论（纯文本自动转 HTML）、工作流状态变更（按钮下拉菜单，选中其他状态立即提交）、新建单据；需求详情可一键创建挂在该需求下的任务/缺陷，自动预挂父需求（story_id）并写入需求所属项目；挂载表单动态列出该类型的可写字段（枚举/人员字段出选项、日期及「开始/结束时间」类字段出月历含昨天/今天/明天快捷项），处理人默认当前登录用户，字段顺序与隐藏布局按类型记忆在本机
+- 回写 TAPD：评论（纯文本自动转 HTML）、工作流状态变更（缺陷只显示当前可达状态；附加字段先填写确认，无附加字段时选择即提交）、新建单据；需求详情可一键创建挂在该需求下的任务/缺陷，自动预挂父需求（story_id）并写入需求所属项目；挂载表单动态列出该类型的可写字段（枚举/人员字段出选项、日期及「开始/结束时间」类字段出月历含昨天/今天/明天快捷项），处理人默认当前登录用户，字段顺序与隐藏布局按类型记忆在本机
 - 附件源：撰写提示词时搜索 TAPD 单据并附上快照
 - Agent 承担关系：明确接手或由用户在详情指派已有 Agent；同一连接/项目/单据只有一个主要负责 Agent。直接指派不发送消息、不启动执行，历史绑定确认前不计入正式任务。
 - 本机设置：连接、视图、收藏和布局保存在 daemon。已移除 Git 备份、恢复和自动推送；升级保留既有本地设置及任务数据，不访问或修改外部备份。
@@ -368,3 +368,9 @@ New single-item and batch result cards are saved locally before direct timeline 
 
 
 本机已保存的会话摘要与恢复发布的历史卡片也按当前凭据重新检查；更换 Token 后命中受保护内容时明确失败，不再返回或重新追加该内容。原持久记录与历史快照保留，恢复安全配置后可继续读取。派发及其他 Agent 操作在解析兼容旧设置时保留旧凭据的保护集合，敏感提示词在创建资源和发送前拒绝，不因移除 Git 字段绕过检查。
+
+### 缺陷状态流转
+
+缺陷详情只显示当前状态可达的目标；若流程要求评论或其他附加字段，会在同一详情体验中切换到填写页，确认后用一次状态请求提交。返回或关闭时保护未提交内容，失败保留输入并要求先核对再重选；不通过另发普通评论代替流转评论。无法读取规则、未知或只读字段会停止提交，可在 TAPD 原站操作。需求、任务维持原有路径；TAPD 仍最终校验权限，并发的外部修改无法由本机写前检查原子锁定。
+
+Agent 改缺陷状态前须以实际项目、类型和 `id` 调用 `tapd_status_options`，检查 `current`、`transitions` 及 `fields`，将获批字段放入 `transitionFields`，并以 `expectedStatus` 提交；不带 `id` 的项目全量候选仅用于筛选。

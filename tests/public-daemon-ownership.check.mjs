@@ -40,8 +40,9 @@ async function daemonPhase(){
   const rpc=(name,input={})=>client.invokePluginRpc('tapd-workbench',`tapd.${name}`,input);
   const counts=()=>fetch(`${process.env.TAPD_API_ENDPOINT}/fixture/counts`).then(response=>response.json());
   const board=agentId=>rpc('task-board',{agentId});
+  const cards=async agentId=>(await client.fetchAgentTimeline(agentId,{direction:'tail',limit:100})).entries.map(entry=>entry.item).filter(item=>item.type==='plugin'&&item.pluginId==='tapd-workbench');
   const useCaller=async agentId=>{await mcp?.close();mcp=new Client({name:'ownership-acceptance',version:'1'});await mcp.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${listen.port}/mcp/agents?callerAgentId=${agentId}`)));};
-  const tool=async(name,input)=>{const result=await mcp.callTool({name,arguments:input});assert.notEqual(result.isError,true,`Tool ${name} failed`);return result.structuredContent??JSON.parse(result.content.find(block=>block.type==='text').text);};
+  const tool=async(name,input)=>{const result=await mcp.callTool({name,arguments:input});assert.notEqual(result.isError,true,`Tool ${name} failed (${result.structuredContent?.failure?.code??"no-failure-code"})`);return result.structuredContent??JSON.parse(result.content.find(block=>block.type==='text').text);};
   const settings=settingsRpc('tapd-workbench-config');
   const saveLegacy=async links=>{const current=await client.invokePluginRpc('tapd-workbench',settings.read.name,{});const saved=await client.invokePluginRpc('tapd-workbench',settings.write.name,{revision:current.revision,values:{...current.values,links}});assert.equal(saved.status,'saved');};
   if(phase==='seed'){
@@ -68,6 +69,11 @@ async function daemonPhase(){
    await useCaller(a.id);
    const offer=await tool('tapd_delegate_task',{...target,id:'55555555',targetAgentId:b.id,expectedOwnerAgentId:a.id,expectedRevision:archived.link.responsibility.revision,reason:'Pending approved handover'});
    assert(offer.offer.offerId);
+   checkpoint('persist-tool-result-card');
+   const detail=await tool('tapd_entity',{kind:'task',id:'77777777'});
+   assert.equal(detail.id,'77777777');assert.equal(detail.presentationWarning,undefined);
+   const seedCards=await cards(a.id);assert.equal(seedCards.length,1);assert.equal(seedCards[0].kind,'tapd-entity-result');
+   const cardId=seedCards[0].id;assert.equal(seedCards[0].data.entity.id,'77777777');
    checkpoint('close-archive-retain');
    await client.closeItems({agentIds:[b.id]});
    assert.equal((await board(b.id)).items.length,2);
@@ -75,11 +81,18 @@ async function daemonPhase(){
    checkpoint('offline-reload-no-replay');
    const before=await counts();await mcp.close();mcp=undefined;await client.close();await connect();await client.reloadPlugin('tapd-workbench');
    assert.equal((await rpc('agent-links')).links.filter(link=>link.responsibility).length,3);
+   await rpc('conversations');
+   assert.deepEqual((await cards(a.id)).map(card=>card.id),[cardId],'Plugin reload restores the same tool card exactly once');
+   await rpc('conversations');assert.equal((await cards(a.id)).length,1,'Repeated reconciliation does not duplicate the card');
    assert.deepEqual(await counts(),before,'Reload/reconnect recovery performs no TAPD requests');
-   await writeFile(join(fixtureRoot,'fixture.json'),JSON.stringify({a:a.id,b:b.id,c:c.id,sources,movedRevision:moved.link.responsibility.revision,pendingOffer:offer.offer.offerId}),{mode:0o600});
+   await writeFile(join(fixtureRoot,'fixture.json'),JSON.stringify({a:a.id,b:b.id,c:c.id,sources,movedRevision:moved.link.responsibility.revision,pendingOffer:offer.offer.offerId,cardId}),{mode:0o600});
   }else{
    const fixture=JSON.parse(await readFile(join(fixtureRoot,'fixture.json'),'utf8'));
    checkpoint('restart-local-recovery');const before=await counts();
+   await rpc('conversations');
+   const restored=await cards(fixture.a);assert.deepEqual(restored.map(card=>card.id),[fixture.cardId],'A distinct daemon process restores the canonical tool card once');
+   assert.equal(restored[0].data.entity.id,'77777777');
+   await rpc('conversations');assert.equal((await cards(fixture.a)).length,1,'Recovery polling never duplicates restored cards');
    const links=await rpc('agent-links');assert.equal(links.links.filter(link=>link.responsibility).length,3);assert(links.links.some(link=>!link.responsibility&&link.agentId===fixture.c));
    await client.refreshAgent(fixture.b);await useCaller(fixture.b);
    const history=await tool('tapd_task_history',target);assert(history.history.some(event=>event.reason==='Approved fixture transfer'));
@@ -114,8 +127,8 @@ async function isolated(){
   const url=new URL(request.url,'http://127.0.0.1');
   if(url.pathname==='/fixture/counts'){response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({reads:reads.length,writes:writes.length}));return;}
   assert.equal(request.method,'GET','No TAPD write, label mutation or write replay is allowed');reads.push(url.pathname);
-  assert(['/stories','/stories/get_fields_info','/workflows/last_steps'].includes(url.pathname));
-  const data=url.pathname==='/stories'?[{Story:{id:url.searchParams.get('id'),workspace_id:target.workspaceId,name:'Fixture',status:'open'}}]:url.pathname==='/workflows/last_steps'?{done:'Done'}:{status:{options:{open:'Open',done:'Done'}}};
+  assert(['/stories','/tasks','/stories/get_fields_info','/tasks/get_fields_info','/workflows/last_steps','/iterations','/comments'].includes(url.pathname));
+  const data=url.pathname==='/stories'?[{Story:{id:url.searchParams.get('id'),workspace_id:target.workspaceId,name:'Fixture',status:'open'}}]:url.pathname==='/tasks'?[{Task:{id:url.searchParams.get('id'),workspace_id:target.workspaceId,name:'Card fixture',status:'open',description:'Synthetic complete body'}}]:url.pathname==='/workflows/last_steps'?{done:'Done'}:url.pathname.endsWith('/get_fields_info')?{status:{options:{open:'Open',done:'Done'}}}:[];
   response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({status:1,data}));
  }catch(error){fixtureError=error;if(request.method==='POST')writes.push('unexpected');response.writeHead(500).end();}});
  try{
@@ -133,7 +146,7 @@ async function isolated(){
    assert.equal(code,0,`Ownership daemon ${stage} failed at ${parsed?.step??(last?JSON.parse(last).checkpoint:'startup')} (${parsed?.errorKind??'unknown'}): ${parsed?.message??''}`);assert.equal(parsed?.ok,true);assert.deepEqual(writes,[]);
   }
   assert.ifError(fixtureError);assert.equal(new Set(pids).size,2);
-  console.log(JSON.stringify({ok:true,distinctDaemonProcesses:true,publicExportsOnly:true,ownershipRecovery:true,migrationTransferRelease:true,archiveRetention:true,deletionCleanup:true,legacyReplaySuppressed:true,corruptStoragePreserved:true,providerPrompts:0,tapdWrites:0,replayedWrites:0}));
+  console.log(JSON.stringify({ok:true,distinctDaemonProcesses:true,publicExportsOnly:true,ownershipRecovery:true,toolCardRecovery:true,stableCardExactlyOnce:true,migrationTransferRelease:true,archiveRetention:true,deletionCleanup:true,legacyReplaySuppressed:true,corruptStoragePreserved:true,providerPrompts:0,tapdWrites:0,replayedWrites:0}));
  }finally{if(child&&child.exitCode===null&&child.signalCode===null)child.kill('SIGKILL');await new Promise(resolve=>mock.close(resolve));await rm(root,{recursive:true,force:true});}
 }
 (phase==='sandbox'?isolated():phase?daemonPhase():runPublicDaemonSandbox(self,pluginDir)).catch(error=>{console.log(JSON.stringify({ok:false,phase:phase??'parent',step,errorKind:`${error.name}:${error.code??''}`,message:error instanceof assert.AssertionError?error.message:undefined}));process.exitCode=1;});

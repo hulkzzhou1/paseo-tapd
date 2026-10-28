@@ -104,7 +104,7 @@ export function createConversationRuntime(getValues: () => Promise<TapdSettingsV
     const values = await getValues();
     const config = resolveConfig(values);
     const serialized = JSON.stringify([entities, presentation]);
-    if ([config.token, values.syncGitToken, process.env.TAPD_TOKEN].filter(Boolean).some(secret => serialized.includes(JSON.stringify(secret).slice(1, -1)))) throw new Error(storageError);
+    if ([config.token, ...(config.protectedValues ?? [])].filter(Boolean).some(secret => serialized.includes(JSON.stringify(secret).slice(1, -1)))) throw new Error(storageError);
     return entities.map(raw => {
       const entity = conversationEntitySchema.parse(raw);
       if (entity.siteUrl !== config.site || entity.apiEndpoint !== config.endpoint || !config.workspaceIds.includes(entity.workspaceId)) throw new Error("单据引用与当前 TAPD 连接或项目不匹配，请重新查询。");

@@ -300,7 +300,7 @@ export function CreateEntityModal({ open, onClose, theme, onCreated, initial, ba
         label: `${field.label}${field.required ? " * " : ""}`,
         hidden: true,
       })),
-      { type: "hint", text: "布局按单据类型保存，随设置自动备份到 Git 仓库" },
+      { type: "hint", text: "布局按单据类型保存在本机" },
     ];
     const hideField = (key: string) => {
       persistLayout(

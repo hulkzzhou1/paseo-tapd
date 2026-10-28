@@ -13,7 +13,7 @@ async function fixture(t){
  const home=await mkdtemp(join(tmpdir(),'tapd-workflow-')),env={...process.env};process.env.PASEO_HOME=home;
  for(const k of ['TAPD_TOKEN','TAPD_API_ENDPOINT','TAPD_SITE_URL','TAPD_WORKSPACE_IDS'])delete process.env[k];
  const values=tapdSettingsSchema.parse({token:'example-secret',workspaceIds:target.workspaceId,apiEndpoint:'https://api.example.com',siteUrl:'https://example.com'});
- const state={remarksMetadata:undefined,status:'in_progress',posts:[],reads:[],ruleFailure:false,readbackFailure:false,afterPost:false,
+ const state={omitReadonly:false,remarksMetadata:undefined,status:'in_progress',posts:[],reads:[],ruleFailure:false,readbackFailure:false,afterPost:false,
   transitions:[{Name:'in_progress-status_5',StepPrevious:'in_progress',StepNext:'status_5',Appendfield:[{DBModel:'Bug',FieldName:'remarks',Notnull:'yes'}]},
    {Name:'status_5-closed',StepPrevious:'status_5',StepNext:'closed',Appendfield:[]}]};
  clearTapdCache();t.mock.method(globalThis,'fetch',async(source,init)=>{
@@ -31,6 +31,7 @@ async function fixture(t){
     if(state.ruleFailure)return Response.json({status:0},{status:403});data=state.transitions;
    }else if(u.pathname==='/users/info')data={nick:'example-member'};
   }
+  if(state.omitReadonly&&u.pathname==='/bugs/get_fields_info')for(const info of Object.values(data))delete info.readonly;
   return Response.json({status:1,data});
  });
  const ref=id=>({id,workspaceId:'example-workspace',address:{serverId:'example-host'},current:()=>({id}),refresh:async()=>({agent:{id}}),timeline:{append:async()=>({epoch:'example',seq:1}),refetch:async()=>({entries:[],hasOlder:false})}});
@@ -127,5 +128,31 @@ test('explicit readonly remarks metadata prevents both RPC and tool writes',asyn
  const options=await f.rpc('tapd.status_options',target);assert.equal(options.transitions[0].supported,false);
  const args={...target,status:'status_5',transitionFields:{remarks:'Approved result'}};
  await assert.rejects(f.rpc('tapd.update_status',args));assert.equal((await f.tool('tapd_update_status',{...args,confirmed:true})).isError,true);
+ assert.equal(f.state.posts.length,0);
+});
+
+test('declared defect transition fields support documented metadata without readonly and ignore only optional UI configuration',async t=>{
+ const f=await fixture(t);f.state.omitReadonly=true;
+ f.state.transitions[0].Appendfield.push(
+  {DBModel:'Bug',FieldName:'current_owner',Notnull:'no'},
+  {DBModel:'Bug',FieldName:'enable_add_timesheet',Notnull:'no'},
+  {DBModel:'Bug',FieldName:'transition_description',Notnull:'no'});
+ const result=await f.tool('tapd_status_options',target);assert.notEqual(result.isError,true);
+ const transition=result.structuredContent.transitions[0];assert.equal(transition.supported,true);
+ assert.deepEqual(transition.fields.map(x=>x.key),['remarks','current_owner']);
+ const write=await f.tool('tapd_update_status',{...target,status:'status_5',transitionFields:{remarks:'Approved result'},confirmed:true});
+ assert.notEqual(write.isError,true);assert.equal(write.structuredContent.outcome,'verified');assert.equal(f.state.posts.length,1);
+ assert.equal(f.state.posts[0].body.has('enable_add_timesheet'),false);assert.equal(f.state.posts[0].body.has('transition_description'),false);
+ f.state.status='in_progress';f.state.transitions[0].Appendfield[2].Notnull='yes';
+ await assert.rejects(f.rpc('tapd.update_status',{...target,status:'status_5',transitionFields:{remarks:'Approved result'}}));assert.equal(f.state.posts.length,1);
+});
+test('only absent readonly is accepted for a declared field; unknown markers and arbitrary optional fields remain blocked',async t=>{
+ const f=await fixture(t);f.state.transitions[0].Appendfield.push({DBModel:'Bug',FieldName:'remarks',Notnull:'yes'});
+ // Duplicate and unrecognized declarations cannot expand the writable field set.
+ await assert.rejects(f.rpc('tapd.status_options',target));
+ f.state.transitions[0].Appendfield=[{DBModel:'Bug',FieldName:'unknown_optional',Notnull:'no'}];
+ assert.equal((await f.rpc('tapd.status_options',target)).transitions[0].supported,false);
+ f.state.transitions[0].Appendfield=[{DBModel:'Bug',FieldName:'remarks',Notnull:'yes'}];
+ for(const readonly of [null,'unknown',1]){f.state.remarksMetadata={html_type:'textarea',readonly};assert.equal((await f.rpc('tapd.status_options',target)).transitions[0].supported,false);}
  assert.equal(f.state.posts.length,0);
 });

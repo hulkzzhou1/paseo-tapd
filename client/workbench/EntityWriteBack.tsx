@@ -122,7 +122,8 @@ export function StatusTransitionModal({ target, theme, onClose, onDone }: {
     submitting.current = true; setPending(true); setError("");
     try {
       const result = await update({ kind: target.kind, id: target.id, workspaceId: target.workspaceId,
-        status: target.transition.value, expectedStatus: target.current, transitionFields: values });
+        status: target.transition.value, expectedStatus: target.current,
+        transitionFields: Object.fromEntries(Object.entries(values).filter(([key, value]) => value !== "" || initial[key] !== value)) });
       setAccepted(true); setLocked(true);
       invalidateBoard({ kind: target.kind, id: target.id, workspaceId: target.workspaceId }); onDone();
       if (result.outcome === "unverified") { setError("TAPD 已接受修改，但当前状态未核实。请返回详情核对，勿重复提交。"); return; }

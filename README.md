@@ -2,7 +2,7 @@
 
 A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo workspace: a three-column board, reusable views, agent dispatch, comment/status write-back, and Agent task boards, recent viewing and recoverable tool cards.
 
-Version 0.4.43 reads current defect workflow transitions and collects required transition fields, including remarks, in the same confirmed status request. Unreachable states and incomplete rules stop before writing.
+Version 0.4.44 supports documented defect field metadata without a readonly flag and ignores optional native form settings, while collecting required remarks in the same confirmed status request. Explicitly readonly, unknown and unreachable changes stop before writing.
 
 ![TAPD workbench](assets/screenshots/workbench-v2.png)
 
@@ -371,6 +371,8 @@ New single-item and batch result cards are saved locally before direct timeline 
 
 ### 缺陷状态流转
 
-缺陷详情只显示当前状态可达的目标；若流程要求评论或其他附加字段，会在同一详情体验中切换到填写页，确认后用一次状态请求提交。返回或关闭时保护未提交内容，失败保留输入并要求先核对再重选；不通过另发普通评论代替流转评论。无法读取规则、未知或只读字段会停止提交，可在 TAPD 原站操作。需求、任务维持原有路径；TAPD 仍最终校验权限，并发的外部修改无法由本机写前检查原子锁定。
+缺陷详情只显示当前状态可达的目标；若流程要求评论或其他附加字段，会在同一详情体验中切换到填写页，确认后用一次状态请求提交。返回或关闭时保护未提交内容，失败保留输入并要求先核对再重选；不通过另发普通评论代替流转评论。无法读取规则、未知或明确只读字段会停止提交，可在 TAPD 原站操作。需求、任务维持原有路径；TAPD 仍最终校验权限，并发的外部修改无法由本机写前检查原子锁定。
 
 Agent 改缺陷状态前须以实际项目、类型和 `id` 调用 `tapd_status_options`，检查 `current`、`transitions` 及 `fields`，将获批字段放入 `transitionFields`，并以 `expectedStatus` 提交；不带 `id` 的项目全量候选仅用于筛选。
+
+当前缺陷流转明确列出的已知字段支持官方字段接口省略 `readonly` 的形态；明确只读或无法识别的标记仍停止。可选的原站工时开关和流转说明不当作业务字段提交，必填时仍引导原站。未编辑的空可选字段不提交，避免意外清空处理人。

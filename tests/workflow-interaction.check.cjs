@@ -37,7 +37,7 @@ async function main(){
   const submit=form.getByRole('button',{name:'确认修改状态',exact:true});assert.equal(await submit.isDisabled(),true);assert.equal((await posts()).length,0);
   await form.getByRole('textbox',{name:'流转评论',exact:true}).fill('Approved verification result');
   await form.getByRole('button',{name:'返回详情',exact:true}).click();await form.getByText('放弃尚未提交的内容？',{exact:true}).waitFor();await form.getByRole('button',{name:'继续编辑',exact:true}).click();assert.equal(await form.getByRole('textbox',{name:'流转评论',exact:true}).inputValue(),'Approved verification result');
-  await submit.dblclick();await page.getByRole('button',{name:'修改状态：已解决',exact:true}).waitFor();assert.equal((await posts()).length,1);assert.equal((await posts())[0].fields.remarks,'Approved verification result');
+  await submit.dblclick();await page.getByRole('button',{name:'修改状态：已解决',exact:true}).waitFor();assert.equal((await posts()).length,1);assert.equal((await posts())[0].fields.remarks,'Approved verification result');assert.equal(Object.hasOwn((await posts())[0].fields,'current_owner'),false,'untouched optional blank owner is not cleared');
   for(const scenario of ['rejected','unverified']){
    assert.equal((await bridge('/scenario',{scenario})).ok,true);await page.setViewportSize({width:360,height:740});await page.goto(url);form=await choose();await form.getByRole('textbox',{name:'流转评论',exact:true}).fill('Approved compact result');await form.getByRole('button',{name:'确认修改状态',exact:true}).click();
    await form.getByText(scenario==='rejected'?'状态未确认，输入已保留。请返回详情核对状态和规则后再操作，勿直接重复提交。':'TAPD 已接受修改，但当前状态未核实。请返回详情核对，勿重复提交。',{exact:true}).waitFor();

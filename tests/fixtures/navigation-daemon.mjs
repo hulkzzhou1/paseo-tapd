@@ -34,8 +34,8 @@ export async function runNavigationDaemon(root, workflowMode = false){
    response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({status:1,data:{Bug:{id:'55555555'}}}));return;
   }
   const url=new URL(request.url,'http://127.0.0.1');reads.push(url.pathname);let data=[];
-  if(workflowMode&&url.pathname==='/bugs/get_fields_info')data={status:{options:{in_progress:'处理中',status_5:'已解决',closed:'已关闭'}}};
-  else if(workflowMode&&url.pathname==='/workflows/all_transitions')data=[{Name:'in_progress-status_5',StepPrevious:'in_progress',StepNext:'status_5',Appendfield:workflowScenario==='unknown'?[]:[{DBModel:'Bug',FieldName:'remarks',Notnull:'yes'}]},{Name:'status_5-closed',StepPrevious:'status_5',StepNext:'closed',Appendfield:[]}];
+  if(workflowMode&&url.pathname==='/bugs/get_fields_info')data={status:{options:{in_progress:'处理中',status_5:'已解决',closed:'已关闭'}},current_owner:{html_type:'user_chooser',label:'处理人'}};
+  else if(workflowMode&&url.pathname==='/workflows/all_transitions')data=[{Name:'in_progress-status_5',StepPrevious:'in_progress',StepNext:'status_5',Appendfield:workflowScenario==='unknown'?[]:[{DBModel:'Bug',FieldName:'remarks',Notnull:'yes'},{DBModel:'Bug',FieldName:'current_owner',Notnull:'no'},{DBModel:'Bug',FieldName:'enable_add_timesheet',Notnull:'no'},{DBModel:'Bug',FieldName:'transition_description',Notnull:'no'}]},{Name:'status_5-closed',StepPrevious:'status_5',StepNext:'closed',Appendfield:[]}];
   else if(workflowMode&&url.pathname==='/bugs'){
    if(workflowStatus==='status_5'&&workflowScenario==='unverified'){response.writeHead(503).end();return;}
    data=[{Bug:{id:'55555555',workspace_id:'12345678',title:'Workflow defect',status:workflowStatus,description:'Complete defect body'}}];

@@ -17,6 +17,8 @@ async function main(){
  export const useRpc=rpc=>useCallback(input=>window.rpc(rpc,input),[rpc]);window.rpc=async(rpc,input)=>{window.calls.push({name:rpc.name,input});
  if(rpc.name==='tapd.task-board')return {agentId:input.agentId,workspaceId:window.workspaceId,items:window.boardItems??[],fetchedAt:'2026-01-01T00:00:00Z',partial:false};
  if(rpc.name==='tapd.task.claim'){const link={key:input.kind+'-'+input.id,kind:input.kind,id:input.id,tapdWorkspaceId:input.workspaceId,apiEndpoint:'https://api.example.com',siteUrl:'https://example.com',agentId:input.agentId,agentTitle:'新负责人',workspaceId:'example-workspace',workspaceTitle:'Example',createdAt:'2026-01-01',responsibility:{confirmedAt:'2026-01-01',actorAgentId:'user',revision:'assignment'}};window.toolLinks=[link];return {ok:true,changed:true,link};}
+ if(rpc.name==='tapd.task.release'){if(window.failRelease)throw new Error('storage unavailable');window.toolLinks=[];return {ok:true,changed:true};}
+ if(rpc.name==='tapd.task.transfer'){if(window.failTransfer)throw new Error('revision changed');const link={...window.toolLinks[0],agentId:input.targetAgentId,agentTitle:'转交目标',responsibility:{confirmedAt:'2026-01-01',actorAgentId:'user',revision:'transferred'}};window.toolLinks=[link];return {ok:true,changed:true,link};}
  if(rpc.name==='tapd.agent-links')return {links:window.toolLinks??[]};
  if(rpc.name==='tapd.remove-agent-link'){window.toolLinks=[];return {ok:true};}
  if(rpc.name==='tapd.conversations')return {conversations:window.refs.length||window.includeEmpty?[{agentId:'example-agent',workspaceId:window.workspaceId,entities:window.refs}]:[]};
@@ -57,11 +59,39 @@ async function main(){
  await page.evaluate(()=>window.assignableAgents=[{agent:{id:'example-new-owner',title:'新负责人',workspaceId:'example-workspace',status:'idle'}}]);
  await page.getByRole('button',{name:'绑定 Agent',exact:true}).click();
  await page.getByRole('button',{name:/新负责人/}).click();
+ assert.equal(await page.evaluate(()=>window.calls.filter(call=>call.name==='tapd.task.claim').length),0,'selection alone does not assign');
+ await page.getByRole('button',{name:'确认指派',exact:true}).click();
  await page.getByText('新负责人',{exact:true}).waitFor();
  assert.equal(await page.evaluate(()=>window.calls.filter(call=>call.name==='tapd.task.claim').length),1,'UI uses the same validated ownership claim');
  for(const action of ['派给 Agent','绑定 Agent'])assert.equal(await page.getByRole('button',{name:action,exact:true}).count(),0);
- await page.getByText('解除',{exact:true}).click();
+ await page.evaluate(()=>window.assignableAgents=[{agent:{id:'example-transfer-target',title:'转交目标',workspaceId:'example-workspace',status:'idle'}}]);
+ await page.getByRole('button',{name:'转交任务',exact:true}).click();
+ await page.getByRole('button',{name:/转交目标/}).click();
+ const transferDialog=page.getByRole('dialog',{name:'转交 Agent · #11111111',exact:true});
+ assert.equal(await page.evaluate(()=>window.calls.filter(call=>call.name==='tapd.task.transfer').length),0);
+ await transferDialog.getByRole('textbox',{name:'转交原因',exact:true}).fill('用户批准转交');
+ await page.evaluate(()=>window.failTransfer=true);
+ await transferDialog.getByRole('button',{name:'确认转交',exact:true}).click();
+ await page.waitForFunction(()=>window.calls.filter(call=>call.name==='tapd.task.transfer').length===1);
+ assert.equal(await page.evaluate(()=>window.toolLinks[0].agentId),'example-new-owner','failed transfer preserves original owner');
+ assert.equal(await transferDialog.isVisible(),true,'failure keeps the confirmation available without replay');
+ await page.evaluate(()=>window.failTransfer=false);
+ await transferDialog.getByRole('button',{name:'确认转交',exact:true}).click();
+ await page.getByText('转交目标',{exact:true}).waitFor();
+ assert.deepEqual(await page.evaluate(()=>{const i=window.calls.find(call=>call.name==='tapd.task.transfer').input;return [i.expectedOwnerAgentId,i.expectedRevision,i.targetAgentId,i.reason];}),['example-new-owner','assignment','example-transfer-target','用户批准转交']);
+ await page.getByText('退出',{exact:true}).click();
+ const releaseDialog=page.getByRole('dialog',{name:'退出任务 · #11111111',exact:true});
+ assert.equal(await page.evaluate(()=>window.calls.filter(call=>call.name==='tapd.task.release').length),0);
+ await releaseDialog.getByRole('textbox',{name:'退出原因',exact:true}).fill('任务范围调整');
+ await page.evaluate(()=>window.failRelease=true);
+ await releaseDialog.getByRole('button',{name:'确认退出',exact:true}).click();
+ await page.waitForFunction(()=>window.calls.filter(call=>call.name==='tapd.task.release').length===1);
+ assert.equal(await page.evaluate(()=>window.toolLinks[0].agentId),'example-transfer-target','failed release retains ownership');
+ assert.equal(await releaseDialog.isVisible(),true);
+ await page.evaluate(()=>window.failRelease=false);
+ await releaseDialog.getByRole('button',{name:'确认退出',exact:true}).click();
  await page.getByRole('button',{name:'绑定 Agent',exact:true}).waitFor();
+ assert.deepEqual(await page.evaluate(()=>{const i=window.calls.find(call=>call.name==='tapd.task.release').input;return [i.agentId,i.expectedRevision,i.reason];}),['example-transfer-target','transferred','任务范围调整']);
 
  await page.getByRole('button',{name:'关闭#11111111 · 单据详情',exact:true}).last().click();
  await page.evaluate(()=>window.showWriteCard(null));

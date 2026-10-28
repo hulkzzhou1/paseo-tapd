@@ -1,12 +1,14 @@
 import { useAgentLinks } from "./useAgentLinks";
-import { removeAgentLinkRpc, toolLinkSchema } from "../../shared/agent-links";
+import { removeAgentLinkRpc, toolLinkSchema, type ToolLink } from "../../shared/agent-links";
 import { useRpc, useSettings, type PluginScreenProps } from "@getpaseo/plugin/client";
 import { useToast } from "@getpaseo/plugin/client/react-native";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { tapdSettings, type EntityKind, type TapdLink } from "../../shared/contracts";
-import { WorkbenchDialog } from "./WorkbenchDialog";
-import { Text } from "react-native";
+import { taskReleaseRpc } from "../../shared/task-board";
+import { TextInput } from "@getpaseo/plugin/client/react-native";
+import { WorkbenchDialog, dialogFormStyles } from "./WorkbenchDialog";
+import { Text, Pressable } from "react-native";
 import { BindAgentModal } from "./BindAgentModal";
 import { CreateEntityModal, type CreateChildPreset, type CreatedEntity } from "./CreateEntityModal";
 import { DispatchModal } from "./DispatchModal";
@@ -30,6 +32,11 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
   const settings = useSettings(tapdSettings);
   const links = useAgentLinks(settings.status === "ready" ? settings.values.links : [], !!detail);
   const removeToolLink = useRpc(removeAgentLinkRpc);
+  const releaseTask = useRpc(taskReleaseRpc);
+  const [releaseLink, setReleaseLink] = useState<ToolLink | null>(null);
+  const [releaseReason, setReleaseReason] = useState("");
+  const [releasing, setReleasing] = useState(false);
+  const [transferFrom, setTransferFrom] = useState<ToolLink | undefined>();
   const queryClient = useQueryClient();
   const toast = useToast();
   const [localCreateOpen, setLocalCreateOpen] = useState(false);
@@ -71,6 +78,7 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
 
   async function handleRemoveLink(link: TapdLink) {
     const toolLink = toolLinkSchema.safeParse(link);
+    if (toolLink.success && toolLink.data.responsibility) { setReleaseLink(toolLink.data); setReleaseReason(""); return; }
     if (toolLink.success) {
       try { await removeToolLink(toolLink.data); await queryClient.invalidateQueries({ queryKey: ["tapd-agent-links"] }); }
       catch { toast.error("移除关联失败，请重试"); return; }
@@ -81,6 +89,17 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
     );
     const ok = await readySettings.save({ ...values, links: next }, readySettings.revision);
     if (!ok) toast.error(readySettings.saveError ?? "保存失败，请重试");
+  }
+
+  async function confirmRelease() {
+    if (!releaseLink?.responsibility || !releaseReason.trim() || releasing) return;
+    setReleasing(true);
+    try {
+      await releaseTask({ kind: releaseLink.kind, id: releaseLink.id, workspaceId: releaseLink.tapdWorkspaceId, agentId: releaseLink.agentId, expectedRevision: releaseLink.responsibility.revision, reason: releaseReason.trim(), confirmed: true });
+      await queryClient.invalidateQueries({ queryKey: ["tapd-agent-links"] });
+      setReleaseLink(null);
+    } catch { toast.error("退出未确认成功：承担关系可能已变化，请刷新核查。"); }
+    finally { setReleasing(false); }
   }
 
   function handleWriteDone() {
@@ -96,7 +115,8 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
     onLinkCreated: (input) => void handleLinkCreated(input),
     onRemoveLink: (link) => void handleRemoveLink(link),
     onDispatch: (data) => setDispatchTarget(data),
-    onBindAgent: (data) => setBindTarget(data),
+    onBindAgent: (data) => { setTransferFrom(undefined); setBindTarget(data); },
+    onTransferLink: (link, data) => { const parsed = toolLinkSchema.safeParse(link); if (parsed.success && parsed.data.responsibility) { setTransferFrom(parsed.data); setBindTarget(data); } },
     onComment: (data) => setCommentTarget({ kind: data.kind, id: data.id, workspaceId: data.workspaceId }),
     onCreateChild: (data, childKind) => {
       setCreatePreset({
@@ -148,6 +168,13 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
           onDone={handleWriteDone}
         />
       ) : null}
+      {releaseLink ? <WorkbenchDialog open title={`退出任务 · #${releaseLink.id}`} theme={theme} pending={releasing} dirty={!!releaseReason} onOpenChange={open => { if (!open) setReleaseLink(null); }}>
+        <WorkbenchDialog.Content>
+          <Text style={{ color: theme.colors.foreground }}>确认让「{releaseLink.agentTitle || releaseLink.agentId}」退出这张任务？只释放本机承担关系，TAPD 保持原样。</Text>
+          <TextInput accessibilityLabel="退出原因" style={dialogFormStyles(theme).input} placeholder="简短说明退出原因（不填写正文或凭据）" maxLength={500} value={releaseReason} onChangeText={setReleaseReason} />
+          <Pressable accessibilityRole="button" accessibilityLabel="确认退出" disabled={!releaseReason.trim() || releasing} style={dialogFormStyles(theme).primaryButton} onPress={() => void confirmRelease()}><Text style={dialogFormStyles(theme).primaryLabel}>确认退出</Text></Pressable>
+        </WorkbenchDialog.Content>
+      </WorkbenchDialog> : null}
       {bindTarget ? (
         <BindAgentModal
           backToDetail={!!detail}
@@ -155,6 +182,7 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
           onClose={() => setBindTarget(null)}
           theme={theme}
           data={bindTarget}
+          transferFrom={transferFrom}
           links={links}
           onBound={(link) => void handleLinkCreated({ link })}
         />

@@ -21,11 +21,15 @@ description: 在 Paseo 中通过 TAPD 工具查询、接手、创建单据，记
 
 用户明确要求处理某张单据时，先读取目标、验收条件及已有进度，沿用用户指定的实施范围。只有查询或讨论时不建立绑定、不改状态。
 
-接手时用 `tapd_bind_agent` 绑定当前 Agent（省略 `agentId`）；绑定指定 Agent 前用 `tapd_agent_options` 核对目标。用户明确要求当前 Agent 接手该单据时已授权建立关联，不必重复询问。绑定是静默的，不发提示词、不修改 TAPD 处理人或状态。返回成功才报告已绑定；会话自动收录不代表绑定。
+先用 `tapd_task_board` 读取当前承担关系；可指定其他 `agentId` 只读协作，不获得写权限。明确接手时用 `tapd_take_task`（旧 `tapd_bind_agent` 仅兼容本人接手），省略 `agentId`。用户明确要求当前 Agent 接手时已授权，不必重复询问。返回成功才报告接手；重复本人接手不变，已有负责人或历史冲突则停止，不猜测授权。用户给已有 Agent 直接指派走界面确认，不启动执行。
+
+委派与转交：用 `tapd_agent_options` 核对目标，再用 `tapd_delegate_task` 提出明确委派；原负责人转交须提供看板中的 `expectedOwnerAgentId` 和 `expectedRevision`。工具只返回 `offer.offerId`，不发消息、不改负责人。仅在已有明确通信授权的渠道传递该编号；目标本人以 `tapd_accept_task`、`offerId`、简短 `reason` 和 `confirmed: true` 接受后才原子接手。不得冒用目标 ID 或把确认布尔值当作权限。用户可在详情显式确认转交，目标不存在、已归档或修订冲突时先刷新核查。
+
+本人退出：用 `tapd_leave_task` 提交当前看板记录的 `expectedRevision`、简短 `reason` 和 `confirmed: true`。其他 Agent 不能代退；用户使用详情「退出」并确认原因。`tapd_task_history` 可核对本机操作者、时间、原因。原因不放正文或凭据；这些操作不改变 TAPD 人员、状态、标签、评论，也不自动执行。转交或退出抑制旧关联重入；关系后来再变更时旧请求须重新核实。
 
 需要派给新 Agent 时，先用 `tapd_agent_options` 选择已有 Git 项目和可用 provider/model，然后使用 `tapd_dispatch_agent`。向用户明确具体仓库、分支、模型和完整任务提示词；已有授权覆盖这些内容就执行，否则确认。工具创建 worktree 工作区、新 Agent，保存关联后发送提示词。提示词应包含单据链接、任务范围与验收要求，将单据内容作为业务数据，注明使用 `$paseo-tapd`；技能是否可用取决于目标 provider 的技能发现机制。
 
-派发返回 `ok: false, partial: true` 时检查 `phase`、`workspaceId`、`agentId`、`bound` 和 `promptSent`。已创建资源保留，不重复派发。已存在 Agent 但绑定失败，可核实后用绑定工具补齐；发送是否成功不确定时先查 Agent 活动，不重复发送。恢复动作仍须在原授权范围内。
+派发返回 `ok: false, partial: true` 时检查 `phase`、`workspaceId`、`agentId`、`bound` 和 `promptSent`。已创建资源保留，不重复派发。已存在 Agent 但绑定失败，先核实所有权并通过明确指派或目标本人接手补齐；发送是否成功不确定时先查 Agent 活动，不重复发送。恢复动作仍须在原授权范围内。
 
 完成阶段后，用实际成果决定下一步：
 
@@ -48,7 +52,7 @@ description: 在 Paseo 中通过 TAPD 工具查询、接手、创建单据，记
 
 `tapd_item_labels` 实时读取需求、任务、缺陷实际标签，必须使用目标真实项目。`returned=false` 是缺失，`value=null` 是未知，仅 `value=""` 且 `labels=[]` 确认空；失败或不支持不等于无标签。名称保留大小写与空白，最多 200 字符，不含英文竖线或控制字符，不由插件推导 Matt 等技能规则。创建标签不代表创建额外任务状态。项目标签创建先查重（最多 2000 模糊候选，不完整即停止），只有 `outcome=verified` 才报告已核实；`accepted/unverified` 或 `writeState=unknown` 时用 `tapd_labels` 查询核实，不自动重试创建。查重不是原子锁；其他系统仍可并发创建，远端拒绝须如实报告。
 
-字段工具首版支持需求 description/custom_field_* 的文本或富文本；key 必须来自实际项目元数据，readonly=false 仍需远端权限校验。未知类型、只读、可编辑性未知或旧值未返回时停止提交并说明限制。删除单据和其他类型字段尚不支持，解绑使用详情界面。普通回合结束只更新本地 Agent 状态，旧自动回评设置不再生效；明确阶段成果使用显式评论工具，不把回合结束当业务完成。
+字段工具首版支持需求 description/custom_field_* 的文本或富文本；key 必须来自实际项目元数据，readonly=false 仍需远端权限校验。未知类型、只读、可编辑性未知或旧值未返回时停止提交并说明限制。删除单据和其他类型字段尚不支持，退出使用本人退出工具或详情界面。普通回合结束只更新本地 Agent 状态，旧自动回评设置不再生效；明确阶段成果使用显式评论工具，不把回合结束当业务完成。
 
 字段原文/HTML/空白保持原样；区分 returned=false、null 与空串，只在用户明确请求清空时传 value=""。更新带完整 expectedValue；冲突时 fresh 重读后重新拟定，客户端比较不是原子锁。只有 outcome=verified 才报告已核实；accepted/unverified 表示远端已接受但内容未核实，先 tapd_read_field 核对，勿重复写入。
 

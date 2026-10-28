@@ -262,9 +262,12 @@ The bundled [paseo-tapd skill](skills/paseo-tapd/SKILL.md) guides reads, taking 
 - `tapd_task_board`: read the calling Agent’s formal board, or supply `agentId` for read-only collaboration. Returns actual TAPD summaries, unfinished/completed/unknown classification, timestamps and partial-read warnings.
 - `tapd_take_task`: explicitly accept a configured item as the calling Agent with `confirmed: true`; repeated self-acceptance is unchanged, another owner or unresolved legacy association conflicts.
 - `tapd_bind_agent`: compatibility alias for self-acceptance. Another Agent ID cannot grant assignment authority; direct user assignment uses the validated UI RPC. No TAPD owner/status update or prompt is sent.
+- `tapd_delegate_task`: propose a specific target without assigning or sending a message. Owned handovers require the current owner's identity and `expectedOwnerAgentId` / `expectedRevision` from the board. Pass the returned `offer.offerId` to the target in an already authorized coordination channel; the plugin has no delegation inbox.
+- `tapd_accept_task`: only that target Agent may accept the offer, atomically replacing the expected owner. Repeated acceptance is unchanged. Another Agent's ID or a confirmation flag grants no rights.
+- `tapd_leave_task`: release the caller's own item using its `expectedRevision`, `confirmed: true` and a short `reason`. `tapd_task_history` reads local actor/time/reason history.
 - `tapd_dispatch_agent`: after approval of item, repository, branch, provider/model and exact prompt, create a worktree and Agent, persist the binding, then send the prompt. Partial failure returns the created resource IDs and stage; inspect those resources before recovery, never blindly dispatch again. Creating a workspace or Agent may have completed even if its response was lost.
 
-工具产生的关联保存在本机 `${PASEO_HOME:-~/.paseo}/plugin-data/tapd-workbench/agent-links.json`，按 API 地址和实际 TAPD 项目隔离；详情与看板每两秒合并读取旧设置关联和这些记录，详情可移除，普通回合不会自动回评。旧关联不迁移、不删除，新工具关联不参与 Git 配置同步。派发会将用户批准的提示词发送给选定模型服务，可能产生费用；不会自动清理部分创建的工作区或 Agent。
+工具产生的关联保存在本机 `${PASEO_HOME:-~/.paseo}/plugin-data/tapd-workbench/agent-links.json`，按 API 地址和实际 TAPD 项目隔离；详情与看板读取本机记录，普通回合不会自动回评。本机历史记录包含操作者、时间和简短原因，不保存正文、凭据或提示词，不参与 Git 配置同步。详情的「转交」「退出」要求明确确认和原因，并检查原负责人及修订号；用户直接指派和转交都不启动执行。转交、退出原子抑制旧关联重入，不修改 TAPD 处理人、状态、标签或评论。派发会将用户批准的提示词发送给选定模型服务，可能产生费用；不会自动清理部分创建的工作区或 Agent。
 
 单张结果卡片、批量条目和会话列表共用阅读层次：标题优先，状态以主题色边条和徽标区分，单号与处理人作为次要信息；保留键盘打开详情、批量展开及深浅主题适配。
 

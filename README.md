@@ -220,6 +220,8 @@ Tool inputs are bounded by UTF-8 byte length. Result `warnings` flag tolerated r
 
 看板的读取警告随快照缓存（包括界面先加载及后台刷新），缓存命中不会丢失完整性提示。「我处理的」无法识别当前用户时直接报错，不扩大为全员查询。Board read warnings travel with cached snapshots, including UI-warmed results and background refreshes. If the current user cannot be resolved, a mine query fails rather than broadening to everyone.
 
+读取响应、工作台快照及在途请求按 API/站点、配置项目和凭据作用域隔离；选择缓存前先校验当前连接。缓存作用域只保留凭据的 SHA-256 指纹，不含原始 Token。设置页的连接测试每次重新验证当前草稿凭据，不复用旧用户结果；测试不会保存草稿。
+
 ### Conversation TAPD shortcuts / 会话 TAPD 入口
 
 The `TAPD · N` composer action opens the current Agent task board (N confirmed responsibilities) in the Explorer sidebar, using the same public panel navigation as Progress. Selecting an item opens a separate detail tab; selecting it again reuses its tab. Native mobile uses workspace tabs because Explorer is unavailable there. The entry is hidden when there are no responsibilities, pending associations or recent references. Recent-viewing references remain recent-first and removable even when the item cannot be read; removal does not release responsibility. List panels are scoped by host, workspace and Agent; item tabs also distinguish connection, project, kind and ID. Agents without a workspace retain timeline-card access.

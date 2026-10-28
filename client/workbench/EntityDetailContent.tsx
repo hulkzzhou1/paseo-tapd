@@ -1,3 +1,4 @@
+import { toolLinkSchema } from "../../shared/agent-links";
 import { RichText } from "./RichText";
 import type { RpcOutput } from "@getpaseo/plugin";
 import { openExternalUrl, usePaseo, useRpc, type PluginScreenProps } from "@getpaseo/plugin/client";
@@ -30,6 +31,7 @@ export interface DetailExtras {
   onLinkCreated?: (input: { link: TapdLink; repoPath?: string; provider?: string }) => void;
   onBindAgent?: (data: EntityDetailData) => void;
   onRemoveLink?: (link: TapdLink) => void;
+  onTransferLink?: (link: TapdLink, data: EntityDetailData) => void;
   onDispatch?: (data: EntityDetailData) => void;
   onComment?: (data: EntityDetailData) => void;
   onStatusDone?: () => void;
@@ -353,6 +355,7 @@ function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarge
             <AgentLinkRow
               key={`${link.workspaceId}-${link.agentId}`}
               link={link}
+              data={data}
               theme={theme}
               extras={extras}
               status={agentStatusMap.get(link.agentId)}
@@ -546,7 +549,8 @@ function ChildRow({ item, theme, styles, onOpen }: {
 }
 
 /** 关联 Agent 行：展示 agent 实时状态与最近一次 turn 结果 */
-function AgentLinkRow({ link, theme, extras, status }: {
+function AgentLinkRow({ link, data, theme, extras, status }: {
+  data: EntityDetailData;
   link: TapdLink;
   theme: WorkbenchTheme;
   extras: DetailExtras;
@@ -657,9 +661,10 @@ function AgentLinkRow({ link, theme, extras, status }: {
             <Text style={styles.actionText}>打开 Agent</Text>
           </Pressable>
         ) : null}
+        {extras.onTransferLink && toolLinkSchema.safeParse(link).data?.responsibility ? <Pressable accessibilityRole="button" accessibilityLabel="转交任务" onPress={() => extras.onTransferLink?.(link, data)}><Text style={styles.actionText}>转交</Text></Pressable> : null}
         {extras.onRemoveLink ? (
           <Pressable accessibilityRole="button" onPress={() => extras.onRemoveLink?.(link)}>
-            <Text style={styles.dangerText}>解除</Text>
+            <Text style={styles.dangerText}>{toolLinkSchema.safeParse(link).data?.responsibility ? "退出" : "解除"}</Text>
           </Pressable>
         ) : null}
       </View>

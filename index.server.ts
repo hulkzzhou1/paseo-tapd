@@ -1,8 +1,10 @@
 import { childrenRpc, childTypesRpc } from "./shared/contracts";
-import { createAgentLinks } from "./server/agent-links";
+import { createOwnershipMigration } from "./server/ownership-migration";
+import { migrationListRpc, migrationConfirmRpc } from "./shared/ownership-migration";
+import { createAgentLinks, sameTask, suppressTask } from "./server/agent-links";
 import { createAssignmentService, createAssignmentTools } from "./server/agent-assignment";
 import { createTaskBoard } from "./server/task-board";
-import { taskBoardRpc, taskClaimRpc, taskDispatchRpc } from "./shared/task-board";
+import { taskBoardRpc, taskClaimRpc, taskDispatchRpc, taskReleaseRpc, taskTransferRpc } from "./shared/task-board";
 import { labelsRpc, itemLabelsRpc, createLabelRpc, updateLabelsRpc } from "./shared/labels";
 import { agentLinksRpc, removeAgentLinkRpc } from "./shared/agent-links";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
@@ -28,17 +30,28 @@ export default function contribute(server: PluginServerContext) {
   const syncAccess: SyncSettingsAccess = { read: getValues };
 
   const agentLinks = createAgentLinks();
+  const migration = createOwnershipMigration(getValues, agentLinks);
+  server.handle(migrationListRpc, ({agentId}, context) => migration.list(agentId, context));
+  server.handle(migrationConfirmRpc, (input, context) => migration.confirm(input, context));
   const assignments = createAssignmentService(getValues, agentLinks);
   const taskBoard = createTaskBoard(getValues, agentLinks);
   server.handle(taskBoardRpc, ({ agentId }, context) => taskBoard.read(agentId, context));
   server.handle(taskClaimRpc, (input, context) => assignments.claim(input, context, "user", true));
   server.handle(taskDispatchRpc, (input, context) => assignments.dispatch(input, context, "user"));
+  server.handle(taskTransferRpc, (input, context) => assignments.transfer(input, context));
+  server.handle(taskReleaseRpc, (input, context) => assignments.release(input, context, "user", input.agentId));
   const visibleLinks = async () => {
-    const config = resolveConfig(await getValues());
-    return (await agentLinks.list()).filter(link => link.apiEndpoint === config.endpoint && (!link.siteUrl || link.siteUrl === config.site) && config.workspaceIds.includes(link.tapdWorkspaceId));
+    const values = await getValues(), config = resolveConfig(values);
+    const result = (await agentLinks.list()).filter(link => link.apiEndpoint === config.endpoint && (!link.siteUrl || link.siteUrl === config.site) && config.workspaceIds.includes(link.tapdWorkspaceId));
+    if ([config.token, values.syncGitToken].filter(Boolean).some(secret => JSON.stringify(result).includes(secret))) throw new Error("关联包含敏感配置，无法安全展示；原记录已保留。");
+    return result;
   };
-  server.handle(agentLinksRpc, async () => ({ links: await visibleLinks() }));
-  server.handle(removeAgentLinkRpc, async link => { await agentLinks.remove(link); return { ok: true as const }; });
+  server.handle(agentLinksRpc, async () => ({ links: await visibleLinks(), pendingAgents: await migration.pendingAgents() }));
+  server.handle(removeAgentLinkRpc, link => agentLinks.stateTransaction(async state => {
+    const matches = (item: typeof link) => sameTask(item, link) && item.agentId === link.agentId;
+    if (state.links.some(item => matches(item) && item.responsibility)) throw new Error("已确认承担关系请使用退出操作并填写原因。");
+    return { state: { ...suppressTask(state, link, "user"), links: state.links.filter(item => !matches(item)) }, result: { ok: true as const } };
+  }));
   const handlers = createHandlers(getValues, {}, agentLinks);
   server.handle(childrenRpc, handlers.children);
   server.handle(childTypesRpc, handlers.childTypes);

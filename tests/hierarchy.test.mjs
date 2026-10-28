@@ -15,11 +15,12 @@ function fixture(t){
   const url=new URL(input),body=new URLSearchParams(init.body);state.requests.push({url,body,method:init.method});
   if(url.pathname==='/workitem_types'&&state.typeFailure)throw Error('private example-secret');
   if(url.pathname==='/workitem_types')return Response.json({status:1,data:state.types.map(WorkitemType=>({WorkitemType}))});
-  if(url.pathname.endsWith('get_fields_info'))return Response.json({status:1,data:state.fields??{name:{required:1,readonly:0,html_type:'text'}}});
-  if(init.method==='POST'){if(state.writeFailure)throw Error('private example-secret');state.created={id:'44444444',workspace_id:project,parent_id:body.get('parent_id'),workitem_type_id:body.get('workitem_type_id'),name:body.get('name')};if(state.wrongParent)state.created.parent_id='99999999';return Response.json({status:1,data:{Story:state.created}});}
+  if(url.pathname.endsWith('get_fields_info'))return Response.json({status:1,data:state.fields??{[url.pathname.startsWith('/bugs')?'title':'name']:{required:1,readonly:0,html_type:'text'}}});
+  if(init.method==='POST'){if(state.writeFailure)throw Error('private example-secret');state.created={id:'44444444',workspace_id:project,parent_id:body.get('parent_id'),workitem_type_id:body.get('workitem_type_id'),name:body.get('name'),story_id:body.get('story_id')};if(state.wrongParent)state.created.parent_id='99999999';return Response.json({status:1,data:{[url.pathname==='/tasks'?'Task':url.pathname==='/bugs'?'Bug':'Story']:state.created}});}
   if(url.pathname==='/stories/count')return Response.json({status:1,data:state.count===undefined?{}:{count:state.count}});
   if(url.pathname==='/stories'&&url.searchParams.has('parent_id')){if(url.searchParams.get('page')==='2'&&state.secondPageFailure)throw Error('private example-secret');return Response.json({status:1,data:(state.childPages?.[url.searchParams.get('page')]??state.children??[]).map(Story=>({Story}))});}
   if(url.pathname==='/stories'&&url.searchParams.get('id')===parent)return Response.json({status:1,data:[{Story:{id:parent,workspace_id:project,workitem_type_id:parentType,name:'父需求'}}]});
+  if(['/tasks','/bugs'].includes(url.pathname)&&url.searchParams.has('id')&&state.created)return Response.json({status:1,data:[{[url.pathname==='/tasks'?'Task':'Bug']:state.created}]});
   if(url.pathname==='/stories'&&state.created)return Response.json({status:1,data:[{Story:state.created}]});
   return Response.json({status:1,data:[]});
  });
@@ -33,6 +34,14 @@ test('approved real child story creation validates both category directions and 
  const writes=state.requests.filter(x=>x.method==='POST');assert.equal(writes.length,1);
  assert.equal(writes[0].body.get('parent_id'),parent);assert.equal(writes[0].body.get('workitem_type_id'),childType);
  assert.equal(writes[0].body.has('story_id'),false);assert.equal(writes[0].body.has('status'),false);
+});
+test('shared creation RPC validates and verifies task/bug parent links so UI cannot bypass the project check',async t=>{
+ const {state}=fixture(t);const{createHandlers}=await import('../server/handlers.ts');const handlers=createHandlers(async()=>values);
+ for(const kind of ['task','bug']){
+  const result=await handlers.create({kind,workspaceId:project,title:'独立子单',storyId:parent,owner:'',priority:'',iterationId:'',description:''});assert.equal(result.outcome,'verified');
+  const post=state.requests.filter(x=>x.method==='POST').at(-1);assert.equal(post.body.get('story_id'),parent);assert.equal(post.body.has('parent_id'),false);
+ }
+ const writes=state.requests.filter(x=>x.method==='POST').length;await assert.rejects(handlers.create({kind:'task',workspaceId:'99999999',title:'错误项目',storyId:parent,owner:'',priority:'',iterationId:'',description:''}));assert.equal(state.requests.filter(x=>x.method==='POST').length,writes);
 });
 test('either category restriction, disabled or missing metadata prevents child writes',async t=>{
  const {call,state}=fixture(t);const input={kind:'story',workspaceId:project,title:'子需求',parentStoryId:parent,workitemTypeId:childType,confirmed:true};
@@ -79,4 +88,8 @@ test('child owners come only from the actual confirmed association, never from t
  const first=await handlers.children({workspaceId:project,id:parent});assert.equal(first.items[0].responsibleAgent,null);assert.equal(first.items[0].ownershipUnknown,false);
  links=[link,{...link,id:'55555555',agentId:'example-child-agent',agentTitle:'执行'}];const second=await handlers.children({workspaceId:project,id:parent});assert.equal(second.items[0].responsibleAgent.id,'example-child-agent');
  links=[{...links[1],responsibility:undefined}];const historical=await handlers.children({workspaceId:project,id:parent});assert.equal(historical.items[0].responsibleAgent,null);assert.equal(historical.items[0].ownershipUnknown,true);assert.equal(state.requests.some(x=>x.method==='POST'),false);
+ const legacyValues={...values,links:[{...link,id:'55555555',key:'story-55555555'}]};
+ const pending=createHandlers(async()=>legacyValues,{}, {list:async()=>[]});assert.equal((await pending.children({workspaceId:project,id:parent})).items[0].ownershipUnknown,true,'unimported settings candidates cannot look unassigned');
+ const suppressed=createHandlers(async()=>legacyValues,{}, {list:async()=>[],state:async()=>({links:[],suppressed:[{apiEndpoint:values.apiEndpoint,siteUrl:values.siteUrl,tapdWorkspaceId:project,kind:'story',id:'55555555'}]})});
+ assert.equal((await suppressed.children({workspaceId:project,id:parent})).items[0].ownershipUnknown,false,'suppressed settings must not restore old responsibility');
 });

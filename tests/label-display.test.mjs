@@ -24,7 +24,8 @@ function fixture(t){
   return Response.json({status:1,data});
  });
  const link={key:'story-11111111',kind:'story',id:target.id,tapdWorkspaceId:target.workspaceId,apiEndpoint:values.apiEndpoint,siteUrl:values.siteUrl,agentId:'example-agent',agentTitle:'Example Agent',workspaceId:'example-workspace',workspaceTitle:'Example',createdAt:'2026-01-01',responsibility:{confirmedAt:'2026-01-01',actorAgentId:'example-agent',revision:'one'}};
- const links={list:async()=>[{...link,kind:state.kind,key:state.kind+'-'+target.id}]};
+ const currentLinks=()=>[{...link,kind:state.kind,key:state.kind+'-'+target.id}];
+ const links={list:async()=>currentLinks(),state:async()=>({version:1,links:currentLinks(),suppressed:[],history:[],offers:[],imports:[],legacyArchive:[],deletedAgents:[]}),stateTransaction:async()=>assert.fail('label display must not write ownership state')};
  const tools=[...createTapdTools(async()=>values),...createAssignmentTools(async()=>values,links)];
  const rows=[];
  const context={signal:new AbortController().signal,agent:{id:'example-agent'},paseo:{agents:{ref:()=>({workspaceId:'example-workspace',refresh:async()=>{},current:()=>({id:'example-agent'}),timeline:{append:async row=>rows.push(row)}})}}};

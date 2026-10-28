@@ -17,7 +17,7 @@ function fixture(t){
   const url=new URL(input),body=new URLSearchParams(init.body);state.requests.push({url,method:init.method,body});assert.equal(url.origin,values.apiEndpoint);
   assert.notEqual(url.pathname,'/label','display must not issue extra label-definition requests');
   let data=[];
-  if(['/stories','/tasks','/bugs'].includes(url.pathname)&&url.searchParams.has('id'))data=[{[url.pathname==='/tasks'?'Task':url.pathname==='/bugs'?'Bug':'Story']:{id:target.id,workspace_id:target.workspaceId,name:'Example',title:'Example',status:'open',label:state.value}}];
+  if(['/stories','/tasks','/bugs'].includes(url.pathname)&&url.searchParams.has('id'))data=[{[url.pathname==='/tasks'?'Task':url.pathname==='/bugs'?'Bug':'Story']:{id:target.id,workspace_id:target.workspaceId,name:'Example',title:'Example',status:'open',workitem_type_id:'77777777',label:state.value}}];
   if(init.method==='POST'){state.value=body.get('label');data={Story:{id:target.id}};}
   if(url.pathname.endsWith('/get_fields_info'))data={status:{options:{open:'进行中',done:'已完成'}}};
   if(url.pathname==='/workflows/last_steps')data={done:'已完成'};

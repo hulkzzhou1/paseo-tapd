@@ -991,6 +991,87 @@ function protectFieldData(config: TapdConfig, data: unknown) {
     throw new TapdApiError("字段数据包含受保护内容，无法安全读取或写入。");
   }
 }
+
+export interface LabelQuery { workspaceId: string; page: number; limit: number; name?: string }
+export interface ProjectLabel { id: string; name: string; color: string | null }
+export interface ItemLabelTarget { kind: EntityKind; id: string; workspaceId: string }
+function validateLabelProject(config: TapdConfig, workspaceId: string) {
+  if (!/^\d{1,100}$/.test(workspaceId) || !config.workspaceIds.includes(workspaceId)) throw new TapdApiError("标签项目无效。");
+}
+function validLabelName(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 200 && value.trim().length > 0 && !/[|\u0000-\u001f\u007f]/.test(value);
+}
+function parseProjectLabel(row: unknown, workspaceId: string): ProjectLabel {
+  if (!row || typeof row !== "object" || Array.isArray(row)) throw requestFailure("read", "unsupported_label_response");
+  const value = row as Record<string, unknown>;
+  const id = String(value.id ?? "");
+  if (!/^\d{1,100}$/.test(id) || String(value.workspace_id ?? "") !== workspaceId || !validLabelName(value.name)
+    || (value.color != null && !/^[1-4]$/.test(String(value.color)))) throw requestFailure("read", "unsupported_label_response");
+  return { id, name: value.name, color: value.color == null ? null : String(value.color) };
+}
+export async function fetchProjectLabels(config: TapdConfig, input: LabelQuery) {
+  validateLabelProject(config, input.workspaceId);
+  if (!Number.isInteger(input.page) || input.page < 1 || input.page > 10_000
+    || !Number.isInteger(input.limit) || input.limit < 1 || input.limit > 200
+    || (input.name !== undefined && !validLabelName(input.name))) throw new TapdApiError("标签查询无效。");
+  protectFieldData(config, input);
+  const data = await requestJson(config, "/label", { workspace_id: input.workspaceId, page: input.page, limit: input.limit, name: input.name, order: "id asc" }, 0, true);
+  if (!Array.isArray(data) || data.length > input.limit) throw requestFailure("read", "unsupported_label_response");
+  const labels = data.map(row => parseProjectLabel(unwrapRow(row, ["LabelPool"]), input.workspaceId));
+  protectFieldData(config, labels);
+  const truncated = data.length === input.limit;
+  return { workspaceId: input.workspaceId, labels, page: input.page, limit: input.limit, truncated, nextPage: truncated && input.page < 10_000 ? input.page + 1 : null };
+}
+export async function readItemLabels(config: TapdConfig, input: ItemLabelTarget) {
+  validateLabelProject(config, input.workspaceId);
+  if (!["story", "task", "bug"].includes(input.kind) || !/^\d{1,100}$/.test(input.id)) throw new TapdApiError("标签单据目标无效。");
+  const data = await requestJson(config, LIST_PATH[input.kind], { workspace_id: input.workspaceId, id: input.id, limit: 1,
+    fields: `id,workspace_id,${input.kind === "bug" ? "title,current_owner" : "name,owner"},status,label` }, 0, true);
+  if (!Array.isArray(data) || data.length > 1) throw requestFailure("read", "unsupported_label_response");
+  const row = unwrapRows(data, [KIND_WRAPPER[input.kind]])[0];
+  if (!row || String(row.id) !== input.id) throw requestFailure("read", "item_not_returned");
+  if (String(row.workspace_id ?? "") !== input.workspaceId) throw requestFailure("read", "item_project_mismatch");
+  const returned = Object.hasOwn(row, "label");
+  const value: unknown = returned ? row.label : null;
+  if (value !== null && (typeof value !== "string" || value.length > 20_100)) throw requestFailure("read", "unsupported_label_response");
+  const labels = value === null ? null : value === "" ? [] : (value as string).split("|");
+  if (labels && (labels.length > 100 || !labels.every(validLabelName))) throw requestFailure("read", "unsupported_label_response");
+  const result = { returned, value: value as string | null, labels, entity: { ...input,
+    title: String(row[input.kind === "bug" ? "title" : "name"] ?? "").slice(0, 500), status: String(row.status ?? "").slice(0, 200),
+    statusLabel: "", owner: String(row[input.kind === "bug" ? "current_owner" : "owner"] ?? "").slice(0, 200) } };
+  protectFieldData(config, result);
+  return result;
+}
+export async function createProjectLabel(config: TapdConfig, input: { workspaceId: string; name: string; color?: number; confirmed: true }) {
+  validateLabelProject(config, input.workspaceId);
+  if (input.confirmed !== true || !validLabelName(input.name)
+    || (input.color !== undefined && (!Number.isInteger(input.color) || input.color < 1 || input.color > 4))) throw new TapdApiError("标签创建输入无效。");
+  protectFieldData(config, input);
+  const base = { workspaceId: input.workspaceId, name: input.name };
+  for (let page = 1; page <= 10; page++) {
+    const current = await fetchProjectLabels(config, { ...base, page, limit: 200 });
+    const existing = current.labels.find(label => label.name === input.name);
+    if (existing) return { ...base, ok: true, outcome: "unchanged" as const, writeState: "not_sent" as const, label: existing };
+    if (!current.truncated) break;
+    if (page === 10) throw new TapdApiError("标签查重未完成，未提交。", undefined, { code: "label_lookup_incomplete", phase: "validation", writeState: "not_sent" });
+  }
+  const data = await requestPost(config, "/label", { workspace_id: input.workspaceId, name: input.name, color: input.color });
+  // Accepted creation must stay accepted even when its response or fresh verification is incomplete.
+  let label: ProjectLabel | null = null;
+  try {
+    label = parseProjectLabel(unwrapRow(data, ["LabelPool"]), input.workspaceId);
+    protectFieldData(config, label);
+    if (label.name !== input.name) throw new Error();
+    const current = await requestJson(config, "/label", { workspace_id: input.workspaceId, id: label.id, limit: 1 }, 0, true);
+    if (!Array.isArray(current) || current.length !== 1) throw new Error();
+    const verified = parseProjectLabel(unwrapRow(current[0], ["LabelPool"]), input.workspaceId);
+    protectFieldData(config, verified);
+    if (verified.id !== label.id || verified.name !== input.name || (input.color !== undefined && verified.color !== String(input.color))) throw new Error();
+    return { ...base, ok: true, outcome: "verified" as const, writeState: "accepted" as const, label: verified };
+  } catch {
+    return { ...base, ok: false, outcome: "unverified" as const, writeState: "accepted" as const, label: null };
+  }
+}
 export async function fetchFieldDefinitions(config: TapdConfig, kind: string, workspaceId: string): Promise<{ fields: FieldDefinition[] }> {
   validateFieldProject(config, kind, workspaceId);
   const data = await requestJson(config, FIELDS_INFO_PATH.story, { workspace_id: workspaceId }, 0, true);

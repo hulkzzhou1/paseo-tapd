@@ -1,7 +1,7 @@
 {
   "id": "tapd-workbench",
   "name": "TAPD Workbench",
-  "description": "TAPD 工作台：筛选、图片阅读、Agent 查询、需求文本/富文本字段核实更新与阶段回评、绑定与派发工具、紧凑双列卡片、可搜索会话列表与自动摘要、会话侧栏和关联优先详情 tab，附 paseo-tapd skill / TAPD workbench with verified story text/rich-text field edits, explicit stage feedback, Agent tools, binding, dispatch, compact two-column cards, searchable conversation lists with refreshed summaries, assignment-aware details and workflow skill",
+  "description": "TAPD 工作台：筛选、图片阅读、Agent 查询、通用项目标签与单据标签读取、需求文本/富文本字段核实更新与阶段回评、绑定与派发工具、紧凑双列卡片、可搜索会话列表与自动摘要、会话侧栏和关联优先详情 tab，附 paseo-tapd skill / TAPD workbench with verified story text/rich-text field edits, explicit stage feedback, generic project label creation and item label reads, Agent tools, binding, dispatch, compact two-column cards, searchable conversation lists with refreshed summaries, assignment-aware details and workflow skill",
   "media": [
     "assets/screenshots/workbench-v2.png"
   ],

@@ -43,7 +43,10 @@ description: 在 Paseo 中通过 TAPD 工具查询、接手、创建单据，记
 | 建需求、任务、缺陷 | 先用 `tapd_create_fields` 读取目标项目/类型的必填字段和可选值，再用 `tapd_create`。子任务或子缺陷先读取父需求，用其实际项目及 `storyId`；不要静默选首个项目或猜必填值。 |
 | 改状态 | 先读详情及项目状态，再用 `tapd_update_status` 提交状态 key；`unchanged: true` 表示没有发生变更。 |
 | 更新需求方案字段 | 用 `tapd_field_definitions` 按 label 确认实际 key，再用 `tapd_read_field` 读原文；保留人工内容，展示旧值与完整新值后，以 `tapd_update_field` 提交。 |
+| 查询、创建项目标签 | `tapd_labels` 读取项目定义，满页按 `nextPage` 继续；`name` 是模糊筛选。明确授权完整项目、名称及可选颜色后用 `tapd_create_label`，仅创建定义、不附加单据；同名不写入或改色。 |
 | 记录进展、验收或阻塞 | 先读详情，再用 `tapd_add_comment` 提交获批的纯文本。正文聚焦结果、验证和下一步，避免无关会话内容。 |
+
+`tapd_item_labels` 实时读取需求、任务、缺陷实际标签，必须使用目标真实项目。`returned=false` 是缺失，`value=null` 是未知，仅 `value=""` 且 `labels=[]` 确认空；失败或不支持不等于无标签。名称保留大小写与空白，最多 200 字符，不含英文竖线或控制字符，不由插件推导 Matt 等技能规则。创建标签不代表创建额外任务状态。项目标签创建先查重（最多 2000 模糊候选，不完整即停止），只有 `outcome=verified` 才报告已核实；`accepted/unverified` 或 `writeState=unknown` 时用 `tapd_labels` 查询核实，不自动重试创建。查重不是原子锁；其他系统仍可并发创建，远端拒绝须如实报告。
 
 字段工具首版支持需求 description/custom_field_* 的文本或富文本；key 必须来自实际项目元数据，readonly=false 仍需远端权限校验。未知类型、只读、可编辑性未知或旧值未返回时停止提交并说明限制。删除单据和其他类型字段尚不支持，解绑使用详情界面。普通回合结束只更新本地 Agent 状态，旧自动回评设置不再生效；明确阶段成果使用显式评论工具，不把回合结束当业务完成。
 

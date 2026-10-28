@@ -111,3 +111,11 @@ TDD 复用既有 Agent 工具边界：将原富文本保真、冲突、单字段
 本轮最终结果：`npm test` 113/113、`npm run typecheck`、`npm run lint`、公开 daemon 检查及 `git diff --check` 均退出 0；lint 仍为 4 条既有警告。daemon 检查为两个独立进程、25 次模拟读取、4 次明确模拟 POST、0 重放。Standards 与 Spec 对 `08fb34f...dfaa53d` 独立复审均无发现；Spec 另跑字段组 11/11 通过。
 
 本机 `paseo plugin reload tapd-workbench --json` 退出 0，状态 running；公开 client bundle 含版本 0.4.38。实际方案字段重新发现后为 supported=true，原始类型仍保留 rich_text；两次 fresh 读取均返回字符串且内容相等。此项目候选仍为 124 个，受支持项从 34 个增至 37 个。只记录统计和断言，不保存实际字段 key/正文；没有调用真实写接口。读取相等不能证明并发锁、写权限或服务端写后规范化。此次重载后的 provider 工具重新注入仍应由后续 session open 完成；本轮已验证重载前工具注入及重载后实际 RPC 读取，未把二者混称同一次完整 provider 写入链路。
+
+## 最终版本的后续会话检查
+
+在 0.4.38 重载后的后续 Agent 回合中，实际调用 `tapd_projects`、`tapd_field_definitions`、`tapd_entity`、`tapd_read_field` 均成功；方案字段保留 rich_text 类型，supported=true、returned=true，返回字符串且项目吻合。由此补齐此前“重载后 provider 工具重新注入未验证”的只读部分，不再仅依据 RPC 推断工具可用。
+
+通过公开 `tapd.agent_status` 读取当前 Agent 的上一回合记录：turnOutcome=completed、结束时间存在、摘要与错误为空，检查退出 0。这证明实际生命周期回调保留了本机回合状态，不能单凭此结果证明外部通知已投递，也未通过读取全部业务评论推断绝无回评。普通回合不写业务的依据仍为实现与受控零请求测试。
+
+实际客户端交互检查未完成：当前工具没有服务器浏览器插件入口，现有 Paseo 浏览器接口返回 browser_no_host（无已连接自动化宿主）。未绕过认证获取页面、未截图、未重启宿主；已通过的隔离 UI 检查仍有效，但不替代当前客户端画面验收。本轮无产品源码变更，不重复全套测试或重载。真实写入仍缺指定的授权测试目标与变更内容，未执行字段写入、清空、评论或业务状态流转。

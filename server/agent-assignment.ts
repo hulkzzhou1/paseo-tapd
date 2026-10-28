@@ -38,7 +38,7 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
     const config = resolveConfig(values);
     if (!config.workspaceIds.includes(raw.workspaceId)) throw new Error("单据项目未配置。");
     if (validateEntity) await entity(raw, values);
-    if ([config.token, values.syncGitToken, process.env.TAPD_TOKEN].filter(Boolean).some(secret => raw.reason?.includes(secret!))) throw new Error("原因包含敏感配置。");
+    if ([config.token, ...(config.protectedValues ?? [])].filter(Boolean).some(secret => raw.reason?.includes(secret!))) throw new Error("原因包含敏感配置。");
     if (context.signal?.aborted) throw new Error("操作已取消。");
     protectFieldData(config, raw);
     const scope = link(raw, config, "", "");
@@ -147,7 +147,7 @@ export function createAssignmentService(getValues: () => Promise<TapdSettingsVal
       const input = taskDispatchSchema.parse(raw);
       const values = tapdSettingsSchema.parse(await getValues());
       const config = await entity(input, values);
-      if ([config.token, values.syncGitToken, process.env.TAPD_TOKEN].filter(Boolean).some(secret => input.prompt.includes(secret!))) throw new Error("提示词包含敏感配置。");
+      if ([config.token, ...(config.protectedValues ?? [])].filter(Boolean).some(secret => input.prompt.includes(secret!))) throw new Error("提示词包含敏感配置。");
       const [projects, providers] = await Promise.all([context.paseo.projects.list(), context.paseo.providers.snapshot()]);
       if (!projects.projects.some(p => p.projectKind === "git" && p.projectRootPath === input.repoPath) || !providers.entries.some(p => p.enabled !== false && (p.models ?? []).some(m => m.isSelectable !== false && `${p.provider}/${m.id}` === input.provider))) throw new Error("仓库或模型不可用。");
       if (context.signal?.aborted) throw new Error("操作已取消。");

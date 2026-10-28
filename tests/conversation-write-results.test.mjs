@@ -24,7 +24,7 @@ async function call(p,h,name,input,signal=new AbortController().signal){const {t
 function mockTapd(t,afterRequest=()=>{}){clearTapdCache();const requests=[];let fieldValue="原值",status="open";t.mock.method(globalThis,'fetch',async (source,init)=>{const u=new URL(source),body=new URLSearchParams(init.body);requests.push({u,init,body});afterRequest({u,init,body});
  let data=[];
  if(init.method==='POST'){if(body.has('status'))status=body.get('status');if(body.has('custom_field_one'))fieldValue=body.get('custom_field_one');data={Story:{id:'22222222'}};}
- else if(u.pathname==='/stories'&&u.searchParams.has('id'))data=[{Story:{id:u.searchParams.get('id'),name:'示例需求',status,description:'不应持久化的正文',custom_field_one:fieldValue}}];
+ else if(u.pathname==='/stories'&&u.searchParams.has('id'))data=[{Story:{id:u.searchParams.get('id'),workspace_id:u.searchParams.get('workspace_id'),name:'示例需求',status,description:'不应持久化的正文',custom_field_one:fieldValue}}];
  else if(u.pathname.endsWith('get_fields_info'))data={status:{options:{open:'待处理',done:'已完成'}},custom_field_one:{label:'方案',html_type:'rich_edit',readonly:0}};
  else if(u.pathname==='/users/info')data={User:{nick:'example-member'}};
  return Response.json({status:1,data});});return requests;}
@@ -108,6 +108,6 @@ test('verified field updates use recoverable compact cards without storing field
 
 test('accepted status writes with failed verification create no success card or implicit replay',async t=>{
  let posted=false,posts=0,verificationReads=0;
- t.mock.method(globalThis,'fetch',async(source,init)=>{const u=new URL(source);if(init.method==='POST'){posted=true;posts++;return Response.json({status:1,data:{Story:{id:'11111111'}}});}if(posted&&u.pathname==='/stories'){verificationReads++;throw Error('offline');}return Response.json({status:1,data:u.pathname==='/stories'?[{Story:{id:'11111111',status:'open',name:'Example'}}]:u.pathname.endsWith('get_fields_info')?{status:{options:{open:'Open',done:'Done'}}}:[]});});
+ t.mock.method(globalThis,'fetch',async(source,init)=>{const u=new URL(source);if(init.method==='POST'){posted=true;posts++;return Response.json({status:1,data:{Story:{id:'11111111'}}});}if(posted&&u.pathname==='/stories'){verificationReads++;throw Error('offline');}return Response.json({status:1,data:u.pathname==='/stories'?[{Story:{id:'11111111',workspace_id:'12345678',status:'open',name:'Example'}}]:u.pathname.endsWith('get_fields_info')?{status:{options:{open:'Open',done:'Done'}}}:[]});});
  await fixture(t,async({p,h})=>{const result=await call(p,h,'tapd_update_status',{kind:'story',id:'11111111',workspaceId:'12345678',status:'done',confirmed:true});assert.equal(result.isError,undefined);assert.equal(result.structuredContent.writeState,'accepted');assert.equal(result.structuredContent.outcome,'unverified');assert.equal(h.rows.size,0);assert.equal(posts,1);assert.ok(verificationReads>0);});
 });

@@ -34,7 +34,10 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
         try {
           if (signal.aborted) throw new Error();
           if (Buffer.byteLength(JSON.stringify(raw), "utf8") > 64_000) throw new Error();
-          const values = tapdSettingsSchema.parse(await getValues());
+          const snapshot = await getValues();
+          // A pre-upgrade snapshot may still contain a retired credential; protect it without saving it.
+          const values = { ...tapdSettingsSchema.parse(snapshot),
+            ...("syncGitToken" in snapshot && typeof snapshot.syncGitToken === "string" ? { syncGitToken: snapshot.syncGitToken } : {}) };
           const config = resolveConfig(values);
           if (!config.token || !config.workspaceIds.length) {
             return { isError: true, text: "请先在 TAPD 工作台设置中配置连接凭据和项目。" };
@@ -56,7 +59,7 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
           // Errors from TAPD may echo request data; keep them out of model-visible results.
           let serialized = JSON.stringify(warnings.length ? { ...result, warnings: [...new Set(warnings)] } : result, (key, value) =>
             (key === "error" || key === "commentsError") && value ? "部分数据读取失败，请重试。" : value);
-          for (const secret of [config.token, values.syncGitToken, process.env.TAPD_TOKEN].filter(Boolean)) {
+          for (const secret of [config.token, ...(config.protectedValues ?? [])].filter(Boolean)) {
             serialized = serialized.split(JSON.stringify(secret).slice(1, -1)).join("[redacted]");
           }
           const structuredContent = JSON.parse(serialized);
@@ -80,7 +83,7 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
                 fetchedAt: structuredContent.fetchedAt ?? new Date().toISOString(), cachedAt: structuredContent.cachedAt ?? "",
                 warnings: [...new Set<string>(warnings.map((warning: string) => warning.slice(0, 300)))].slice(0, 10),
               });
-              if ([config.token, values.syncGitToken, process.env.TAPD_TOKEN].filter(Boolean)
+              if ([config.token, ...(config.protectedValues ?? [])].filter(Boolean)
                 .some(secret => JSON.stringify(data).includes(JSON.stringify(secret).slice(1, -1)))) throw new Error();
               if (conversations) await conversations.recordBatch({ paseo, agentId: agent.id }, data, entities);
               else await paseo.agents.ref(agent.id).timeline.append({ type: "plugin", id: data.batchId, kind: "tapd-batch-result", version: 1, data });
@@ -90,7 +93,7 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
           if (operation && structuredContent.outcome !== "unverified" && !("unchanged" in structuredContent && structuredContent.unchanged) && (operation !== "field" || structuredContent.outcome === "verified")) {
             try {
               const entity = operation === "read" ? structuredContent : structuredContent.entity;
-              if ([config.token, values.syncGitToken, process.env.TAPD_TOKEN].filter(Boolean)
+              if ([config.token, ...(config.protectedValues ?? [])].filter(Boolean)
                 .some(secret => config.site.includes(secret!) || config.endpoint.includes(secret!))) throw new Error();
               const data = entityResultSchema.parse({
                 operation, entity: {

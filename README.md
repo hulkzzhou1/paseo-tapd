@@ -6,7 +6,7 @@ A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo works
 
 ## Features
 
-- 16 schema-validated Agent tools for TAPD reads and user-approved item writes, using the Paseo mainline SDK
+- 19 schema-validated Agent tools for TAPD reads and user-approved item writes, using the Paseo mainline SDK
 - Single-item Agent reads, successful writes and explicit configured TAPD links join a conversation-scoped shortcut. Clickable result cards open the shared full detail/actions; batches start with five results and collect only selected items. References and compact cards survive reload/restart, remain through archive and are cleared on conversation deletion. Cards label their historical summary and completeness.
 - Aggregate tab (stories / tasks / bugs side by side, flat by default, with optional collapsible status groups) plus one tab per type with a status-column kanban; empty columns hidden by default with explicit column selection preserved, theme-aware status, type, and priority badges, and starred pinning
 - Six permanent dropdown filters: status scope (all / unfinished / done), iteration, updated-within, owner, creator, and priority. People are searchable single-selects with exact-nickname fallback; priority supports multiple selections. Selections apply immediately and remain compatible with saved views. Severity, keyword, labels, and applied advanced conditions are also visible in the toolbar; Add Condition opens the field picker and value editor for workflow states and other dynamic fields.
@@ -276,3 +276,5 @@ The bundled [paseo-tapd skill](skills/paseo-tapd/SKILL.md) guides reads, taking 
 结果 `outcome` 为 `unchanged`、`verified` 或 `unverified`；只有 `verified` 生成字段成功卡片。`writeState: accepted` 表示远端已接受，即使回读失败或内容不一致也不能重复提交。错误中的 `failure.writeState` 区分 `not_sent`、`rejected`、`unknown`，仅返回安全分类，不回显上游响应。结果未知先 fresh 读字段/详情；评论只读最近 30 条，未见评论不证明未写，必要时在已授权的 TAPD 页面核对。`tapd_entity` 默认 fresh，`fresh: false` 才允许缓存；字段读取始终绕过缓存及旧在途请求。
 
 字段工具复用现有 RPC、会话卡片与本机恢复，不提供通用字段表单。公开 API 契约与受控测试不证明目标部署兼容；实际 key、权限、清空/HTML 规范化行为需部署验收，见 [验证与限制](docs/design-fields-validation.md)。
+
+Story field tools discover actual project keys, preserve raw text/HTML and distinguish absent, null and empty values. Updates require the exact old/new values and approval, write one field, then bypass cached and in-flight reads to verify it. The comparison is not atomic concurrency control. An accepted but unverified result requires a fresh read, never an automatic retry. Ordinary ended turns only update local Agent state; legacy auto-report settings no longer post comments. Explicit authorized stage comments remain available. Real deployment permissions and notification chains have not been tested.

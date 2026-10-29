@@ -35,7 +35,7 @@ Names may have a host MCP prefix; the registered schema is authoritative.
 
 | Operation | Tools |
 | --- | --- |
-| Read | `tapd_projects`, `tapd_me`, `tapd_board`, `tapd_search`, `tapd_entity`, `tapd_members` |
+| Read | `tapd_projects`, `tapd_filter_options`, `tapd_board`, `tapd_search`, `tapd_entity`, `tapd_members` |
 | Create | `tapd_create_fields`, `tapd_create`, `tapd_children`, `tapd_child_types` |
 | Workflow/comment | `tapd_status_options`, `tapd_update_status`, `tapd_add_comment` |
 | Requirement text/rich text | `tapd_field_definitions`, `tapd_read_field`, `tapd_update_field` |

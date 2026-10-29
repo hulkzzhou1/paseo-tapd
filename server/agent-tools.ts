@@ -14,7 +14,7 @@ import { createOwnershipLifecycle } from "./ownership-lifecycle";
 import { createHandlers } from "./handlers";
 import { labelsRpc, itemLabelsRpc, createLabelRpc, updateLabelsRpc } from "../shared/labels";
 import { safeFailure, resolveConfig, type TapdConfig } from "./tapd";
-import { itemIterationRpc, iterationsRpc } from "../shared/iteration-tools";
+import { itemIterationRpc, iterationsRpc, updateIterationRpc } from "../shared/iteration-tools";
 
 type Handlers = ReturnType<typeof createHandlers>;
 const id = z.string().trim().min(1).max(100).regex(/^\d+$/);
@@ -54,8 +54,8 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
             await createOwnershipLifecycle(async () => values, { state: links.state, stateTransaction: links.stateTransaction }).reconcile({ paseo }).catch(() => {});
           }
           const result = await run(parsed, createHandlers(async () => values, { writeSignal: signal, readWarnings: warnings }, links), config, signal);
-          const operation = ({ tapd_entity: "read", tapd_create: "create", tapd_update_status: "status", tapd_add_comment: "comment", tapd_update_field: "field" } as const)[name as "tapd_entity" | "tapd_create" | "tapd_update_status" | "tapd_add_comment" | "tapd_update_field"];
-          writeCompleted = operation !== undefined && operation !== "read" && (operation !== "field" || ("writeState" in result && result.writeState === "accepted"));
+          const operation = ({ tapd_entity: "read", tapd_create: "create", tapd_update_status: "status", tapd_add_comment: "comment", tapd_update_field: "field", tapd_update_iteration: "iteration" } as const)[name as "tapd_entity" | "tapd_create" | "tapd_update_status" | "tapd_add_comment" | "tapd_update_field" | "tapd_update_iteration"];
+          writeCompleted = operation !== undefined && operation !== "read" && (!["field", "iteration"].includes(operation) || ("writeState" in result && result.writeState === "accepted"));
           if (["tapd_create_label", "tapd_update_labels"].includes(name) && "writeState" in result && result.writeState === "accepted") writeCompleted = true;
           if (signal.aborted && !writeCompleted) throw new Error();
           // Errors from TAPD may echo request data; keep them out of model-visible results.
@@ -91,8 +91,8 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
               else await paseo.agents.ref(agent.id).timeline.append({ type: "plugin", id: data.batchId, kind: "tapd-batch-result", version: 1, data });
             } catch { structuredContent.presentationWarning = "查询已完成，批量快捷卡片未能显示；可以重新查询。"; }
           }
-          if (writeCompleted && operation && operation !== "field") structuredContent.ok = structuredContent.outcome !== "unverified";
-          if (operation && structuredContent.outcome !== "unverified" && !("unchanged" in structuredContent && structuredContent.unchanged) && (operation !== "field" || structuredContent.outcome === "verified")) {
+          if (writeCompleted && operation && operation !== "field" && operation !== "iteration") structuredContent.ok = structuredContent.outcome !== "unverified";
+          if (operation && (structuredContent.outcome !== "unverified" || operation === "iteration") && structuredContent.outcome !== "unchanged" && !("unchanged" in structuredContent && structuredContent.unchanged) && (operation !== "field" || structuredContent.outcome === "verified")) {
             try {
               const entity = operation === "read" ? structuredContent : structuredContent.entity;
               if ([config.token, ...(config.protectedValues ?? [])].filter(Boolean)
@@ -104,18 +104,19 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
                   title: (entity.title ?? "").slice(0, 500), status: (entity.status ?? "").slice(0, 200),
                   statusLabel: (entity.statusLabel ?? "").slice(0, 200), owner: (entity.owner ?? "").slice(0, 200),
                 },
-                warnings: entity.commentsError || structuredContent.warnings?.length ? ["部分数据读取失败，请在详情中重试。"] : [],
+                ...(operation === "iteration" ? { verification: structuredContent.outcome } : {}),
+                warnings: operation === "iteration" && structuredContent.outcome === "unverified" ? ["TAPD 已接受迭代修改，但当前值未核实；请读取核对，勿重复提交。"] : entity.commentsError || structuredContent.warnings?.length ? ["部分数据读取失败，请在详情中重试。"] : [],
               });
               if (conversations) await conversations.recordResult({ paseo, agentId: agent.id }, data);
               else await paseo.agents.ref(agent.id).timeline.append({ type: "plugin", id: randomUUID(), kind: "tapd-entity-result", version: 1, data });
             } catch {
               // A completed write stays successful even if its local presentation fails.
-              structuredContent.presentationWarning = writeCompleted ? "TAPD 操作已成功，快捷卡片未能显示；请查询确认，勿重复提交。" : "单据已读取，快捷卡片未能显示；可以重新查询。";
+              structuredContent.presentationWarning = writeCompleted ? operation === "iteration" ? "TAPD 已接受迭代修改，快捷卡片未能显示；请读取核对，勿重复提交。" : "TAPD 操作已成功，快捷卡片未能显示；请查询确认，勿重复提交。" : "单据已读取，快捷卡片未能显示；可以重新查询。";
             }
           }
           return { structuredContent };
         } catch (error) {
-          if (writeCompleted) return { structuredContent: { ...((["tapd_update_status", "tapd_update_field", "tapd_create_label", "tapd_update_labels"].includes(name) || verificationRequired) ? { ok: false, writeState: "accepted", outcome: "unverified" } : { ok: true }), presentationWarning: "TAPD 已接受写入，结果展示暂不可用；请查询核实，勿重复提交。" } };
+          if (writeCompleted) return { structuredContent: { ...((["tapd_update_status", "tapd_update_field", "tapd_update_iteration", "tapd_create_label", "tapd_update_labels"].includes(name) || verificationRequired) ? { ok: false, writeState: "accepted", outcome: "unverified" } : { ok: true }), presentationWarning: "TAPD 已接受写入，结果展示暂不可用；请查询核实，勿重复提交。" } };
           return { isError: true, text: failure, structuredContent: { failure: safeFailure(error) } };
         }
       },
@@ -129,6 +130,7 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
   }
 
   return [
+    tool("tapd_update_iteration", "WRITE: set/change exactly one story/task/bug to an existing iteration in its actual project only after explicit user approval of the exact target and change. Read tapd_item_iteration and tapd_iterations first; pass the exact non-null raw value (including its type) as expectedValue. Fresh identity/iteration/project/old-value checks precede one POST. Empty/zero target, clearing and creation are unsupported. Inspect outcome/writeState; unknown or accepted-unverified writes must be read to reconcile, never automatically retried. Local comparison is not atomic remote locking.", updateIterationRpc.input, (input, handlers) => handlers.updateIteration(input)),
     tool("tapd_iterations", "Read one fresh page (200 maximum) of iteration candidates for an actual verified story/task/bug's configured project. Inspect failure/completeness: only a short error-free first page is complete; a full page requires nextPage. Returned candidates carry verified workspaceId; identical names never establish identity. This read never grants write approval and does not use aggregate filter candidates.", iterationsRpc.input, (input, handlers) => handlers.iterations(input)),
     tool("tapd_item_iteration", "Read one story/task/bug's raw iteration fresh in its actual configured project. returned=false means not returned; state=unknown is not empty. Only state=unset confirms no iteration. Preserve the exact value for a later authorized update. This read never grants write approval.", itemIterationRpc.input, (input, handlers) => handlers.itemIteration(input)),
     tool("tapd_children", "Read real direct child stories/tasks and related bugs of an actual project requirement, with unique responsible Agents and per-kind partial/truncated/unknown totals. Reading never claims children or completes the parent. No full bodies/comments are fetched.", childrenRpc.input, (input, handlers) => handlers.children(input)),

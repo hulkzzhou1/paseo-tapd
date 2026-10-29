@@ -48,8 +48,8 @@ import {
   type TapdConfig,
 } from "./tapd";
 import { checkForUpdate } from "./update-check";
-import { itemIterationRpc, iterationsRpc } from "../shared/iteration-tools";
-import { readItemIteration, fetchItemIterations } from "./iterations";
+import { itemIterationRpc, iterationsRpc, updateIterationRpc } from "../shared/iteration-tools";
+import { readItemIteration, fetchItemIterations, updateItemIteration } from "./iterations";
 
 type GetValues = () => Promise<TapdSettingsValues>;
 
@@ -92,6 +92,11 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
       const input = storyDocumentRpc.input.parse(raw);
       const { config } = await requireConfig();
       return fetchStoryDocument(config, input);
+    },
+    async updateIteration(raw: RpcInput<typeof updateIterationRpc>): Promise<RpcOutput<typeof updateIterationRpc>> {
+      const input = updateIterationRpc.input.parse(raw);
+      const { config } = await requireConfig();
+      return updateItemIteration(config, input);
     },
     async storyFields(raw: RpcInput<typeof storyFieldsRpc>): Promise<RpcOutput<typeof storyFieldsRpc>> {
       const input = storyFieldsRpc.input.parse(raw);

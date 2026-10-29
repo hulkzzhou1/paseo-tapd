@@ -1,3 +1,4 @@
+import { storyFieldsRpc } from "./shared/story-fields";
 import { createOwnershipLifecycle } from "./server/ownership-lifecycle";
 
 import { childrenRpc, childTypesRpc } from "./shared/contracts";
@@ -70,6 +71,7 @@ export default function contribute(server: PluginServerContext) {
   for (const event of ["agent.created", "agent.archived", "agent.closed"] as const) server.on(event, async ({ agent }, context) => {
     try { await conversations.bootstrap(context); await conversations.reconcile(agent.id); if (event === "agent.created") await conversations.observeMessages({ paseo: context.paseo, agentId: agent.id }); } catch { /* Retry through the next public context. */ }
   });
+  server.handle(storyFieldsRpc, handlers.storyFields);
   server.handle(boardRpc, handlers.board);
   server.handle(updateFieldRpc, handlers.updateField);
   server.handle(readFieldRpc, handlers.readField);

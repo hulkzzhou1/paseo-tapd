@@ -15,6 +15,7 @@ Version 0.4.44 supports documented defect field metadata without a readonly flag
 - Status scope follows each project’s workflow end states, including custom completed statuses; advanced status conditions intersect with the selected scope.
 - Views as reusable filter presets: built-in "Related to me" (owner, creator, developer, participator, watcher, or commenter, plus linked-task involvement), plus keyword, owner, creator, status scope, iteration, updated-within, priorities, bug severities, labels, and any field from the workspace's TAPD field definitions
 - Detail window up to 1040px wide with complete structured descriptions/comments, readable paragraph spacing, headings, lists, code and horizontally scrollable tables. Images load inline with loading/error feedback and retry; original-image and external links open on click; story details additionally list the tasks and bugs attached to the story (paginated, with a truncation hint past 200), and task/bug details link back to their parent story
+- Story details read short custom attributes from the actual project/category definitions: the first six nonempty values appear initially, with more attributes and confirmed empty fields available on demand. Unknown, missing and failed values remain distinct; custom rich-text values are not prefetched. This view is readonly and keeps existing Agent field-write permissions.
 - Task/bug cards show `#id` on its own line under the title plus a "story: title" chip; details-page child-list row titles show the full text in a hover tooltip
 - Dispatch to an agent: pick a repository and provider/model; the plugin creates a worktree workspace and starts an agent preloaded with the item snapshot, then tracks it from the card
 - Write back to TAPD: comments (plain text converted to HTML), workflow status changes from an anchored menu (defects use current transitions; required fields open a confirmation page, while field-free transitions apply on selection), and new item creation — story details can one-click create a task or bug under that story, prefilled with the parent (story_id) and the story's workspace; the mounted form lists the type's writable TAPD fields dynamically (dropdowns for enum/user fields, a month calendar with yesterday/today/tomorrow shortcuts for date-like fields), defaults the owner to the current token user, and its field layout (order + hidden) is kept per entity type locally
@@ -94,6 +95,7 @@ MIT
 - 状态范围按各项目的工作流结束状态判断，支持自定义完成状态；高级条件中的状态条件与所选范围取交集。
 - 视图 = 可复用的过滤预设：内置「我相关的」（负责人、创建人、开发、参与、关注或评论过，以及关联任务涉及我），另支持关键词、负责人、创建人、状态范围、迭代、最近更新时间、优先级、缺陷严重程度、标签，以及工作区 TAPD 字段定义中的任意字段
 - 单据详情浮窗：描述、评论、在 TAPD 中打开、复制链接；需求详情额外展示真实子需求、任务列表与相关缺陷列表（分页展示，超过 200 条时显示「前 200 / 共 N 条」截断提示，点击可切换到对应单据详情）；任务/缺陷详情显示所属需求入口；关联的 Agent 以名称显示并实时展示状态与最近工作结果
+- 需求详情按实际项目及需求类别展示短自定义属性，默认前六个非空值，可展开其余属性及确认空字段；零和 false 保留，未知、未返回、无法识别及失败分别提示并可重试。初始不预取自定义富文本，页面只读，现有 Agent 字段写入权限不变。
 - 任务/缺陷卡片把 `#id` 独立展示在标题下一行，并显示「需求：所属需求」标识；详情浮窗中子单据列表行标题悬停时在行内展开全文
 - 派给 Agent：选择仓库与 provider/model；插件创建 worktree 工作区并启动一个预置了单据快照的 Agent，之后可从卡片追踪
 - 看板秒开：90 秒内的看板数据直接复用（同一过滤条件各自独立缓存）；过期先显示上次数据并在顶部提示「后台刷新中…」，同时后台重拉，刷新完成后自动更新；「刷新」按钮强制绕过缓存

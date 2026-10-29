@@ -1,7 +1,7 @@
 {
   "id": "tapd-workbench",
   "name": "TAPD Workbench",
-  "description": "TAPD 工作台：Agent 任务看板、标签、会话恢复与缺陷流转字段兼容与确认 / TAPD workbench with Agent task boards, labels, recoverable cards and compatible defect workflow field confirmation.",
+  "description": "TAPD 工作台：需求自定义属性、按需富文本页签、Agent 任务看板与受控迭代更新 / TAPD workbench with custom requirement fields, on-demand rich-text tabs, Agent task boards and controlled iteration updates.",
   "media": [
     "assets/screenshots/workbench-v2.png"
   ],

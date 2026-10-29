@@ -2,11 +2,14 @@
 
 A Paseo plugin that brings TAPD (stories, tasks, and bugs) into your Paseo workspace: a three-column board, reusable views, agent dispatch, comment/status write-back, and Agent task boards, recent viewing and recoverable tool cards.
 
-Version 0.4.44 supports documented defect field metadata without a readonly flag and ignores optional native form settings, while collecting required remarks in the same confirmed status request. Explicitly readonly, unknown and unreachable changes stop before writing.
+Version 0.4.45 adds readonly custom requirement attributes and on-demand rich-text tabs, plus project-scoped iteration reading and user-approved updates for individual stories, tasks and bugs.
 
 ![TAPD workbench](assets/screenshots/workbench-v2.png)
 
 ## Features
+
+- Requirement custom fields: six nonempty short attributes by default, expandable remaining/empty values, plus independent rich-text tabs loaded on selection. The same sidebar/dialog keeps per-tab reading position during one opening; comments stay in detailed information. Field editing continues through Agent tools.
+- Iteration tools: inspect an item’s exact iteration and its project’s paginated candidates; explicitly approve a single-item set/change, with old-value checks and fresh verification. No iteration clearing or creation.
 
 - Schema-validated Agent tools for TAPD reads and user-approved item writes, using the Paseo mainline SDK
 - Single-item Agent reads, successful writes and explicit configured TAPD links join a conversation-scoped shortcut. Clickable result cards open the shared full detail/actions; batches start with five results and collect only selected items. References and compact cards survive reload/restart, remain through archive and are cleared on conversation deletion. Cards label their historical summary and completeness.
@@ -83,6 +86,9 @@ MIT
 ![TAPD 工作台](assets/screenshots/workbench-v2.png)
 
 ## 功能
+
+- 需求自定义字段只读展示：默认前 6 个非空短属性，可展开更多和空字段；富文本按定义顺序独立页签，切换时加载，支持局部重试和刷新。侧栏和弹窗共用，每次打开期间保留各页阅读位置，评论留在详细信息；字段编辑继续使用 Agent 工具。
+- 迭代工具：读取单据原始迭代及其实际项目的分页候选，明确授权后为单张需求、任务或缺陷设置、更换已有迭代；检查旧值并实时回读，不支持解除或创建迭代。
 
 - 通过 Paseo 主线 SDK 注册 schema 校验的 Agent 工具，支持 TAPD 查询及用户确认后的单据写入
 - 任务卡片顺带显示真实标签：最多两个紧凑标签和 `+N`，完整详情展示全部；确认空集合不占空行，未取得标签显示待确认，旧结果卡片不补读或改写。

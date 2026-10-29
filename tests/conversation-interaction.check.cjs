@@ -49,12 +49,15 @@ async function main(){
  }
  await page.evaluate(()=>{window.toolLinks=[{key:'story-11111111',kind:'story',id:'11111111',tapdWorkspaceId:'12345678',apiEndpoint:'https://api.example.com',workspaceId:'example-workspace',agentId:'example-bound-agent',agentTitle:'工具绑定示例',workspaceTitle:'Example',createdAt:'2026-01-01T00:00:00Z'}];window.showWriteCard('read');});
  await page.getByRole('button',{name:'打开 TAPD 需求 #11111111：示例需求',exact:true}).click();
- await page.getByText('工具绑定示例',{exact:true}).waitFor();
+ const associationSection=page.getByTestId('detail-reading-scroll').getByText('关联任务',{exact:true}).locator('..');
+ await associationSection.getByText('工具绑定示例',{exact:true}).waitFor();
+ await page.getByTestId('detail-fixed-header').getByText('工具绑定示例',{exact:true}).waitFor();
  for(const action of ['派给 Agent','绑定 Agent'])assert.equal(await page.getByRole('button',{name:action,exact:true}).count(),0,'bound items hide duplicate assignment actions even without live status');
  const linkedHeading=await page.getByText('关联任务',{exact:true}).boundingBox();const descriptionHeading=await page.getByText('描述',{exact:true}).boundingBox();assert(linkedHeading.y<descriptionHeading.y,'linked Agent section precedes description');
 
- await page.getByText('解除',{exact:true}).click();
- await page.getByText('工具绑定示例',{exact:true}).waitFor({state:'hidden'});
+ await associationSection.getByRole('button',{name:'解除',exact:true}).click();
+ await associationSection.getByText('工具绑定示例',{exact:true}).waitFor({state:'hidden'});
+ await page.getByTestId('detail-fixed-header').getByText('工具绑定示例',{exact:true}).waitFor({state:'hidden'});
  for(const action of ['派给 Agent','绑定 Agent'])await page.getByRole('button',{name:action,exact:true}).waitFor();
 
  assert.equal(await page.evaluate(()=>window.calls.filter(c=>c.name==='tapd.remove-agent-link').length),1);
@@ -63,7 +66,7 @@ async function main(){
  await page.getByRole('button',{name:/新负责人/}).click();
  assert.equal(await page.evaluate(()=>window.calls.filter(call=>call.name==='tapd.task.claim').length),0,'selection alone does not assign');
  await page.getByRole('button',{name:'确认指派',exact:true}).click();
- await page.getByText('新负责人',{exact:true}).waitFor();
+ await associationSection.getByText('新负责人',{exact:true}).waitFor();
  assert.equal(await page.evaluate(()=>window.calls.filter(call=>call.name==='tapd.task.claim').length),1,'UI uses the same validated ownership claim');
  for(const action of ['派给 Agent','绑定 Agent'])assert.equal(await page.getByRole('button',{name:action,exact:true}).count(),0);
  await page.evaluate(()=>window.assignableAgents=[{agent:{id:'example-transfer-target',title:'转交目标',workspaceId:'example-workspace',status:'idle'}}]);
@@ -79,9 +82,9 @@ async function main(){
  assert.equal(await transferDialog.isVisible(),true,'failure keeps the confirmation available without replay');
  await page.evaluate(()=>window.failTransfer=false);
  await transferDialog.getByRole('button',{name:'确认转交',exact:true}).click();
- await page.getByText('转交目标',{exact:true}).waitFor();
+ await associationSection.getByText('转交目标',{exact:true}).waitFor();
  assert.deepEqual(await page.evaluate(()=>{const i=window.calls.find(call=>call.name==='tapd.task.transfer').input;return [i.expectedOwnerAgentId,i.expectedRevision,i.targetAgentId,i.reason];}),['example-new-owner','assignment','example-transfer-target','用户批准转交']);
- await page.getByText('退出',{exact:true}).click();
+ await associationSection.getByRole('button',{name:'退出',exact:true}).click();
  const releaseDialog=page.getByRole('dialog',{name:'退出任务 · #11111111',exact:true});
  assert.equal(await page.evaluate(()=>window.calls.filter(call=>call.name==='tapd.task.release').length),0);
  await releaseDialog.getByRole('textbox',{name:'退出原因',exact:true}).fill('任务范围调整');

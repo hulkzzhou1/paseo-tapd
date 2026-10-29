@@ -1,24 +1,14 @@
+import { dispatchRpc } from "./shared/dispatch";
+import { createDispatch } from "./server/dispatch";
 import { storyFieldsRpc, storyDocumentRpc } from "./shared/story-fields";
-import { createOwnershipLifecycle } from "./server/ownership-lifecycle";
 import { itemIterationRpc, iterationsRpc, updateIterationRpc } from "./shared/iteration-tools";
 
 import { childrenRpc, childTypesRpc } from "./shared/contracts";
-import { createOwnershipMigration } from "./server/ownership-migration";
-import { migrationListRpc, migrationConfirmRpc } from "./shared/ownership-migration";
-import {taskBoardRevision} from "./server/task-board-state";
-import { createAgentLinks, sameTask, suppressTask } from "./server/agent-links";
-import { createAssignmentService, createAssignmentTools } from "./server/agent-assignment";
-import { createTaskBoard } from "./server/task-board";
-import { taskBoardRpc, taskClaimRpc, taskDispatchRpc, taskReleaseRpc, taskTransferRpc } from "./shared/task-board";
 import { labelsRpc, itemLabelsRpc, createLabelRpc, updateLabelsRpc } from "./shared/labels";
-import { agentLinksRpc, removeAgentLinkRpc } from "./shared/agent-links";
 import type { PluginServerContext } from "@getpaseo/plugin/server";
-import { updateFieldRpc, readFieldRpc, fieldDefinitionsRpc, imageRpc, addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, tapdSettings, updateCheckRpc, updateStatusRpc } from "./shared/contracts";
+import { updateFieldRpc, readFieldRpc, fieldDefinitionsRpc, imageRpc, addCommentRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, tapdSettings, updateCheckRpc, updateStatusRpc } from "./shared/contracts";
 import { createHandlers } from "./server/handlers";
-import { createConversationRuntime } from "./server/conversation";
-import { conversationRefreshRpc, conversationBatchPageRpc, conversationListRpc, conversationFocusRpc, conversationRemoveRpc } from "./shared/conversation";
 import { createTapdTools } from "./server/agent-tools";
-import { recordTurnEnd } from "./server/agent-state";
 import { clearTapdCache, resolveConfig, protectFieldData, type TapdConfigInput } from "./server/tapd";
 
 export default function contribute(server: PluginServerContext) {
@@ -30,51 +20,19 @@ export default function contribute(server: PluginServerContext) {
     throw new Error("TAPD 工作台配置数据无效，请到插件设置中重置。");
   };
 
-  const agentLinks = createAgentLinks();
-  const ownership = createOwnershipLifecycle(getValues, agentLinks);
-  const migration = createOwnershipMigration(getValues, agentLinks);
-  server.handle(migrationListRpc, ({agentId}, context) => migration.list(agentId, context));
-  server.handle(migrationConfirmRpc, (input, context) => migration.confirm(input, context));
-  const assignments = createAssignmentService(getValues, agentLinks);
-  const taskBoard = createTaskBoard(getValues, agentLinks);
-  server.handle(taskBoardRpc, ({ agentId }, context) => taskBoard.read(agentId, context));
-  server.handle(taskClaimRpc, (input, context) => assignments.claim(input, context, "user", true));
-  server.handle(taskDispatchRpc, (input, context) => assignments.dispatch(input, context, "user"));
-  server.handle(taskTransferRpc, (input, context) => assignments.transfer(input, context));
-  server.handle(taskReleaseRpc, (input, context) => assignments.release(input, context, "user", input.agentId));
-  const visibleLinks = async (context: Parameters<typeof ownership.reconcile>[0]) => {
-    await ownership.reconcile(context);
-    const values = await getValues(), config = resolveConfig(values);
-    const result = (await agentLinks.list()).filter(link => link.apiEndpoint === config.endpoint && (!link.siteUrl || link.siteUrl === config.site) && config.workspaceIds.includes(link.tapdWorkspaceId));
-    protectFieldData(config, result);
-    return result;
-  };
-  server.handle(agentLinksRpc, async (_input, context) => ({ links: await visibleLinks(context), pendingAgents: await migration.pendingAgents(), boardRevision: taskBoardRevision(resolveConfig(await getValues())) }));
-  server.handle(removeAgentLinkRpc, link => agentLinks.stateTransaction(async state => {
-    const matches = (item: typeof link) => sameTask(item, link) && item.agentId === link.agentId;
-    if (state.links.some(item => matches(item) && item.responsibility)) throw new Error("已确认承担关系请使用退出操作并填写原因。");
-    return { state: { ...suppressTask(state, link, "user"), links: state.links.filter(item => !matches(item)) }, result: { ok: true as const } };
-  }));
-  const handlers = createHandlers(getValues, {}, agentLinks);
+  const handlers = createHandlers(getValues);
   server.handle(itemIterationRpc, handlers.itemIteration);
   server.handle(updateIterationRpc, handlers.updateIteration);
   server.handle(iterationsRpc, handlers.iterations);
-  server.handle(childrenRpc, async (input, context) => { await ownership.reconcile(context).catch(() => {}); return handlers.children(input); });
+  server.handle(childrenRpc, handlers.children);
   server.handle(childTypesRpc, handlers.childTypes);
   server.handle(labelsRpc, handlers.labels);
   server.handle(itemLabelsRpc, handlers.itemLabels);
   server.handle(createLabelRpc, handlers.createLabel);
   server.handle(updateLabelsRpc, handlers.updateLabels);
-  const conversations = createConversationRuntime(getValues, ownership);
-  const tools = [...createTapdTools(getValues, conversations, agentLinks), ...createAssignmentTools(getValues, agentLinks)];
-  server.handle(conversationBatchPageRpc, (input, context) => conversations.batchPage({ paseo: context.paseo, agentId: input.agentId }, input));
-  server.handle(conversationRefreshRpc, ({ agentId, entity }, context) => conversations.refreshEntity({ paseo: context.paseo, agentId }, entity).catch(() => { throw new Error("单据摘要读取失败，请刷新重试。"); }));
-  server.handle(conversationListRpc, (_input, context) => conversations.list(context));
-  server.handle(conversationFocusRpc, ({ agentId, entity }, context) => conversations.focus({ paseo: context.paseo, agentId }, entity));
-  server.handle(conversationRemoveRpc, ({ agentId, entity }, context) => conversations.remove({ paseo: context.paseo, agentId }, entity));
-  for (const event of ["agent.created", "agent.archived", "agent.closed"] as const) server.on(event, async ({ agent }, context) => {
-    try { await conversations.bootstrap(context); await conversations.reconcile(agent.id); if (event === "agent.created") await conversations.observeMessages({ paseo: context.paseo, agentId: agent.id }); } catch { /* Retry through the next public context. */ }
-  });
+  const dispatch = createDispatch(getValues);
+  server.handle(dispatchRpc, dispatch.dispatch);
+  const tools = [...createTapdTools(getValues), ...dispatch.tools];
   server.handle(storyFieldsRpc, handlers.storyFields);
   server.handle(storyDocumentRpc, handlers.storyDocument);
   server.handle(boardRpc, handlers.board);
@@ -85,7 +43,7 @@ export default function contribute(server: PluginServerContext) {
   server.handle(createFieldsRpc, handlers.createFields);
   server.handle(updateStatusRpc, handlers.updateStatus);
   server.handle(addCommentRpc, handlers.addComment);
-  server.handle(entityRpc, async (input, context) => { await ownership.reconcile(context).catch(() => {}); return handlers.entity(input); });
+  server.handle(entityRpc, handlers.entity);
   server.handle(imageRpc, handlers.image);
   server.handle(searchRpc, handlers.search);
   server.handle(filterOptionsRpc, handlers.filterOptions);
@@ -94,14 +52,11 @@ export default function contribute(server: PluginServerContext) {
   server.handle(statusOptionsRpc, handlers.statusOptions);
   server.handle(checkRpc, handlers.check);
   server.handle(updateCheckRpc, handlers.updateCheck);
-  server.handle(agentStatusRpc, handlers.agentStatus);
   const unsubscribe = settings.subscribe(() => clearTapdCache());
 
   // 给每个 agent 会话注册 TAPD 工具并注入 TAPD 环境变量（不覆盖已有同名变量），便于 agent 直接调用 TAPD OpenAPI
-  server.before("agent.session_open", async ({ request }, context) => {
-    if (context?.paseo) void conversations.bootstrap(context).catch(() => {});
+  server.before("agent.session_open", async ({ request }) => {
     if (request.purpose === "history") return request;
-    if (context?.paseo) void conversations.observeMessages({ paseo: context.paseo, agentId: request.agentId }).catch(() => {});
     const withTools = { ...request, tools: [...request.tools, ...tools] };
     let values: TapdConfigInput | null = null;
     try {
@@ -122,20 +77,6 @@ export default function contribute(server: PluginServerContext) {
     return { ...withTools, env };
   });
 
-  // 回合结束仅记录本机状态；阶段成果由明确授权的评论工具提交。
-  server.on("agent.turn_ended", async (event, context) => {
-    if (!event.agent.id) return;
-    if (context?.paseo) { try { await conversations.observeMessages({ paseo: context.paseo, agentId: event.agent.id }, true); } catch { /* Retry message catch-up on reconnect. */ } }
-    recordTurnEnd({
-      agentId: event.agent.id,
-      outcome: event.outcome,
-      endedAt: new Date().toISOString(),
-    });
-  });
-
   console.log("[tapd-workbench] server ready");
-  return () => {
-    unsubscribe();
-    conversations.close();
-  };
+  return unsubscribe;
 }

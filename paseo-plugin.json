@@ -1,7 +1,7 @@
 {
   "id": "tapd-workbench",
   "name": "TAPD Workbench",
-  "description": "TAPD 工作台：需求只读自定义属性与文档、Agent 任务看板与受控迭代更新 / TAPD workbench with readonly custom requirement fields and documents, Agent task boards and controlled iteration updates.",
+  "description": "TAPD 工作台：筛选、完整详情、直接单据工具与经确认的 Agent 派发 / TAPD workbench with filters, full details, direct tools and approved Agent dispatch.",
   "media": [
     "assets/screenshots/workbench-v2.png"
   ],

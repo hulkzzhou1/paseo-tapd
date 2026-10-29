@@ -7,7 +7,7 @@ import {homedir} from 'node:os';
 import {dirname,join,resolve} from 'node:path';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {settingsRpc} from '@getpaseo/plugin';
-import {ownershipProvider} from './ownership-provider.mjs';
+import {syntheticProvider} from './synthetic-provider.mjs';
 const pluginDir=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 export async function runNavigationDaemon(root, workflowMode = false, iterationMode = false){
  assert.equal(await readFile(join(homedir(),'tapd-test-home-marker'),'utf8'),'isolated');
@@ -62,7 +62,7 @@ export async function runNavigationDaemon(root, workflowMode = false, iterationM
   response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({status:1,data}));
  }catch(error){fixtureError=error;response.writeHead(500).end();}});await new Promise(resolve=>tapd.listen(0,'127.0.0.1',resolve));
  for(const key of ['TAPD_TOKEN','TAPD_API_ENDPOINT','TAPD_SITE_URL','TAPD_WORKSPACE_IDS'])delete process.env[key];
- const daemon=await createPaseoDaemon({listen:'127.0.0.1:0',paseoHome:home,daemonVersion:'0.14.0-beta.1',staticDir:join(root,'static'),agentStoragePath:join(home,'agents'),corsAllowedOrigins:[],mcpDebug:false,mcpEnabled:true,relayEnabled:false,browserToolsEnabled:false,pluginsEnabled:true,plugins:{},agentClients:{codex:ownershipProvider(()=>prompts++)},providerOverrides:Object.fromEntries(BUILTIN_PROVIDER_IDS.map(id=>[id,{enabled:id==='codex'}])),skillSelection:{mode:'custom',skills:[]},metadataGeneration:{providers:[]},idleRuntimeCleanup:false,webUi:{enabled:false,distDir:null}},logger);
+ const daemon=await createPaseoDaemon({listen:'127.0.0.1:0',paseoHome:home,daemonVersion:'0.14.0-beta.1',staticDir:join(root,'static'),agentStoragePath:join(home,'agents'),corsAllowedOrigins:[],mcpDebug:false,mcpEnabled:true,relayEnabled:false,browserToolsEnabled:false,pluginsEnabled:true,plugins:{},agentClients:{codex:syntheticProvider(()=>prompts++)},providerOverrides:Object.fromEntries(BUILTIN_PROVIDER_IDS.map(id=>[id,{enabled:id==='codex'}])),skillSelection:{mode:'custom',skills:[]},metadataGeneration:{providers:[]},idleRuntimeCleanup:false,webUi:{enabled:false,distDir:null}},logger);
  let client,mcp,bridge;
  try{
   await daemon.start();const listen=daemon.getListenTarget();assert.equal(listen.type,'tcp');
@@ -70,15 +70,9 @@ export async function runNavigationDaemon(root, workflowMode = false, iterationM
   const rpc=(name,input={})=>client.invokePluginRpc('tapd-workbench',name,input),settings=settingsRpc('tapd-workbench-config');
   const initial=await rpc(settings.read.name),api=`http://127.0.0.1:${tapd.address().port}`;
   assert.equal((await rpc(settings.write.name,{revision:initial.revision,values:{...initial.values,token:'example-secret',workspaceIds:'12345678',apiEndpoint:api,siteUrl:'https://example.com'}})).status,'saved');
-  const caller=await client.createAgent({provider:'codex',cwd:root,model:'example-model',modeId:'full-access'}),agent=await client.createAgent({provider:'codex',cwd:root,model:'example-model',modeId:'full-access'});
-  const target={kind:'story',workspaceId:'12345678',confirmed:true};
-  await rpc('tapd.task.claim',{...target,id:'11111111',agentId:agent.id});
+  const agent=await client.createAgent({provider:'codex',cwd:root,model:'example-model',modeId:'full-access'});
   const useCaller=async id=>{await mcp?.close();mcp=new Client({name:'example-navigation',version:'1'});await mcp.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${listen.port}/mcp/agents?callerAgentId=${id}`)));};
   const tool=async(name,input)=>{const result=await mcp.callTool({name,arguments:input});assert.notEqual(result.isError,true);return result.structuredContent??JSON.parse(result.content.find(block=>block.type==='text').text);};
-  await useCaller(caller.id);const offer=await tool('tapd_delegate_task',{...target,id:'22222222',targetAgentId:agent.id,reason:'Approved task'});
-  await useCaller(agent.id);await tool('tapd_accept_task',{...target,id:'22222222',offerId:offer.offer.offerId,reason:'Accepted task'});await mcp.close();mcp=undefined;
-  const before=await rpc('tapd.conversations');assert(before.conversations.every(item=>item.entities.length===0));
-  const ownership=(await rpc('tapd.agent-links')).links;
   let finish;const stopped=new Promise(resolve=>{finish=resolve;});
   bridge=createServer(async(request,response)=>{try{
    let raw='';for await(const chunk of request)raw+=chunk;const input=raw?JSON.parse(raw):{};let result;
@@ -93,6 +87,6 @@ export async function runNavigationDaemon(root, workflowMode = false, iterationM
    response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify(result));
   }catch{response.writeHead(400,{'content-type':'application/json'}).end(JSON.stringify({error:'Operation unavailable'}));}});
   await new Promise(resolve=>bridge.listen(0,'127.0.0.1',resolve));await writeFile(join(root,'ready.json'),JSON.stringify({port:bridge.address().port}));
-  await stopped;assert.ifError(fixtureError);assert.equal(writes,0);assert.equal(prompts,0);assert.deepEqual((await rpc('tapd.agent-links')).links,ownership);
+  await stopped;assert.ifError(fixtureError);assert.equal(writes,0);assert.equal(prompts,0);
  }finally{if(bridge)await new Promise(resolve=>bridge.close(resolve));await mcp?.close();await client?.close();await daemon.stop();await new Promise(resolve=>tapd.close(resolve));}
 }

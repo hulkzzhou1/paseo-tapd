@@ -62,7 +62,6 @@ export interface EntityComment {
 /** 需求详情中的子单据行（关联任务/关联缺陷） */
 export interface EntityChildItem {
   workspaceId: string; status: string; parentId: string;
-  responsibleAgent: { id: string; title: string } | null;
   kind: EntityKind;
   id: string;
   title: string;
@@ -845,23 +844,6 @@ async function fetchTerminalStatuses(config: TapdConfig, kind: EntityKind, label
 }
 
 /** Board membership must never be guessed from a translated status label. */
-export async function fetchTaskClassification(config: TapdConfig, kind: EntityKind, workspaceId: string, status: string, workflow: {workitemTypeId?:string;parallel?:boolean} = {}): Promise<"unfinished" | "completed" | "unknown"> {
-  if (!config.workspaceIds.includes(workspaceId) || !status || workflow.parallel) return "unknown";
-  if (kind === "task") {
-    if (["done"].includes(status)) return "completed";
-    if (["open", "progressing"].includes(status)) return "unfinished";
-    return "unknown";
-  }
-  if (kind === "story" && !workflow.workitemTypeId) return "unknown";
-  try {
-    const data = await requestJson(config, "/workflows/last_steps", { workspace_id: workspaceId, system: kind, type: "status", ...(workflow.workitemTypeId ? {workitem_type_id:workflow.workitemTypeId} : {}) }, 0);
-    if (!data || typeof data !== "object" || Array.isArray(data) || !Object.keys(data).length || !Object.values(data).every(value => typeof value === "string")) return "unknown";
-    const candidates = await fetchStatusOptions(config, kind, workspaceId);
-    if (!candidates.some(option => option.value === status)) return "unknown";
-    return Object.hasOwn(data, status) ? "completed" : "unfinished";
-  } catch { return "unknown"; }
-}
-
 function activeStatuses(kind: EntityKind, labels: Record<string, string>, terminal: ReadonlySet<string>): string[] {
   const known = Object.keys(labels);
   const source = known.length > 0 ? known : [...FALLBACK_ACTIVE_STATUSES[kind]];
@@ -1600,7 +1582,7 @@ export async function fetchChildHierarchy(config: TapdConfig, workspaceId: strin
           const status = String(row.status ?? "");
           collected.push({ kind, id, workspaceId, parentId, status, title: String((kind === "bug" ? row.title : row.name) ?? "").slice(0, 500), statusLabel: labels[status] ?? status,
             owner: String((kind === "bug" ? row.current_owner : row.owner) ?? "").slice(0, 200), priority: String(row.priority_label ?? "").slice(0, 100),
-            url: entityUrl(config, workspaceId, kind, id), responsibleAgent: null });
+            url: entityUrl(config, workspaceId, kind, id) });
         }
         if (data.length < 100) { total = partial ? null : collected.length; break; }
         truncated = page === 2;
@@ -1979,7 +1961,7 @@ export async function fetchColumn(
   return { kind, total, items: items.slice(0, 300), truncated, error: null };
 }
 
-/** Conversation summaries read only list fields; descriptions, comments and related items stay lazy. */
+/** Item summaries read list fields without fetching bodies, comments or related items. */
 export async function fetchEntitySummary(config: TapdConfig, kind: EntityKind, id: string, workspaceId: string, verifyTarget = false) {
   if (!config.workspaceIds.includes(workspaceId)) throw new TapdApiError("项目未配置");
   const data = await requestJson(config, LIST_PATH[kind], {

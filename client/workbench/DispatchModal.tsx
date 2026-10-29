@@ -1,11 +1,11 @@
 import { WorkbenchDialog as Modal, dialogFormStyles } from "./WorkbenchDialog";
 import type { RpcOutput } from "@getpaseo/plugin";
-import { taskDispatchRpc } from "../../shared/task-board";
+import { dispatchRpc } from "../../shared/dispatch";
 import { usePaseo, useRpc } from "@getpaseo/plugin/client";
 import { FlatList, Icon, TextInput, useToast } from "@getpaseo/plugin/client/react-native";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { ActivityIndicator, Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
-import { entityRpc, type TapdLink } from "../../shared/contracts";
+import { entityRpc } from "../../shared/contracts";
 import { type WorkbenchTheme } from "./bits";
 
 type EntityData = RpcOutput<typeof entityRpc>;
@@ -47,7 +47,7 @@ function buildPrompt(data: EntityData): string {
     "工作要求：",
     "1. 先理解需求/问题背景，必要时给出简短的实施计划；",
     "2. 在当前仓库中定位相关代码，完成实现或修复，并运行必要的测试；",
-    "3. 每轮结束时在回复最后给出一段结果摘要（改动内容、影响范围、验证结果），仅开启自动回评后插件才会写回；否则需要用户授权后使用 TAPD 工具回写。",
+    "3. 回复实际改动和验证结果；TAPD 评论或状态修改需明确授权，进度以 TAPD 自身为准。",
   ].join("\n");
 }
 
@@ -60,10 +60,10 @@ export function DispatchModal({ open, onClose, theme, data, defaultRepoPath, def
   data: EntityData;
   defaultRepoPath: string;
   defaultProvider: string;
-  onCreated: (input: { link: TapdLink; repoPath: string; provider: string }) => void;
+  onCreated: (input: { agentId: string; workspaceId: string; repoPath: string; provider: string }) => void;
 }) {
   const paseo = usePaseo();
-  const dispatchTask = useRpc(taskDispatchRpc);
+  const dispatchTask = useRpc(dispatchRpc);
   const toast = useToast();
   const [mode, setMode] = useState<"form" | "repo" | "model">("form");
   const [repos, setRepos] = useState<RepoOption[]>([]);
@@ -76,6 +76,8 @@ export function DispatchModal({ open, onClose, theme, data, defaultRepoPath, def
   const [branchName, setBranchName] = useState("");
   const [prompt, setPrompt] = useState("");
   const [dispatching, setDispatching] = useState(false);
+  const attempted = useRef(false);
+  const [blocked, setBlocked] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -87,6 +89,8 @@ export function DispatchModal({ open, onClose, theme, data, defaultRepoPath, def
     setBranchName(`tapd/${data.kind}-${data.id}`);
     setPrompt(buildPrompt(data));
     setDispatching(false);
+    attempted.current=false;
+    setBlocked(false);
     void loadOptions(defaultRepoPath, defaultProvider);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -123,7 +127,7 @@ export function DispatchModal({ open, onClose, theme, data, defaultRepoPath, def
       if (!fallbackRepo && repoList[0]) setRepoPath(repoList[0].path);
       if (!fallbackProvider && groups[0]?.models[0]) setProvider(groups[0].models[0].value);
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error));
+      setLoadError("项目或模型读取失败，请关闭后重试。");
     } finally {
       setLoading(false);
     }
@@ -171,20 +175,22 @@ export function DispatchModal({ open, onClose, theme, data, defaultRepoPath, def
     modelGroups.length > 0 && modelGroups.every((group) => collapsedGroups[group.provider] === true);
 
   async function dispatch() {
-    if (dispatching) return;
+    if (dispatching || attempted.current) return;
     if (!data.workspaceId) { toast.error("单据项目未知，请刷新详情后重试。"); return; }
     const trimmedRepo = repoPath.trim();
     const trimmedProvider = provider.trim();
     if (!trimmedRepo || !trimmedProvider || !prompt.trim()) return;
+    attempted.current=true;
+    setBlocked(true);
     setDispatching(true);
     try {
       const result = await dispatchTask({ kind: data.kind, id: data.id, workspaceId: data.workspaceId, repoPath: trimmedRepo, provider: trimmedProvider, branchName: branchName.trim() || `tapd/${data.kind}-${data.id}`, prompt: prompt.trim(), confirmed: true });
-      if (!result.ok || !result.link) { toast.error(`${result.warning ?? "派发未完成，请勿重复提交。"}${result.workspaceId ? ` 工作区：${result.workspaceId}` : ""}${result.agentId ? ` Agent：${result.agentId}` : ""}`); return; }
-      onCreated({ link: result.link, repoPath: trimmedRepo, provider: trimmedProvider });
+      if (!result.ok || !result.agentId || !result.workspaceId) { toast.error(`${result.warning ?? "派发未完成，请勿重复提交。"}${result.workspaceId ? ` 工作区：${result.workspaceId}` : ""}${result.agentId ? ` Agent：${result.agentId}` : ""}`); return; }
+      onCreated({ agentId: result.agentId, workspaceId: result.workspaceId, repoPath: trimmedRepo, provider: trimmedProvider });
       toast.show("已派发，Agent 开始工作", { variant: "success" });
       onClose();
     } catch (error) {
-      toast.error("派发未确认成功：请核查负责人、历史关联及已创建资源，勿重复提交。");
+      toast.error("派发未确认成功：请核查已创建工作区及 Agent 活动，勿重复提交。");
     } finally {
       setDispatching(false);
     }
@@ -363,7 +369,7 @@ export function DispatchModal({ open, onClose, theme, data, defaultRepoPath, def
     );
   }
 
-  const canDispatch = repoPath.trim().length > 0 && provider.trim().length > 0 && prompt.trim().length > 0 && !dispatching;
+  const canDispatch = repoPath.trim().length > 0 && provider.trim().length > 0 && prompt.trim().length > 0 && !dispatching && !blocked;
 
   return (
     <Modal theme={theme} pending={dispatching} onBack={backToDetail ? onClose : undefined} title={`派给 Agent · #${data.id}`} open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
@@ -400,6 +406,7 @@ export function DispatchModal({ open, onClose, theme, data, defaultRepoPath, def
               onChangeText={setBranchName}
             />
           </View>
+          {blocked && !dispatching ? <Text style={styles.hint}>本次派发已提交，请先核查工作区和 Agent 活动，勿重复派发。</Text> : null}
           <Text style={styles.sectionTitle}>提示词（随任务发给 Agent，可编辑）</Text>
           <TextInput
             style={[styles.input, styles.inputMultiline]}

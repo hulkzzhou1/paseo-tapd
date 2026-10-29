@@ -3,7 +3,6 @@ import { test } from "node:test";
 import { registerHooks } from "node:module";
 import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
-import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 registerHooks({ resolve(s, c, next) { try { return next(s, c); } catch (e) { if (e.code === "ERR_MODULE_NOT_FOUND" && s.startsWith(".") && !/\.[a-z]+$/.test(s)) return next(s + ".ts", c); throw e; } } });
@@ -72,25 +71,15 @@ test("registered iteration RPC and tool update each kind with exactly identity a
   assert.ok(f.state.reads.filter(url => url.pathname === "/iterations").every(url => url.searchParams.get("id") === approved.iterationId && url.searchParams.get("workspace_id") === target.workspaceId));
 });
 
-test("an accepted iteration write survives cancellation and card append failure without becoming retryable", async t => {
+test("an accepted iteration write survives cancellation without host presentation without becoming retryable", async t => {
   const f = await fixture(t), abort = new AbortController();
   f.state.afterPost = () => abort.abort(); f.state.failAppend = true;
   const result = await f.tool(approved, { signal: abort.signal });
   assert.equal(result.isError, undefined); assert.equal(result.structuredContent.writeState, "accepted");
   assert.equal(result.structuredContent.outcome, "verified");
-  assert.match(result.structuredContent.presentationWarning, /勿重复提交/);
+  assert.equal(result.structuredContent.presentationWarning, undefined);
   assert.equal(JSON.stringify(result).includes("example-secret"), false);
   assert.equal(f.state.posts.length, 1);
-});
-
-test("local card persistence failure preserves the accepted iteration and a later read does not replay it", async t => {
-  const f = await fixture(t), blocked = join(f.home, "plugin-data/tapd-workbench/conversations.json");
-  f.state.afterPost = () => { rmSync(blocked, { force: true, recursive: true }); mkdirSync(blocked, { recursive: true }); };
-  const result = await f.tool(approved);
-  assert.equal(result.isError, undefined); assert.equal(result.structuredContent.outcome, "verified"); assert.equal(result.structuredContent.writeState, "accepted");
-  assert.match(result.structuredContent.presentationWarning, /勿重复提交/); assert.equal(f.state.cards.length, 0);
-  rmSync(blocked, { recursive: true });
-  assert.equal((await f.rpc("tapd.item_iteration", target)).value, approved.iterationId); assert.equal(f.state.posts.length, 1);
 });
 
 test("iteration writes reject missing authorization, unsafe targets, unverifiable old values and stale plans before POST", async t => {
@@ -141,8 +130,7 @@ test("rejection, uncertain transport and accepted-unverified outcomes never repl
     } else {
       assert.equal(result.isError, undefined); assert.equal(result.structuredContent.writeState, "accepted");
       assert.equal(result.structuredContent.outcome, "unverified"); assert.equal(result.structuredContent.ok, false);
-      assert.equal(f.state.cards.length, 1); assert.equal(f.state.cards[0].data.verification, "unverified");
-      assert.match(f.state.cards[0].data.warnings[0], /勿重复提交/);
+      assert.equal(f.state.cards.length, 0);
     }
     assert.equal(f.state.posts.length, 1); assert.equal(JSON.stringify(result).includes("example-secret"), false);
   });

@@ -64,7 +64,7 @@ test('child reads retain a successful page after failure, expose unknown totals 
  const {call,state}=fixture(t);state.children=Array.from({length:100},(_,i)=>({id:String(50000000+i),workspace_id:project,parent_id:parent,name:'子需求',status:'done'}));state.secondPageFailure=true;
  const result=await call('tapd_children',{workspaceId:project,id:parent});
  assert.equal(result.isError,undefined);assert.equal(result.structuredContent.items.length,100);assert.equal(result.structuredContent.reads.story.total,null);assert.equal(result.structuredContent.reads.story.partial,true);assert.equal(result.structuredContent.reads.story.truncated,true);
- assert.ok(result.structuredContent.items.every(x=>x.responsibleAgent===null));assert.ok(state.requests.every(x=>x.method!=='POST'));
+ assert.ok(result.structuredContent.items.every(x=>!("responsibleAgent" in x)));assert.ok(state.requests.every(x=>x.method!=='POST'));
  assert.ok(state.requests.filter(x=>x.url.searchParams.has('parent_id')).every(x=>!x.url.searchParams.has('ancestor_id')));
 });
 test('child rows with incorrect project or parent are excluded without reporting an empty complete set',async t=>{
@@ -80,16 +80,4 @@ test('child creation refuses required fields and incomplete or duplicate categor
  const {call,state}=fixture(t);const input={kind:'story',workspaceId:project,title:'子需求',parentStoryId:parent,workitemTypeId:childType,confirmed:true};
  state.fields={custom_field_required:{required:1,readonly:0,html_type:'text'}};assert.equal((await call('tapd_create',input)).isError,true);
  state.fields={};state.types=Array.from({length:200},()=>state.types[0]);assert.equal((await call('tapd_create',input)).isError,true);assert.equal(state.requests.filter(x=>x.method==='POST').length,0);
-});
-test('child owners come only from the actual confirmed association, never from the parent or unresolved candidate',async t=>{
- const {state}=fixture(t);const{createHandlers}=await import('../server/handlers.ts');state.children=[{id:'55555555',workspace_id:project,parent_id:parent}];
- const link={kind:'story',id:parent,tapdWorkspaceId:project,apiEndpoint:values.apiEndpoint,siteUrl:values.siteUrl,agentId:'example-parent-agent',agentTitle:'统筹',responsibility:{revision:'one'}};
- let links=[link];const handlers=createHandlers(async()=>values,{}, {list:async()=>links});
- const first=await handlers.children({workspaceId:project,id:parent});assert.equal(first.items[0].responsibleAgent,null);assert.equal(first.items[0].ownershipUnknown,false);
- links=[link,{...link,id:'55555555',agentId:'example-child-agent',agentTitle:'执行'}];const second=await handlers.children({workspaceId:project,id:parent});assert.equal(second.items[0].responsibleAgent.id,'example-child-agent');
- links=[{...links[1],responsibility:undefined}];const historical=await handlers.children({workspaceId:project,id:parent});assert.equal(historical.items[0].responsibleAgent,null);assert.equal(historical.items[0].ownershipUnknown,true);assert.equal(state.requests.some(x=>x.method==='POST'),false);
- const legacyValues={...values,links:[{...link,id:'55555555',key:'story-55555555'}]};
- const pending=createHandlers(async()=>legacyValues,{}, {list:async()=>[]});assert.equal((await pending.children({workspaceId:project,id:parent})).items[0].ownershipUnknown,true,'unimported settings candidates cannot look unassigned');
- const suppressed=createHandlers(async()=>legacyValues,{}, {list:async()=>[],state:async()=>({links:[],suppressed:[{apiEndpoint:values.apiEndpoint,siteUrl:values.siteUrl,tapdWorkspaceId:project,kind:'story',id:'55555555'}]})});
- assert.equal((await suppressed.children({workspaceId:project,id:parent})).items[0].ownershipUnknown,false,'suppressed settings must not restore old responsibility');
 });

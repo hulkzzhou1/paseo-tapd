@@ -169,13 +169,6 @@ function SettingsEditor({ settings, theme }: { settings: ReadySettings; theme: W
         </SettingsCard>
       </SettingsSection>
       <ViewsSection theme={theme} settings={settings} />
-      <SettingsSection title="Agent">
-        <SettingsCard>
-          <Text style={{ color: theme.colors.foregroundMuted }}>
-            普通回合结束不再自动评论（包括旧版已开启的设置）。明确阶段成果经授权后写入 TAPD；回合状态与完整输出请查看 Agent 会话。
-          </Text>
-        </SettingsCard>
-      </SettingsSection>
       <SettingsSection title="操作">
         <SettingsCard>
           <SettingsAction

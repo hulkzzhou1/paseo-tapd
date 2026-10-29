@@ -3,8 +3,7 @@ import { Icon } from "@getpaseo/plugin/client/react-native";
 import { useMemo, useState } from "react";
 import { ScrollView, Pressable, Text, View, type TextStyle, type ViewStyle } from "react-native";
 import { boardRpc } from "../../shared/contracts";
-import { Chip, agentStatusColor, formatTime, type WorkbenchTheme } from "./bits";
-import type { AgentStatusItem } from "./EntityDetailContent";
+import { Chip, formatTime, type WorkbenchTheme } from "./bits";
 import { kindColor, priorityTone, statusTone, toneColor } from "./status-tones";
 
 type BoardData = RpcOutput<typeof boardRpc>;
@@ -26,7 +25,7 @@ interface CardActions {
 }
 
 /** 看板状态列：一列 = 一个状态 */
-export function StatusColumn({ kind, status, label, items, theme, width, favorites, linkedKeys, statusByKey, onToggleFavorite, onOpen }: {
+export function StatusColumn({ kind, status, label, items, theme, width, favorites, onToggleFavorite, onOpen }: {
   kind: BoardEntityItem["kind"];
   status: string;
   label: string;
@@ -34,8 +33,6 @@ export function StatusColumn({ kind, status, label, items, theme, width, favorit
   theme: WorkbenchTheme;
   width: number;
   favorites: readonly string[];
-  linkedKeys: readonly string[];
-  statusByKey: ReadonlyMap<string, AgentStatusItem>;
   onToggleFavorite: (key: string) => void;
   onOpen: (entity: BoardEntityItem) => void;
 }) {
@@ -81,8 +78,6 @@ export function StatusColumn({ kind, status, label, items, theme, width, favorit
               entity={item}
               theme={theme}
               pinned={favorites.includes(entityKey(item))}
-              linked={linkedKeys.includes(entityKey(item))}
-              status={statusByKey.get(entityKey(item))}
               onTogglePinned={() => onToggleFavorite(entityKey(item))}
               onPress={() => onOpen(item)}
             />
@@ -93,16 +88,13 @@ export function StatusColumn({ kind, status, label, items, theme, width, favorit
   );
 }
 
-function EntityCard({ entity, theme, pinned, linked, status, onTogglePinned, onPress }: {
+function EntityCard({ entity, theme, pinned, onTogglePinned, onPress }: {
   entity: BoardEntityItem;
   theme: WorkbenchTheme;
   pinned: boolean;
-  linked: boolean;
-  status?: AgentStatusItem;
   onTogglePinned: () => void;
   onPress: () => void;
 }) {
-  const statusDot = status?.status ? agentStatusColor(status.status, theme) : undefined;
   const styles = useMemo<{ card: ViewStyle; titleRow: ViewStyle; title: TextStyle; idText: TextStyle; meta: ViewStyle; subRow: ViewStyle; sub: TextStyle; storyChip: TextStyle }>(() => ({
     card: {
       backgroundColor: theme.colors.surface1,
@@ -134,14 +126,6 @@ function EntityCard({ entity, theme, pinned, linked, status, onTogglePinned, onP
       <Text style={styles.idText}>#{entity.id}</Text>
       <View style={styles.meta}>
         <Chip label={entity.statusLabel} theme={theme} color={toneColor(statusTone(entity.kind, entity.status, entity.statusLabel, entity.done), theme)} />
-        {linked ? (
-          <Chip
-            label="已关联"
-            theme={theme}
-            color={theme.colors.accent}
-            dot={status?.status ? agentStatusColor(status.status, theme) : undefined}
-          />
-        ) : null}
         {entity.priority ? <Chip label={entity.priority} theme={theme} color={toneColor(priorityTone(entity.priority), theme)} /> : null}
         {entity.iterationName ? <Chip label={entity.iterationName} theme={theme} /> : null}
         {entity.kind !== "story" && entity.storyTitle ? (
@@ -165,7 +149,7 @@ type ListEntry =
   | { type: "header"; entryKey: string; group: GroupInfo }
   | { type: "card"; entryKey: string; item: BoardEntityItem };
 
-export function KindColumn({ kind, label, items, total, truncated, theme, flex, width, emptyText, grouped, favorites, linkedKeys, statusByKey, onToggleFavorite, onOpen }: {
+export function KindColumn({ kind, label, items, total, truncated, theme, flex, width, emptyText, grouped, favorites, onToggleFavorite, onOpen }: {
   kind: BoardEntityItem["kind"];
   label: string;
   items: BoardEntityItem[];
@@ -177,8 +161,6 @@ export function KindColumn({ kind, label, items, total, truncated, theme, flex, 
   emptyText: string;
   grouped: boolean;
   favorites: readonly string[];
-  linkedKeys: readonly string[];
-  statusByKey: ReadonlyMap<string, AgentStatusItem>;
   onToggleFavorite: (key: string) => void;
   onOpen: (entity: BoardEntityItem) => void;
 }) {
@@ -285,8 +267,6 @@ export function KindColumn({ kind, label, items, total, truncated, theme, flex, 
                 entity={entry.item}
                 theme={theme}
                 pinned={favorites.includes(entry.entryKey)}
-                linked={linkedKeys.includes(entry.entryKey)}
-                status={statusByKey.get(entry.entryKey)}
                 onTogglePinned={() => onToggleFavorite(entry.entryKey)}
                 onPress={() => onOpen(entry.item)}
               />

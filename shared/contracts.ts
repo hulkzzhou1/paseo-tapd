@@ -107,7 +107,7 @@ export const tapdSettingsSchema = z.object({
   columns: z.record(z.string(), z.array(z.string())).default({}),
   /** 聚合视图：列内按状态分组（可折叠），默认关闭 */
   groupByStatus: z.boolean().default(false),
-  /** 单据 ↔ 工作区/Agent 关联（派活记录） */
+  /** Retired Agent data retained for settings compatibility; never used or updated. */
   links: z.array(
     z.object({
       key: z.string(),
@@ -120,7 +120,7 @@ export const tapdSettingsSchema = z.object({
       createdAt: z.string().default(""),
     }),
   ).default([]),
-  /** 上次派活使用的仓库与模型（默认值） */
+  /** Saved repository/model defaults remain readable for dispatch. */
   lastRepoPath: z.string().default(""),
   lastProvider: z.string().default(""),
   /** Legacy setting retained for saved configuration compatibility; no longer triggers writes. */
@@ -138,7 +138,6 @@ export const tapdSettingsSchema = z.object({
     )
     .default({}),
 });
-export type TapdLink = TapdSettingsValues["links"][number];
 export type TapdSettingsValues = z.infer<typeof tapdSettingsSchema>;
 
 export const tapdSettings = defineSettings({
@@ -492,8 +491,6 @@ export const addCommentRpc = defineRpc({
 
 export const entityChildItemSchema = z.object({
   workspaceId: z.string().default(""), status: z.string().default(""), parentId: z.string().default(""),
-  ownershipUnknown: z.boolean().default(false),
-  responsibleAgent: z.object({ id: z.string(), title: z.string() }).nullable().default(null),
   kind: entityKindSchema,
   id: z.string(),
   title: z.string(),
@@ -608,25 +605,6 @@ export const updateCheckRpc = defineRpc({
     latestCommit: z.string(),
     updateAvailable: z.boolean(),
     checkedAt: z.string(),
-  }),
-});
-
-/** Agent 状态 + 最近一次 turn 结果（详情面板展示用） */
-export const agentStatusRpc = defineRpc({
-  name: "tapd.agent_status",
-  input: z.object({ agentIds: z.array(z.string()).max(100).default([]) }),
-  output: z.object({
-    items: z.array(
-      z.object({
-        agentId: z.string(),
-        status: z.string().default(""),
-        updatedAt: z.string().default(""),
-        turnOutcome: z.string().default(""),
-        turnEndedAt: z.string().default(""),
-        turnSummary: z.string().default(""),
-        turnError: z.string().default(""),
-      }),
-    ).default([]),
   }),
 });
 

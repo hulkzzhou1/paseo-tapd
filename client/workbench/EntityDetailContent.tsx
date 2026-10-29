@@ -1,19 +1,18 @@
 import { StoryShortFields, useStoryFields, type ShortFieldExpansion } from "./StoryShortFields";
 import { StoryDocument } from "./StoryDocument";
-import { toolLinkSchema } from "../../shared/agent-links";
 import { EntityLabels } from "./EntityLabels";
 import { RichText } from "./RichText";
 import type { RpcOutput } from "@getpaseo/plugin";
-import { openExternalUrl, usePaseo, useRpc, type PluginScreenProps } from "@getpaseo/plugin/client";
+import { openExternalUrl, useRpc } from "@getpaseo/plugin/client";
 import { Icon, copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState, useId, type RefObject } from "react";
 import { ActivityIndicator, Pressable, Platform, ScrollView, Text, View, useWindowDimensions, type TextStyle, type ViewStyle } from "react-native";
-import { agentStatusRpc, entityRpc, type EntityKind, type TapdLink } from "../../shared/contracts";
-import { Chip, agentStatusColor, formatTime, formatIsoTime, type WorkbenchTheme } from "./bits";
+import { entityRpc, type EntityKind } from "../../shared/contracts";
+import { Chip, formatTime, type WorkbenchTheme } from "./bits";
 import { priorityTone, statusTone, toneColor } from "./status-tones";
 import { StatusDropdown, type StatusChangeTarget } from "./EntityWriteBack";
-import { subscribeBoardUpdates } from "../conversation/board-updates";
+import { subscribeBoardUpdates } from "./board-updates";
 
 export interface DetailTarget {
   kind: EntityKind;
@@ -25,17 +24,9 @@ export interface DetailTarget {
 }
 
 export type EntityDetailData = RpcOutput<typeof entityRpc>;
-export type AgentStatusItem = NonNullable<RpcOutput<typeof agentStatusRpc>["items"]>[number];
 
 export interface DetailExtras {
-  onRemoveFromConversation?: () => void;
-  links: readonly TapdLink[];
-  navigation?: PluginScreenProps["navigation"];
   refreshToken: number;
-  onLinkCreated?: (input: { link: TapdLink; repoPath?: string; provider?: string }) => void;
-  onBindAgent?: (data: EntityDetailData) => void;
-  onRemoveLink?: (link: TapdLink) => void;
-  onTransferLink?: (link: TapdLink, data: EntityDetailData) => void;
   onDispatch?: (data: EntityDetailData) => void;
   onComment?: (data: EntityDetailData) => void;
   onStatusDone?: () => void;
@@ -56,7 +47,6 @@ export interface DetailReadingPosition {
   documentRevisions?: Record<string, number>;
   shortExpansion?: ShortFieldExpansion;
   childPages?: Partial<Record<EntityKind,number>>;
-  agentResults?: Record<string,boolean>;
 }
 
 export function EntityDetailContent({ target, theme, extras, hidden = false, readingPosition }: {
@@ -100,7 +90,6 @@ function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition
   const offsets=useRef<Record<string,number>>(sameReading?readingPosition.current.offsets??{details:readingPosition.current.offset}:{});
   const [shortExpansion,setShortExpansion]=useState<ShortFieldExpansion>(sameReading?readingPosition.current.shortExpansion??{expanded:false,showEmpty:false}:{expanded:false,showEmpty:false});
   const [childPages,setChildPages]=useState<Partial<Record<EntityKind,number>>>(sameReading?readingPosition.current.childPages??{}:{});
-  const [agentResults,setAgentResults]=useState<Record<string,boolean>>(sameReading?readingPosition.current.agentResults??{}:{});
   function changeShortExpansion(next:ShortFieldExpansion){
     readingPosition.current={...readingPosition.current,key:readingKey,shortExpansion:next};
     setShortExpansion(next);
@@ -109,11 +98,6 @@ function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition
     const next={...childPages,[childKind]:page};
     readingPosition.current={...readingPosition.current,key:readingKey,childPages:next};
     setChildPages(next);
-  }
-  function changeAgentResult(key:string,open:boolean){
-    const next={...agentResults,[key]:open};
-    readingPosition.current={...readingPosition.current,key:readingKey,agentResults:next};
-    setAgentResults(next);
   }
   const scroll=useRef<ScrollView>(null),restoring=useRef(true),tabs=useRef(new Map<string,View>());
   const [focusedTab,setFocusedTab]=useState('');
@@ -142,54 +126,6 @@ function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition
       && (!changed.apiEndpoint || !target?.apiEndpoint || changed.apiEndpoint === target.apiEndpoint)
       && (!changed.siteUrl || !target?.siteUrl || changed.siteUrl === target.siteUrl)) void refetchDetail();
   }), [open, kind, id, target?.workspaceId, target?.apiEndpoint, target?.siteUrl, refetchDetail]);
-
-  const agentIds = useMemo(() => {
-    if (!open || id === "") return [];
-    return [
-      ...new Set(
-        extras.links
-          .filter((link) => link.key === `${kind}-${id}` && link.agentId.trim().length > 0)
-          .map((link) => link.agentId),
-      ),
-    ];
-  }, [open, id, kind, extras.links]);
-
-  const statusRpc = useRpc(agentStatusRpc);
-  const paseo = usePaseo();
-  const [agentStatusMap, setAgentStatusMap] = useState<Map<string, AgentStatusItem>>(new Map());
-  const lastStatusFetch = useRef(0);
-
-  const fetchAgentStatus = useCallback(() => {
-    if (agentIds.length === 0) return;
-    lastStatusFetch.current = Date.now();
-    void statusRpc({ agentIds })
-      .then((result) => {
-        const next = new Map<string, AgentStatusItem>();
-        for (const item of result.items ?? []) next.set(item.agentId, item);
-        setAgentStatusMap(next);
-      })
-      .catch(() => {
-        // 状态查询失败不影响详情其余内容
-      });
-  }, [agentIds, statusRpc]);
-
-  // 打开面板 / 关联变化时取一次
-  useEffect(() => {
-    if (agentIds.length === 0) {
-      setAgentStatusMap(new Map());
-      return;
-    }
-    fetchAgentStatus();
-  }, [agentIds, fetchAgentStatus]);
-
-  // agent 事件流 → 节流重拉（实时状态点）
-  useEffect(() => {
-    if (agentIds.length === 0) return;
-    return paseo.agents.subscribe(() => {
-      if (Date.now() - lastStatusFetch.current < 2000) return;
-      fetchAgentStatus();
-    });
-  }, [paseo, agentIds, fetchAgentStatus]);
 
   const styles = useMemo<{
     actions: ViewStyle;
@@ -286,15 +222,11 @@ function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition
     }
   }
 
-  const removeAction = extras.onRemoveFromConversation ? <Pressable accessibilityRole="button" style={styles.action} onPress={extras.onRemoveFromConversation}>
-    <Text style={styles.actionLabel}>从会话移除</Text>
-  </Pressable> : null;
 
   if (detail.isPending) {
     return (
       <View style={styles.center}>
         <ActivityIndicator color={theme.colors.foreground} />
-        {removeAction}
       </View>
     );
   }
@@ -302,7 +234,6 @@ function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition
     return (
       <View style={{ gap: 12 }}>
         <Text style={styles.error}>单据 #{id} 加载失败，请检查 TAPD 连接及访问权限后重试。</Text>
-        {removeAction}
         <Pressable accessibilityRole="button" accessibilityLabel="重试加载单据" onPress={() => void detail.refetch()} style={styles.action}>
           <Text style={styles.actionLabel}>重试</Text>
         </Pressable>
@@ -312,8 +243,6 @@ function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition
   if (!data) return null;
 
   const tone = statusTone(data.kind, data.status, data.statusLabel);
-  const entityLinks = extras.links.filter(link => link.key === `${data.kind}-${data.id}`);
-  const hasAgent = entityLinks.some(link => link.agentId.trim().length > 0);
 
   return (
     <View style={{flexGrow:1,flexShrink:1,minHeight:0}}>
@@ -323,16 +252,7 @@ function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition
         <Chip label={data.statusLabel} theme={theme} tone={tone==='neutral'?'muted':'plain'} color={toneColor(tone,theme)}/>
       </View>
       <View style={styles.actions}>
-        {!hasAgent && <>
-          <Pressable accessibilityRole="button" style={styles.action} onPress={() => extras.onDispatch?.(data)}>
-            <Icon name="Bot" size={14} color={theme.colors.foreground} />
-            <Text style={styles.actionLabel}>派给 Agent</Text>
-          </Pressable>
-          <Pressable accessibilityRole="button" style={styles.action} onPress={() => extras.onBindAgent?.(data)}>
-            <Icon name="Link" size={14} color={theme.colors.foreground} />
-            <Text style={styles.actionLabel}>绑定 Agent</Text>
-          </Pressable>
-        </>}
+        <Pressable accessibilityRole="button" style={styles.action} onPress={() => extras.onDispatch?.(data)}><Icon name="Bot" size={14} color={theme.colors.foreground} /><Text style={styles.actionLabel}>派给 Agent</Text></Pressable>
         <Pressable accessibilityRole="button" style={styles.action} onPress={() => extras.onComment?.(data)}>
           <Icon name="MessageSquarePlus" size={14} color={theme.colors.foreground} />
           <Text style={styles.actionLabel}>写回评论</Text>
@@ -386,12 +306,7 @@ function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition
           <Icon name="RefreshCw" size={14} color={theme.colors.foreground} />
           <Text style={styles.actionLabel}>刷新</Text>
         </Pressable>
-        {removeAction}
       </View>
-      {entityLinks.length?<View style={{flexDirection:'row',alignItems:'center',gap:8}}>
-        <Text style={{fontSize:12,color:theme.colors.foregroundMuted}}>关联 Agent</Text>
-        <Text numberOfLines={1} style={{flex:1,fontSize:12,color:theme.colors.foreground}}>{entityLinks.map(link=>link.agentTitle||link.workspaceTitle||link.agentId).join('、')}</Text>
-      </View>:null}
       </View>
       {kind==='story'?<ScrollView horizontal showsHorizontalScrollIndicator style={{flexGrow:0,flexShrink:0,borderBottomWidth:1,borderColor:theme.colors.border}} contentContainerStyle={{paddingHorizontal:width<500?12:20}}>
         <View accessibilityRole="tablist" accessibilityLabel="需求内容" style={{flexDirection:'row'}}>
@@ -430,23 +345,6 @@ function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition
       </View>
       {data.kind === "story" ? <StoryShortFields key={`${data.workspaceId}-${data.id}`} query={fields} theme={theme} expansion={shortExpansion} onExpansionChange={changeShortExpansion} /> : null}
       {data.labels?.length || data.labels == null ? <View style={{ gap: 6 }}><Text style={styles.section}>标签</Text><EntityLabels labels={data.labels} theme={theme} compact={false} /></View> : null}
-      {entityLinks.length > 0 ? (
-        <>
-          <Text style={styles.section}>关联任务</Text>
-          {entityLinks.map((link) => (
-            <AgentLinkRow
-              key={`${link.workspaceId}-${link.agentId}`}
-              link={link}
-              data={data}
-              theme={theme}
-              extras={extras}
-              status={agentStatusMap.get(link.agentId)}
-              resultOpen={agentResults[`${link.workspaceId}-${link.agentId}`]??false}
-              onResultOpenChange={open=>changeAgentResult(`${link.workspaceId}-${link.agentId}`,open)}
-            />
-          ))}
-        </>
-      ) : null}
       <Text style={styles.section}>描述</Text>
       <RichText html={data.descriptionHtml} text={data.description} baseUrl={data.url} workspaceId={data.workspaceId} theme={theme} />
       {data.parentStory ? (
@@ -629,159 +527,7 @@ function ChildRow({ item, theme, styles, onOpen }: {
       </View>
       <Text style={styles.meta}>{item.statusLabel}</Text>
       {item.owner ? <Text style={styles.meta}>{item.owner}</Text> : null}
-      <Text style={styles.meta}>{item.responsibleAgent ? `负责 Agent · ${item.responsibleAgent.title || item.responsibleAgent.id}` : item.ownershipUnknown ? "Agent 归属待确认" : "未关联 Agent"}</Text>
       <Text style={styles.action}>详情</Text>
     </Pressable>
-  );
-}
-
-/** 关联 Agent 行：展示 agent 实时状态与最近一次 turn 结果 */
-function AgentLinkRow({ link, data, theme, extras, status, resultOpen, onResultOpenChange }: {
-  data: EntityDetailData;
-  link: TapdLink;
-  theme: WorkbenchTheme;
-  extras: DetailExtras;
-  status?: AgentStatusItem;
-  resultOpen: boolean;
-  onResultOpenChange: (open:boolean)=>void;
-}) {
-  const title = useMemo(() => {
-    const base = link.agentTitle || link.workspaceTitle || "";
-    return base.length > 40 ? `${base.slice(0, 40)}…` : base;
-  }, [link.agentTitle, link.workspaceTitle]);
-  const shortId = (link.agentId || link.workspaceId).slice(0, 8);
-
-  const styles = useMemo<{
-    row: ViewStyle;
-    resultBox: ViewStyle;
-    tipText: TextStyle;
-    statusText: TextStyle;
-    titleText: TextStyle;
-    idText: TextStyle;
-    actionText: TextStyle;
-    dangerText: TextStyle;
-  }>(() => ({
-    row: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-      backgroundColor: theme.colors.surface0,
-      borderColor: theme.colors.border,
-      borderWidth: 1,
-      borderRadius: 8,
-      paddingHorizontal: 10,
-      paddingVertical: 8,
-    },
-    resultBox: {
-      backgroundColor: theme.colors.surface2,
-      borderColor: theme.colors.border,
-      borderWidth: 1,
-      borderRadius: 8,
-      padding: 10,
-      marginTop: 4,
-    },
-    tipText: { color: theme.colors.foreground, fontSize: 12, lineHeight: 18 },
-    statusText: { color: theme.colors.foregroundMuted, fontSize: 11 },
-    titleText: { color: theme.colors.foreground, fontSize: 12, flexShrink: 1 },
-    idText: { color: theme.colors.foregroundMuted, fontSize: 11 },
-    actionText: { color: theme.colors.accent, fontSize: 12 },
-    dangerText: { color: theme.colors.statusDanger, fontSize: 12 },
-  }), [theme]);
-
-  const liveStatus = status?.status ?? "";
-  const statusColor = agentStatusColor(liveStatus, theme);
-  const statusLabel =
-    liveStatus === "running"
-      ? "运行中"
-      : liveStatus === "idle"
-        ? "空闲"
-        : liveStatus === "initializing"
-          ? "启动中"
-          : liveStatus === "error"
-            ? "异常"
-            : liveStatus === "closed"
-              ? "已关闭"
-              : "";
-  const hasTurn = Boolean(status?.turnOutcome);
-  const turnedAt = formatIsoTime(status?.turnEndedAt ?? "");
-  const turnLabel =
-    status?.turnOutcome === "completed"
-      ? "上轮已结束"
-      : status?.turnOutcome === "failed"
-        ? "上轮失败"
-        : status?.turnOutcome === "canceled"
-          ? "上轮取消"
-          : "";
-  const turnText = (status?.turnError || status?.turnSummary || (hasTurn ? "本轮摘要未提取，请查看 Agent 会话；回合结束不代表业务完成。" : "")).trim();
-  const turnColor =
-    status?.turnOutcome === "failed"
-      ? theme.colors.statusDanger
-      : status?.turnOutcome === "canceled"
-        ? theme.colors.foregroundMuted
-        : theme.colors.statusSuccess;
-
-  return (
-    <View>
-      <View style={styles.row}>
-        <Icon name="Bot" size={14} color={theme.colors.accent} />
-        <View style={{ flex: 1, flexDirection: "row", alignItems: "center", gap: 6 }}>
-          <Text style={styles.titleText} numberOfLines={1}>
-            {title || `wks ${link.workspaceId}`}
-          </Text>
-          <Text style={styles.idText}>{shortId}</Text>
-        </View>
-        {link.agentId && liveStatus ? (
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: statusColor }} />
-            <Text style={styles.statusText}>
-              {statusLabel}
-              {status?.updatedAt ? ` · ${formatIsoTime(status.updatedAt)}` : ""}
-            </Text>
-          </View>
-        ) : null}
-        {extras.navigation?.openWorkspace ? (
-          <Pressable accessibilityRole="button" onPress={() => extras.navigation?.openWorkspace?.({ workspaceId: link.workspaceId })}>
-            <Text style={styles.actionText}>打开工作区</Text>
-          </Pressable>
-        ) : null}
-        {link.agentId && extras.navigation?.openAgent ? (
-          <Pressable accessibilityRole="button" onPress={() => extras.navigation?.openAgent?.({ agentId: link.agentId })}>
-            <Text style={styles.actionText}>打开 Agent</Text>
-          </Pressable>
-        ) : null}
-        {extras.onTransferLink && toolLinkSchema.safeParse(link).data?.responsibility ? <Pressable accessibilityRole="button" accessibilityLabel="转交任务" onPress={() => extras.onTransferLink?.(link, data)}><Text style={styles.actionText}>转交</Text></Pressable> : null}
-        {extras.onRemoveLink ? (
-          <Pressable accessibilityRole="button" onPress={() => extras.onRemoveLink?.(link)}>
-            <Text style={styles.dangerText}>{toolLinkSchema.safeParse(link).data?.responsibility ? "退出" : "解除"}</Text>
-          </Pressable>
-        ) : null}
-      </View>
-      {link.agentId && hasTurn ? (
-        <View style={{ paddingLeft: 10 }}>
-          {hasTurn && turnLabel ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="查看上次结果"
-              onPress={() => onResultOpenChange(!resultOpen)}
-              style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingTop: 2 }}
-            >
-              <Icon name={resultOpen ? "ChevronDown" : "ChevronRight"} size={11} color={turnColor} />
-              <Text style={{ color: turnColor, fontSize: 11, flexShrink: 1 }} numberOfLines={resultOpen ? undefined : 1}>
-                {turnLabel}
-                {turnedAt ? ` ${turnedAt}` : ""}
-                {!resultOpen && turnText ? ` · ${turnText}` : ""}
-              </Text>
-            </Pressable>
-          ) : null}
-          {hasTurn && resultOpen && turnText ? (
-            <View style={styles.resultBox}>
-              <Text style={styles.tipText} selectable>
-                {turnText}
-              </Text>
-            </View>
-          ) : null}
-        </View>
-      ) : null}
-    </View>
   );
 }

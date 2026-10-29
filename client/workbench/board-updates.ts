@@ -1,5 +1,5 @@
 import type {EntityKind} from "../../shared/contracts";
-// An empty target invalidates this plugin client's visible boards/details after a server revision changes.
+// Notify visible workbench views after a user action.
 type Target={kind?:EntityKind;id?:string;workspaceId?:string;apiEndpoint?:string;siteUrl?:string};
 const listeners=new Set<(target:Target)=>void>();
 export function invalidateBoard(target:Target){for(const listener of listeners)listener(target);}

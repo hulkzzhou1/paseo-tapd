@@ -139,3 +139,53 @@ test('reading identity and category require scalar numeric metadata before accep
  f.state.category=0;
  assert.equal((await f.rpc('tapd.story-fields',target)).workitemTypeId,null);
 });
+
+test('selected readonly rich document is read exactly with the actual category and preserves HTML and whitespace',async t=>{
+ const f=await fixture(t);f.state.fields.custom_field_document.readonly=1;
+ f.state.data.custom_field_document='  <h2>Example design</h2><p>Full document</p>\n';
+ const result=await f.rpc('tapd.story-document',{...target,fieldKey:'custom_field_document'});
+ assert.equal(result.state,'value');assert.equal(result.value,'  <h2>Example design</h2><p>Full document</p>\n');
+ assert.equal(result.field.label,'Example document');assert.equal(result.field.readonly,true);assert.equal(result.workitemTypeId,'22222222');
+ const valueReads=f.state.requests.filter(url=>url.pathname==='/stories'&&url.searchParams.get('fields')?.includes('custom_field_'));
+ assert.equal(valueReads.length,1);assert.equal(valueReads[0].searchParams.get('fields'),'id,workspace_id,workitem_type_id,custom_field_document');
+ assert.equal(f.state.posts,0);
+});
+
+test('selected rich field distinguishes empty, null, absent and malformed values without granting edit rights',async t=>{
+ const f=await fixture(t);
+ for(const [value,state]of [['','empty'],['  \n','empty'],[null,'unknown'],[{text:'unknown structure'},'unrecognized'],[false,'unrecognized']]){
+  f.state.data.custom_field_document=value;assert.equal((await f.rpc('tapd.story-document',{...target,fieldKey:'custom_field_document'})).state,state);
+ }
+ delete f.state.data.custom_field_document;assert.equal((await f.rpc('tapd.story-document',{...target,fieldKey:'custom_field_document'})).state,'not_returned');
+ await assert.rejects(f.rpc('tapd.story-document',{...target,fieldKey:'custom_field_one'}));
+ await assert.rejects(f.rpc('tapd.story-document',{...target,fieldKey:'custom_field_absent'}));
+ f.state.data.custom_field_document='x'.repeat(50_001);await assert.rejects(f.rpc('tapd.story-document',{...target,fieldKey:'custom_field_document'}));
+ f.state.data.custom_field_document=f.values.token;await assert.rejects(f.rpc('tapd.story-document',{...target,fieldKey:'custom_field_document'}),error=>!error.message.includes(f.values.token));
+ assert.equal(f.state.posts,0);
+});
+
+test('explicit document refresh does not join or reuse a prior held HTTP response',async t=>{
+ const f=await fixture(t),fetch=globalThis.fetch;
+ let started,release;const reached=new Promise(resolve=>started=resolve),held=new Promise(resolve=>release=resolve);let first=true;
+ t.mock.method(globalThis,'fetch',async(source,init)=>{
+  const response=await fetch(source,init),url=new URL(source);
+  if(first&&url.pathname==='/stories'&&url.searchParams.get('fields')?.includes('custom_field_document')){first=false;started();await held;}
+  return response;
+ });
+ f.state.data.custom_field_document='Older document';const old=f.rpc('tapd.story-document',{...target,fieldKey:'custom_field_document'});await reached;
+ f.state.data.custom_field_document='Current document';assert.equal((await f.rpc('tapd.story-document',{...target,fieldKey:'custom_field_document'})).value,'Current document');
+ release();assert.equal((await old).value,'Older document');assert.equal(f.state.posts,0);
+});
+
+test('rich document reads reject category changes and malformed target identities before returning a body',async t=>{
+ const f=await fixture(t),fetch=globalThis.fetch;
+ for(const key of ['id','workspace_id']){
+  f.state.data[key]=[key==='id'?target.id:target.workspaceId];await assert.rejects(f.rpc('tapd.story-document',{...target,fieldKey:'custom_field_document'}));delete f.state.data[key];
+ }
+ t.mock.method(globalThis,'fetch',async(source,init)=>{
+  const response=await fetch(source,init);
+  if(new URL(source).pathname==='/stories/get_fields_info')f.state.category='33333333';
+  return response;
+ });
+ await assert.rejects(f.rpc('tapd.story-document',{...target,fieldKey:'custom_field_document'}));assert.equal(f.state.posts,0);
+});

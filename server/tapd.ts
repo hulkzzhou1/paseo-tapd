@@ -1,4 +1,4 @@
-import type { StoryReadingField, StoryFieldsResult } from "../shared/story-fields";
+import type { StoryReadingField, StoryFieldsResult, StoryDocumentResult } from "../shared/story-fields";
 // TAPD OpenAPI 客户端核心逻辑。
 // 本文件刻意保持零导入（无 zod、无 SDK），既用于插件后端，也可被 node 直接加载做集成测试。
 
@@ -1374,30 +1374,31 @@ function storyReadingValue(field: StoryReadingField, row: Record<string, unknown
   return { ...field, state: "value", value, display, warning };
 }
 
-/** A separate readonly surface; editing retains the stricter existing text-field contract. */
-export async function fetchStoryReadingFields(config: TapdConfig, input: { workspaceId: string; id: string }): Promise<StoryFieldsResult> {
-  validateFieldProject(config, "story", input.workspaceId);
-  if (!/^\d{1,100}$/.test(input.id)) throw new TapdApiError("需求目标无效。");
-  const numericIdentity = (value: unknown): value is string | number => typeof value === "string"
+const storyNumericIdentity = (value: unknown): value is string | number => typeof value === "string"
     ? /^\d{1,100}$/.test(value) : typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-  const read = async (fields: string) => {
+
+async function readStoryFieldsRow(config: TapdConfig, input: {workspaceId:string;id:string}, fields: string): Promise<Record<string, unknown>> {
     const rows = await requestJson(config, "/stories", { workspace_id: input.workspaceId, id: input.id, limit: 1, fields }, 0, true);
     if (!Array.isArray(rows) || rows.length !== 1) throw new TapdApiError("需求字段目标不可核实。");
     const row = unwrapRow(rows[0], ["Story"]);
-    if (!row || !numericIdentity(row.id) || !numericIdentity(row.workspace_id)
+    if (!row || !storyNumericIdentity(row.id) || !storyNumericIdentity(row.workspace_id)
       || String(row.id) !== input.id || String(row.workspace_id) !== input.workspaceId
       || (row.entity_type !== undefined && row.entity_type !== "story")) throw new TapdApiError("需求字段目标不匹配。");
     return row as Record<string, unknown>;
-  };
-  const identity = await read("id,workspace_id,workitem_type_id");
+}
+
+async function discoverStoryReadingFields(config: TapdConfig, input: {workspaceId:string;id:string}) {
+  validateFieldProject(config, "story", input.workspaceId);
+  if (!/^\d{1,100}$/.test(input.id)) throw new TapdApiError("需求目标无效。");
+  const identity = await readStoryFieldsRow(config, input, "id,workspace_id,workitem_type_id");
   if (identity.workitem_type_id === undefined || identity.workitem_type_id === null) throw new TapdApiError("需求类别未返回，无法核实字段定义。");
-  if (identity.workitem_type_id !== "" && !numericIdentity(identity.workitem_type_id)) throw new TapdApiError("需求类别无法识别。");
+  if (identity.workitem_type_id !== "" && !storyNumericIdentity(identity.workitem_type_id)) throw new TapdApiError("需求类别无法识别。");
   const category = String(identity.workitem_type_id);
   const workitemTypeId = category && category !== "0" ? category : null;
   const metadata = await requestJson(config, FIELDS_INFO_PATH.story, { workspace_id: input.workspaceId, workitem_type_id: workitemTypeId ?? undefined }, 0, true);
   if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw new TapdApiError("需求字段定义读取失败，请重试。");
   protectFieldData(config, metadata);
-  let fields: StoryReadingField[] = Object.entries(metadata).filter(([key]) => /^custom_field_[a-zA-Z0-9_]+$/.test(key)).map(([key, raw]) => {
+  const fields: StoryReadingField[] = Object.entries(metadata).filter(([key]) => /^custom_field_[a-zA-Z0-9_]+$/.test(key)).map(([key, raw]) => {
     if (key.length > 100) throw new TapdApiError("需求字段定义超出读取限制。");
     const info = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
     const htmlType = typeof info.html_type === "string" ? info.html_type.slice(0, 100) : "";
@@ -1410,12 +1411,19 @@ export async function fetchStoryReadingFields(config: TapdConfig, input: { works
       warning: kind === "unknown" ? "字段类型无法识别。" : null };
   });
   if (fields.length > 200) throw new TapdApiError("需求自定义字段超出读取数量限制。");
+  return { category, workitemTypeId, fields };
+}
+
+/** A separate readonly surface; editing retains the stricter existing text-field contract. */
+export async function fetchStoryReadingFields(config: TapdConfig, input: { workspaceId: string; id: string }): Promise<StoryFieldsResult> {
+  const { category, workitemTypeId, fields: definitions } = await discoverStoryReadingFields(config, input);
+  let fields = definitions;
   let readError: string | null = null;
   const shortKeys = fields.filter(field => field.kind !== "richtext" && field.kind !== "unknown").map(field => field.key);
   if (shortKeys.length) {
     try {
-      const row = await read(["id", "workspace_id", "workitem_type_id", ...shortKeys].join(","));
-      if ((row.workitem_type_id !== "" && !numericIdentity(row.workitem_type_id)) || String(row.workitem_type_id) !== category) throw new TapdApiError("需求类别已变化，请重试。");
+      const row = await readStoryFieldsRow(config, input, ["id", "workspace_id", "workitem_type_id", ...shortKeys].join(","));
+      if ((row.workitem_type_id !== "" && !storyNumericIdentity(row.workitem_type_id)) || String(row.workitem_type_id) !== category) throw new TapdApiError("需求类别已变化，请重试。");
       protectFieldData(config, row);
       fields = fields.map(field => storyReadingValue(field, row));
     } catch {
@@ -1426,6 +1434,24 @@ export async function fetchStoryReadingFields(config: TapdConfig, input: { works
   const result = { workspaceId: input.workspaceId, id: input.id, workitemTypeId, fields, readError };
   protectFieldData(config, result);
   if (Buffer.byteLength(JSON.stringify(result)) > 512_000) throw new TapdApiError("需求字段结果超出读取大小限制。");
+  return result;
+}
+
+/** Selected documents have their own category-checked read boundary, without changing Agent editing permissions. */
+export async function fetchStoryDocument(config: TapdConfig, input: {workspaceId:string;id:string;fieldKey:string}): Promise<StoryDocumentResult> {
+  if (!/^custom_field_[a-zA-Z0-9_]+$/.test(input.fieldKey) || input.fieldKey.length > 100) throw new TapdApiError("文档字段无效。");
+  const { category, workitemTypeId, fields } = await discoverStoryReadingFields(config, input);
+  const field = fields.find(field => field.key === input.fieldKey);
+  if (!field || field.kind !== "richtext") throw new TapdApiError("当前需求类别未返回此富文本字段。");
+  const row = await readStoryFieldsRow(config, input, `id,workspace_id,workitem_type_id,${input.fieldKey}`);
+  if ((row.workitem_type_id !== "" && !storyNumericIdentity(row.workitem_type_id)) || String(row.workitem_type_id) !== category) throw new TapdApiError("需求类别已变化，请重试。");
+  protectFieldData(config, row);
+  const raw = row[input.fieldKey];
+  const state = !Object.hasOwn(row, input.fieldKey) ? "not_returned" : raw === null ? "unknown"
+    : typeof raw !== "string" ? "unrecognized" : raw.trim() ? "value" : "empty";
+  if (typeof raw === "string" && raw.length > 50_000) throw new TapdApiError("文档超出读取长度限制。");
+  const result: StoryDocumentResult = {workspaceId:input.workspaceId,id:input.id,workitemTypeId,field,state,value:typeof raw === "string" ? raw : null};
+  protectFieldData(config, result);
   return result;
 }
 

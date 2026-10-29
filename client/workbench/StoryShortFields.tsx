@@ -15,8 +15,8 @@ export function useStoryFields(target:{workspaceId:string;id:string},refreshToke
   });
 }
 
-export function StoryShortFields({target,theme,refreshToken=0}:{target:{workspaceId:string;id:string};theme:WorkbenchTheme;refreshToken?:number}){
-  const query=useStoryFields(target,refreshToken),[expanded,setExpanded]=useState(false),[showEmpty,setShowEmpty]=useState(false),colors=theme.colors;
+export function StoryShortFields({query,theme}:{query:ReturnType<typeof useStoryFields>;theme:WorkbenchTheme}){
+  const [expanded,setExpanded]=useState(false),[showEmpty,setShowEmpty]=useState(false),colors=theme.colors;
   const fields=query.data?.fields.filter(field=>field.kind!=='richtext')??[];
   const filled=fields.filter(field=>field.state==='value'),empty=fields.filter(field=>field.state==='empty'),uncertain=fields.filter(field=>!['value','empty'].includes(field.state));
   const visible=expanded?fields.filter(field=>field.state!=='empty'||showEmpty):filled.slice(0,6);

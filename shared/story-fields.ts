@@ -16,3 +16,12 @@ export const storyFieldsRpc = defineRpc({
 });
 export type StoryReadingField = z.infer<typeof storyReadingFieldSchema>;
 export type StoryFieldsResult = z.infer<typeof storyFieldsRpc.output>;
+
+
+export const storyDocumentRpc = defineRpc({
+  name:'tapd.story-document',
+  input:z.object({workspaceId:z.string().regex(/^\d{1,100}$/),id:z.string().regex(/^\d{1,100}$/),fieldKey:z.string().regex(/^custom_field_[a-zA-Z0-9_]+$/).max(100)}),
+  output:z.object({workspaceId:z.string(),id:z.string(),workitemTypeId:z.string().nullable(),field:storyReadingFieldSchema,
+    state:z.enum(['value','empty','unknown','not_returned','unrecognized']),value:z.string().max(50_000).nullable()}),
+});
+export type StoryDocumentResult = z.infer<typeof storyDocumentRpc.output>;

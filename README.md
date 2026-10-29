@@ -12,7 +12,7 @@ A Paseo plugin for reading and working with TAPD requirements, tasks and defects
 - **Dispatch to Agent**: approve a repository, model, branch and editable prompt to create a worktree and start a new Agent. This does not bind an owner or maintain a plugin task state. After dispatch the workbench can open the Agent conversation.
 - Searchable TAPD attachments for prompts and a public-registry update check.
 
-Conversation cards, session task boards, recent-viewing lists, binding, take-task, delegation, transfer and local task classification have been removed. Existing plugin result cards are hidden without editing conversation history. Old `agent-links.json` and `conversations.json` files remain untouched and are no longer read or written. Workflow progress is read from and written to TAPD itself; an Agent turn ending does not change it.
+Conversation cards, session task boards, recent-viewing lists, binding, take-task, delegation, transfer and local task classification have been removed. No legacy card renderer or transformer is registered. Old host history is left as-is and may display the host's unavailable-item placeholder. Old `agent-links.json` and `conversations.json` files remain untouched and are no longer read or written. Workflow progress is read from and written to TAPD itself; an Agent turn ending does not change it.
 
 ## Setup
 
@@ -67,6 +67,6 @@ npm run lint
 npm test
 ```
 
-Use `npm run sdk:main -- /path/to/paseo` only when deliberately using a compatible main checkout. UI/real-daemon acceptance requires `PASEO_RUNTIME_DIR` (compatible built runtime) and `PASEO_APP_DIR` (its app directory): `npm run test:basic`, `npm run test:workflow`, `npm run test:ui`, `npm run test:settings`, plus the story-field/document checks in `tests/`. Tests use synthetic HTTP/providers and disposable daemon homes. They never restart the installed daemon, write production TAPD data or capture screenshots.
+Use `npm run sdk:main -- /path/to/paseo` only when deliberately using a compatible main checkout. UI/real-daemon acceptance requires `PASEO_RUNTIME_DIR` (compatible built runtime) and `PASEO_APP_DIR` (its app directory): `npm run test:basic` (including the actual client registration/cleanup boundary), `npm run test:workflow`, `npm run test:ui`, `npm run test:settings`, plus the story-field/document checks in `tests/`. Tests use synthetic HTTP/providers and disposable daemon homes. They never restart the installed daemon, write production TAPD data or capture screenshots.
 
 See [OVERVIEW.md](OVERVIEW.md) for permissions, network destinations and limits. Repository screenshots are author-provided assets; they may show historical UI removed by this simplification.

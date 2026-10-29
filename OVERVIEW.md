@@ -4,7 +4,7 @@
 
 The plugin provides a TAPD workbench, complete item details, prompt attachments, direct Agent tools and explicitly approved dispatch to a new Agent. It requires the public SDK available in compatible Paseo 0.14.0-beta.1+ builds. Client UI and daemon handlers communicate through schema-validated RPCs.
 
-There are no conversation result cards, composer TAPD shortcuts, session task panels, recent-viewing lists, local responsibility/claim/delegation/transfer records, task history or task classification. The only timeline contribution hides this plugin's two retired result-card kinds; other plugin items and normal messages remain unchanged. No timeline items are appended or rewritten. No Agent lifecycle events are observed and no startup reconciliation runs.
+There are no conversation result cards, composer TAPD shortcuts, session task panels, recent-viewing lists, local responsibility/claim/delegation/transfer records, task history or task classification. No timeline renderer or transformer is registered, including for old cards. Host history is left as-is; legacy rows may show the host's unavailable-item placeholder. No timeline items are appended or rewritten. No Agent lifecycle events are observed and no startup reconciliation runs.
 
 Workflow status belongs to TAPD. Workbench completion filtering reads each project's `/workflows/last_steps`; unavailable workflow metadata falls back to standard terminal keys/explicit completion labels, which may not recognize custom terminal labels. Agent completion never changes TAPD status or posts comments automatically. The legacy automatic-feedback setting is ignored.
 
@@ -54,6 +54,6 @@ There is no telemetry, remote-code execution/eval, shell built from external dat
 
 ## Validation and limits
 
-Tests use real registered tools/RPCs with synthetic HTTP, and actual components calling a real isolated daemon for workflow, properties, documents and iteration updates. Retirement coverage verifies registration removal, no lifecycle/host calls on reads, byte-preserved old stores, no new timeline cards, scoped old-card hiding, full details and manual refresh. Dispatch coverage checks approved success, rejected inputs, partial resources and prompt uncertainty; no production provider execution is part of acceptance.
+Tests use real registered tools/RPCs with synthetic HTTP, and actual components calling a real isolated daemon for workflow, properties, documents and iteration updates. Retirement coverage verifies registration removal, no lifecycle/host calls on reads, byte-preserved old stores, no new timeline cards, actual main client registration/cleanup and no timeline contributions, full details and manual refresh. Dispatch coverage checks approved success, rejected inputs, partial resources and prompt uncertainty; no production provider execution is part of acceptance.
 
 Readonly current values can change after a read. Pre-write comparisons are not remote atomic locks. Workbench columns cap at 300 items; child lists and queries disclose their own bounds. Production TAPD write permissions and deployment-specific iteration/label-clear compatibility remain unverified. Native-device and human visual review are separate from browser tests. The existing author-provided screenshots are historical and unchanged; agents must not capture or generate replacement media.

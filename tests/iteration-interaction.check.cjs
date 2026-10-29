@@ -1,4 +1,4 @@
-// Actual workbench, retired timeline transformation and full detail -> real isolated daemon RPC. No screenshots.
+// Actual workbench, client entry and full detail -> real isolated daemon RPC. No screenshots.
 const assert=require('node:assert/strict'),{createRequire}=require('node:module');
 const {mkdtempSync,writeFileSync,readFileSync,existsSync,rmSync}=require('node:fs');
 const {tmpdir}=require('node:os'),path=require('node:path'),{pathToFileURL}=require('node:url'),{spawn}=require('node:child_process'),http=require('node:http');
@@ -25,11 +25,11 @@ async function main(){
   const entry=`import React,{useState} from 'react';import {createRoot} from 'react-dom/client';import {View,Text,Pressable} from 'react-native';import {QueryClient,QueryClientProvider} from '@tanstack/react-query';import contributeClient from ${JSON.stringify(path.join(root,'index.client.tsx'))};import {DEFAULT_FILTERS} from ${JSON.stringify(path.join(root,'shared/contracts.ts'))};
     window.fixture=${JSON.stringify(fixture)};window.settings=${JSON.stringify(settings)};window.calls=[];window.panelsOpened=[];window.cards=[];window.settings.values.views=[{id:'all',name:'All',filters:{...DEFAULT_FILTERS,ownerMode:'all'}}];window.settings.values.defaultViewId='all';
     window.rpc=async(contract,input)=>{window.calls.push({name:contract.name,input});const response=await fetch('/rpc',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:contract.name,input})});const result=await response.json();if(!response.ok)throw Error('Operation unavailable');return result;};
-    const screens=new Map(),transforms=[];
+    const screens=new Map();
     const forbidden=()=>{throw Error('Retired conversation integration must not be registered');};
-    const client={addScreen:s=>screens.set(s.id,s),addSettingsScreen:()=>{},addSidebarHeaderItem:()=>{},addCommandCenterItem:()=>{},addAttachmentSource:()=>{},addTimelineTransformer:t=>transforms.push(t),addTimelineRenderer:forbidden,addAgentPanel:forbidden,addComposerPill:forbidden};
+    const client={addScreen:s=>screens.set(s.id,s),addSettingsScreen:()=>{},addSidebarHeaderItem:()=>{},addCommandCenterItem:()=>{},addAttachmentSource:()=>{},addTimelineTransformer:forbidden,addTimelineRenderer:forbidden,addAgentPanel:forbidden,addComposerPill:forbidden};
     const colors={surface0:'#fff',surface1:'#f8fafc',surface2:'#e2e8f0',border:'#cbd5e1',foreground:'#0f172a',foregroundMuted:'#475569',accent:'#2563eb',accentForeground:'#fff',statusSuccess:'#15803d',statusWarning:'#b45309',statusDanger:'#b91c1c'};
-    contributeClient(client);window.transforms=transforms;
+    window.clientCleanup=contributeClient(client);
     function App(){const Board=screens.get('tapd-board').Component;return <View style={{height:'100vh'}}><Board theme={{colors}} navigation={{}} layout={{compact:false}} /></View>;}
     createRoot(document.getElementById('root')).render(<QueryClientProvider client={new QueryClient({defaultOptions:{queries:{retry:false}}})}><App/></QueryClientProvider>);
   `;
@@ -37,10 +37,7 @@ async function main(){
   server=http.createServer(async(req,res)=>{if(req.url==='/cards'){const response=await bridge('/cards');res.writeHead(response.status,{'content-type':'application/json'}).end(await response.text());return;}if(req.url==='/rpc'){let raw='';for await(const chunk of req)raw+=chunk;const response=await bridge('/rpc',JSON.parse(raw));res.writeHead(response.status,{'content-type':'application/json'}).end(await response.text());return;}res.writeHead(200,{'content-type':req.url==='/app.js'?'text/javascript':'text/html'}).end(req.url==='/app.js'?script:'<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div><script src="/app.js"></script>');});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   browser=await fromApp('@playwright/test').chromium.launch({headless:true,args:['--no-sandbox']});const page=await browser.newPage({viewport:{width:1200,height:1000}}),errors=[],remote=[];page.setDefaultTimeout(8000);page.on('pageerror',error=>errors.push(error.message));page.on('request',request=>{if(!request.url().startsWith('http://127.0.0.1:'))remote.push(request.url());});
   await page.goto(`http://127.0.0.1:${server.address().port}`);
-  assert.deepEqual(await page.evaluate(()=>{
-    const t=window.transforms[0],old={type:'plugin',pluginId:'tapd-workbench',kind:'tapd-entity-result',version:1,data:{}};
-    return {count:window.transforms.length,query:t.query,hidden:t.transform({item:old,phase:'complete'}),batch:t.transform({item:{...old,kind:'tapd-batch-result'},phase:'complete'}),other:t.transform({item:{...old,pluginId:'other-plugin'},phase:'complete'})===undefined,unknown:t.transform({item:{...old,kind:'future-kind'},phase:'complete'})===undefined};
-  }),{count:1,query:{itemType:'plugin'},hidden:{items:[]},batch:{items:[]},other:true,unknown:true});
+  assert.equal(await page.evaluate(()=>typeof window.clientCleanup),'function');
   await page.getByText('Previous iteration',{exact:true}).first().waitFor();
   await page.getByText('Direct task',{exact:true}).click();
   const detail=page.getByRole('dialog',{name:'#11111111 · 单据详情',exact:true});
@@ -76,7 +73,7 @@ async function main(){
   const state=await(await bridge('/state')).json();assert.equal(state.iterationPosts.length,2);assert.equal(state.prompts,0);
   const retired=await bridge('/rpc',{name:'tapd.task-board',input:{agentId:fixture.agentId}});assert.equal(retired.status,400);
   assert.deepEqual(errors,[]);assert.deepEqual(remote,[]);await bridge('/stop');assert.equal(await new Promise(resolve=>worker.once('exit',resolve)),0);completed=true;
-  console.log(JSON.stringify({ok:true,realToolAndRpc:true,noConversationContributions:true,legacyCardsHidden:true,fullDetail:true,manualRefresh:true,readonlyDocument:true,acceptedUnverifiedRecovery:true,noWriteReplay:true,providerPrompts:0,screenshots:0}));
+  console.log(JSON.stringify({ok:true,realToolAndRpc:true,noConversationContributions:true,noTimelineRegistrations:true,fullDetail:true,manualRefresh:true,readonlyDocument:true,acceptedUnverifiedRecovery:true,noWriteReplay:true,providerPrompts:0,screenshots:0}));
  }finally{await browser?.close();if(server)await new Promise(resolve=>server.close(resolve));if(worker&&!completed){if(bridgePort)await fetch(`http://127.0.0.1:${bridgePort}/stop`,{method:'POST'}).catch(()=>{});worker.kill('SIGTERM');}rmSync(temp,{recursive:true,force:true});}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

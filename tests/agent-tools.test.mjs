@@ -296,7 +296,10 @@ test("single entity tool appends a bounded actual-project card without copying c
   assert.equal(rows[0].data.operation, "read");
   assert.equal(JSON.stringify(rows).includes("完整正文"), false);
   assert.equal(JSON.stringify(rows).includes(initial.token), false);
-  assert.equal(requests.filter(({ url }) => url.pathname === "/stories" && url.searchParams.has("id") && !url.searchParams.has("fields")).length, 2, "full detail lookup is not repeated for presentation");
+  const detailReads = requests.filter(({ url }) => url.pathname === "/stories" && url.searchParams.get("id") === "11111111" && url.searchParams.get("fields")?.split(",").includes("description"));
+  assert.equal(detailReads.length, 2, "full detail lookup is not repeated for presentation");
+  assert.deepEqual(detailReads.map(({ url }) => url.searchParams.get("workspace_id")).sort(), ["12345678", "87654321"]);
+  for (const { url } of detailReads) assert.equal(url.searchParams.get("fields"), "id,workspace_id,entity_type,name,status,owner,creator,priority_label,iteration_id,created,modified,description,parent_id,workitem_type_id,step,flows,label", "detail requests standard fields only; card creation adds no custom-field reads");
 });
 
 test("single entity keeps read success when presentation fails, and a failed read never appends success", async (t) => {

@@ -34,6 +34,7 @@ async function main() {
   writeFileSync(path.join(temp, 'host.tsx'), `
     import React from 'react';import {Text,ScrollView,TextInput,View} from 'react-native';
     export {ScrollView,TextInput};export const defineRpc=x=>x;export const defineSettings=x=>x;export const defineAttachmentSource=x=>x;
+    export const useSettings=()=>({status:'ready',revision:1,values:{}});
     export const openExternalUrl=async()=>{};export const copyText=async()=>{};export const usePaseo=()=>({});
     export const Icon=()=>null;export const useToast=()=>({show:(text)=>{window.toast=text;},error:(text)=>{window.toast=text;}});
     export function Modal({open,children}){return open?<View>{children}</View>:null;}Modal.Content=({children})=><View>{children}</View>;

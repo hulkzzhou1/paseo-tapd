@@ -15,14 +15,14 @@ export async function runNavigationDaemon(root, workflowMode = false, iterationM
  const {createPaseoDaemon,BUILTIN_PROVIDER_IDS}=await load('@getpaseo/server'),{createHostClient}=await load('@getpaseo/client/node');
  const {Client}=await load('@modelcontextprotocol/sdk/client/index.js'),{StreamableHTTPClientTransport}=await load('@modelcontextprotocol/sdk/client/streamableHttp.js');
  const logger=req('pino')({level:'silent'}),home=join(root,'home');await mkdir(home);await mkdir(join(root,'static'));
- process.env.PASEO_HOME=home;let prompts=0,writes=0,fixtureError;const reads=[];
- let workflowStatus="in_progress",workflowScenario="verified";const workflowPosts=[],iterationPosts=[];
+ process.env.PASEO_HOME=home;let prompts=0,writes=0,fixtureError;const reads=[],readDetails=[];
+ let workflowStatus="in_progress",workflowScenario="verified";const workflowPosts=[],iterationPosts=[];let failIterationReadback=false,iterationReadbackBlocked=false;
  const rows=new Map([
   ['11111111',{id:'11111111',workspace_id:'12345678',name:'Direct task',status:'open',owner:'example-member',label:'example-label',workitem_type_id:'44444444',description:'<h2>Full direct detail</h2><p>Complete body from TAPD</p>'}],
   ['22222222',{id:'22222222',workspace_id:'12345678',name:'Accepted task',status:'open',owner:'example-member',label:'example-label',workitem_type_id:'44444444',description:'<h2>Full accepted detail</h2><p>Accepted delegated body</p>'}],
   ['33333333',{id:'33333333',workspace_id:'12345678',name:'Child task',status:'open',owner:'example-child',label:'child-label',story_id:'11111111',description:'<h2>Full child detail</h2><p>Child body from TAPD</p>'}],
  ]);
- if(iterationMode)for(const row of rows.values())row.iteration_id='66666666';
+ if(iterationMode)for(const row of rows.values()){row.iteration_id='66666666';row.custom_field_example='Mixed short value';row.custom_field_design='<h2>Mixed design document</h2><p>Design remains readable after planning</p>';}
  const tapd=createServer(async(request,response)=>{try{
   if(request.method!=='GET'){
    if(!workflowMode&&!iterationMode)throw Error('No business writes allowed');
@@ -31,7 +31,7 @@ export async function runNavigationDaemon(root, workflowMode = false, iterationM
     assert.equal(request.url,'/stories');assert.deepEqual([...body.keys()].sort(),['id','iteration_id','workspace_id']);
     assert.equal(body.get('workspace_id'),'12345678');assert.equal(body.get('id'),'11111111');
     assert(['66666666','77777777'].includes(body.get('iteration_id')));iterationPosts.push(Object.fromEntries(body));
-    rows.get('11111111').iteration_id=body.get('iteration_id');
+    rows.get('11111111').iteration_id=body.get('iteration_id');iterationReadbackBlocked=failIterationReadback;
     response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({status:1,data:{}}));return;
    }
    workflowPosts.push({path:request.url,fields:Object.fromEntries(body)});
@@ -41,7 +41,8 @@ export async function runNavigationDaemon(root, workflowMode = false, iterationM
    assert.equal(body.get('status'),'status_5');workflowStatus='status_5';
    response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({status:1,data:{Bug:{id:'55555555'}}}));return;
   }
-  const url=new URL(request.url,'http://127.0.0.1');reads.push(url.pathname);let data=[];
+  const url=new URL(request.url,'http://127.0.0.1');reads.push(url.pathname);readDetails.push({path:url.pathname,query:Object.fromEntries(url.searchParams)});let data=[];
+  if(iterationReadbackBlocked&&url.pathname==='/stories'&&url.searchParams.get('id')==='11111111'){response.writeHead(503).end();return;}
   if(iterationMode&&url.pathname==='/iterations')data=['66666666','77777777'].filter(id=>!url.searchParams.get('id')||url.searchParams.get('id')===id).map(id=>({Iteration:{id,workspace_id:'12345678',name:id==='66666666'?'Previous iteration':'Selected iteration'}}));
   else if(workflowMode&&url.pathname==='/bugs/get_fields_info')data={status:{options:{in_progress:'处理中',status_5:'已解决',closed:'已关闭'}},current_owner:{html_type:'user_chooser',label:'处理人'}};
   else if(workflowMode&&url.pathname==='/workflows/all_transitions')data=[{Name:'in_progress-status_5',StepPrevious:'in_progress',StepNext:'status_5',Appendfield:workflowScenario==='unknown'?[]:[{DBModel:'Bug',FieldName:'remarks',Notnull:'yes'},{DBModel:'Bug',FieldName:'current_owner',Notnull:'no'},{DBModel:'Bug',FieldName:'enable_add_timesheet',Notnull:'no'},{DBModel:'Bug',FieldName:'transition_description',Notnull:'no'}]},{Name:'status_5-closed',StepPrevious:'status_5',StepNext:'closed',Appendfield:[]}];
@@ -49,11 +50,12 @@ export async function runNavigationDaemon(root, workflowMode = false, iterationM
    if(workflowStatus==='status_5'&&workflowScenario==='unverified'){response.writeHead(503).end();return;}
    data=[{Bug:{id:'55555555',workspace_id:'12345678',title:'Workflow defect',status:workflowStatus,description:'Complete defect body'}}];
   }
+  else if(iterationMode&&url.pathname==='/stories/get_fields_info')data={status:{options:{open:'Open',done:'Done'}},custom_field_example:{label:'Example attribute',html_type:'text',readonly:1},custom_field_design:{label:'Example design',html_type:'rich_edit',readonly:1}};
   else if(url.pathname.endsWith('/get_fields_info'))data={status:{options:{open:'Open',done:'Done'}}};
   else if(url.pathname==='/workflows/last_steps')data={done:'Done'};
   else if(['/stories','/tasks','/bugs'].includes(url.pathname)){
    const kind={'/stories':'Story','/tasks':'Task','/bugs':'Bug'}[url.pathname],id=url.searchParams.get('id');
-   if(id){const row=rows.get(id);data=row?[{[kind]:row}]:[];}
+   if(id){const row=rows.get(id),selected=iterationMode?url.searchParams.get('fields')?.split(','):null;data=row?[{[kind]:selected?Object.fromEntries(Object.entries(row).filter(([key])=>selected.includes(key))):row}]:[];}
    else if(iterationMode&&url.pathname==='/stories')data=[{Story:rows.get('11111111')}];
    else if(url.pathname==='/tasks'&&url.searchParams.get('story_id')==='11111111')data=[{Task:rows.get('33333333')}];
   }
@@ -81,7 +83,8 @@ export async function runNavigationDaemon(root, workflowMode = false, iterationM
   bridge=createServer(async(request,response)=>{try{
    let raw='';for await(const chunk of request)raw+=chunk;const input=raw?JSON.parse(raw):{};let result;
    if(request.url==='/rpc')result=await rpc(input.name,input.input);
-   else if(request.url==='/state')result={agentId:agent.id,workspaceId:agent.workspaceId,apiEndpoint:api,reads:reads.length,writes,prompts,workflowPosts,iterationPosts};
+   else if(request.url==='/state')result={agentId:agent.id,workspaceId:agent.workspaceId,apiEndpoint:api,reads:reads.length,readDetails,writes,prompts,workflowPosts,iterationPosts};
+   else if(request.url==='/iteration-scenario'&&iterationMode){failIterationReadback=input.failReadback===true;if(!failIterationReadback)iterationReadbackBlocked=false;result={ok:true};}
    else if(request.url==='/iteration-tool'&&iterationMode){await useCaller(agent.id);result=await tool('tapd_update_iteration',input);}
    else if(request.url==='/cards'&&iterationMode)result=(await client.fetchAgentTimeline(agent.id)).entries.map(entry=>entry.item).filter(item=>item.type==='plugin'&&item.kind==='tapd-entity-result');
    else if(request.url==='/scenario'&&workflowMode){workflowScenario=input.scenario;workflowStatus='in_progress';await client.reloadPlugin('tapd-workbench');result={ok:true};}

@@ -392,7 +392,8 @@ function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition
           offsets.current[activeTab]=event.nativeEvent.contentOffset.y;
           readingPosition.current={openingId:readingPosition.current.openingId,key:readingKey,offset:offsets.current.details??0,tab:activeTab,offsets:offsets.current,documentRevisions};
         }}>
-      {activeTab!=='details'?<StoryDocument key={activeTab} openingId={readingPosition.current.openingId} target={{workspaceId:data.workspaceId,id:data.id}} fieldKey={activeTab} revision={documentRevisions[activeTab]??0} refreshToken={extras.refreshToken} baseUrl={data.url} theme={theme} onRefresh={refreshDocument}/>:<View style={{gap:18}}>
+      {activeTab!=='details'?<StoryDocument key={activeTab} openingId={readingPosition.current.openingId} target={{workspaceId:data.workspaceId,id:data.id}} fieldKey={activeTab} revision={documentRevisions[activeTab]??0} refreshToken={extras.refreshToken} baseUrl={data.url} theme={theme} onRefresh={refreshDocument}/>:null}
+      <View style={{gap:18,display:activeTab==='details'?'flex':'none'}}>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, padding: 16, backgroundColor: theme.colors.surface1, borderRadius: 10 }}>
       {metaRow("处理人", data.owner)}
       {metaRow("创建人", data.creator)}
@@ -462,7 +463,7 @@ function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition
           </View>
         ))
       )}
-    </View>}
+    </View>
       </ScrollView>
     </View>
   );

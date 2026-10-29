@@ -8,7 +8,7 @@ Version 0.4.45 adds readonly custom requirement attributes and on-demand rich-te
 
 ## Features
 
-- Requirement custom fields: six nonempty short attributes by default, expandable remaining/empty values, plus independent rich-text tabs loaded on selection. The same sidebar/dialog keeps title, status, actions and linked Agent visible above horizontally scrollable tabs, retaining each page’s reading position during one opening; reopening starts in detailed information and reads documents afresh. Comments stay in detailed information. Field editing continues through Agent tools.
+- Requirement custom fields: six nonempty short attributes by default, expandable remaining/empty values, plus independent rich-text tabs loaded on selection. The same sidebar/dialog keeps title, status, actions and linked Agent visible above horizontally scrollable tabs, retaining each page’s reading position during one opening and expanded detailed-information sections across content tabs; reopening starts in detailed information and reads documents afresh. Comments stay in detailed information. Field editing continues through Agent tools.
 - Iteration tools: inspect an item’s exact iteration and its project’s paginated candidates; explicitly approve a single-item set/change, with old-value checks and fresh verification. No iteration clearing or creation.
 
 - Schema-validated Agent tools for TAPD reads and user-approved item writes, using the Paseo mainline SDK

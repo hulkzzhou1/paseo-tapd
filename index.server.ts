@@ -1,5 +1,5 @@
 import { createOwnershipLifecycle } from "./server/ownership-lifecycle";
-import { itemIterationRpc, iterationsRpc } from "./shared/iteration-tools";
+import { itemIterationRpc, iterationsRpc, updateIterationRpc } from "./shared/iteration-tools";
 
 import { childrenRpc, childTypesRpc } from "./shared/contracts";
 import { createOwnershipMigration } from "./server/ownership-migration";
@@ -56,6 +56,7 @@ export default function contribute(server: PluginServerContext) {
   }));
   const handlers = createHandlers(getValues, {}, agentLinks);
   server.handle(itemIterationRpc, handlers.itemIteration);
+  server.handle(updateIterationRpc, handlers.updateIteration);
   server.handle(iterationsRpc, handlers.iterations);
   server.handle(childrenRpc, async (input, context) => { await ownership.reconcile(context).catch(() => {}); return handlers.children(input); });
   server.handle(childTypesRpc, handlers.childTypes);

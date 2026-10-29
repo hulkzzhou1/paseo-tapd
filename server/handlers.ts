@@ -45,8 +45,8 @@ import {
   type TapdConfig,
 } from "./tapd";
 import { checkForUpdate } from "./update-check";
-import { itemIterationRpc, iterationsRpc } from "../shared/iteration-tools";
-import { readItemIteration, fetchItemIterations } from "./iterations";
+import { itemIterationRpc, iterationsRpc, updateIterationRpc } from "../shared/iteration-tools";
+import { readItemIteration, fetchItemIterations, updateItemIteration } from "./iterations";
 
 type GetValues = () => Promise<TapdSettingsValues>;
 
@@ -85,6 +85,11 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
   }
 
   return {
+    async updateIteration(raw: RpcInput<typeof updateIterationRpc>): Promise<RpcOutput<typeof updateIterationRpc>> {
+      const input = updateIterationRpc.input.parse(raw);
+      const { config } = await requireConfig();
+      return updateItemIteration(config, input);
+    },
     async iterations(raw: RpcInput<typeof iterationsRpc>): Promise<RpcOutput<typeof iterationsRpc>> {
       const input = iterationsRpc.input.parse(raw);
       const { config } = await requireConfig();

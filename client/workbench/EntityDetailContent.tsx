@@ -11,6 +11,7 @@ import { agentStatusRpc, entityRpc, type EntityKind, type TapdLink } from "../..
 import { Chip, agentStatusColor, formatTime, formatIsoTime, type WorkbenchTheme } from "./bits";
 import { priorityTone, statusTone, toneColor } from "./status-tones";
 import { StatusDropdown, type StatusChangeTarget } from "./EntityWriteBack";
+import { subscribeBoardUpdates } from "../conversation/board-updates";
 
 export interface DetailTarget {
   kind: EntityKind;
@@ -80,11 +81,19 @@ function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarge
 
   const detail = useQuery({
     queryKey: ["tapd-entity", kind, id, target?.workspaceId, target?.siteUrl, target?.apiEndpoint, extras.refreshToken],
-    queryFn: () => rpc({ kind, id, workspaceId: target?.workspaceId, siteUrl: target?.siteUrl, apiEndpoint: target?.apiEndpoint }),
+    queryFn: () => rpc({ kind, id, workspaceId: target?.workspaceId, siteUrl: target?.siteUrl, apiEndpoint: target?.apiEndpoint, fresh: true }),
     enabled: open && id.length > 0,
     staleTime: target?.siteUrl ? 0 : 60_000,
     retry: 1,
   });
+
+  const refetchDetail = detail.refetch;
+  useEffect(() => subscribeBoardUpdates(changed => {
+    if (open && (!changed.kind || changed.kind === kind) && (!changed.id || changed.id === id)
+      && (!changed.workspaceId || !target?.workspaceId || changed.workspaceId === target.workspaceId)
+      && (!changed.apiEndpoint || !target?.apiEndpoint || changed.apiEndpoint === target.apiEndpoint)
+      && (!changed.siteUrl || !target?.siteUrl || changed.siteUrl === target.siteUrl)) void refetchDetail();
+  }), [open, kind, id, target?.workspaceId, target?.apiEndpoint, target?.siteUrl, refetchDetail]);
 
   const agentIds = useMemo(() => {
     if (!open || id === "") return [];

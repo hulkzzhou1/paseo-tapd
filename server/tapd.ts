@@ -269,6 +269,12 @@ function invalidatedRead(): TapdApiError {
   return new TapdApiError("TAPD 读取期间配置或数据已变更，请刷新重试。", undefined, { code: "invalidated", phase: "read", writeState: "not_sent" });
 }
 
+/** Keep multi-request preflights on one settings/data generation before a business write. */
+export function createReadInvalidationGuard() {
+  const generation = cacheGeneration;
+  return () => { if (generation !== cacheGeneration) throw invalidatedRead(); };
+}
+
 export async function boardWithCache<T extends Record<string, unknown>>(
   key: string,
   fetcher: () => Promise<T>,
@@ -1045,7 +1051,7 @@ function escapeHtmlText(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-async function requestPost(
+export async function requestPost(
   config: TapdConfig,
   path: string,
   params: Record<string, QueryValue>,

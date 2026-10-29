@@ -28,3 +28,18 @@ export const iterationsRpc = defineRpc({
     failure: z.object({ code: z.string().max(100), phase: z.enum(["validation", "read", "write"]), writeState: z.enum(["not_sent", "rejected", "unknown"]), httpStatus: z.number().int().optional() }).nullable(),
   }),
 });
+
+export const updateIterationRpc = defineRpc({
+  name: "tapd.update_iteration",
+  input: iterationTargetSchema.extend({
+    iterationId: id.refine(value => !/^0+$/.test(value)),
+    expectedValue: z.union([z.string().max(100).regex(/^\d*$/), z.number().int().nonnegative().safe()]),
+    confirmed: z.literal(true),
+  }),
+  output: z.object({
+    ok: z.boolean(), outcome: z.enum(["unchanged", "verified", "unverified"]), writeState: z.enum(["not_sent", "accepted"]),
+    iterationId: id, entity: iterationTargetSchema.extend({ title: z.string().max(500).default(""), status: z.string().max(200).default(""),
+      statusLabel: z.string().max(200).default(""), owner: z.string().max(200).default("") }),
+    warning: z.string().max(300).optional(),
+  }),
+});

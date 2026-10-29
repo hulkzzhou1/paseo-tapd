@@ -10,7 +10,8 @@ import { EntitySummary } from "./EntitySummary";
 const kindLabels = { story: "需求", task: "任务", bug: "缺陷" };
 export function EntityResultCard({ item, theme, agentId, openPanel }: PluginTimelineItemProps<z.infer<typeof entityResultSchema>> & { openPanel?: OpenConversationEntity }) {
   const { entity, warnings, operation } = item.data;
-  const caption = { read: "查询时的摘要", create: "单据已创建 · 创建时的摘要", comment: "评论已发表 · 操作时的摘要", status: "状态已修改 · 操作时的摘要", field: "字段值已回读核实 · 操作时的摘要" }[operation];
+  const unverified = operation === "iteration" && item.data.verification !== "verified";
+  const caption = unverified ? "迭代修改已接受 · 当前值未核实" : { read: "查询时的摘要", create: "单据已创建 · 创建时的摘要", comment: "评论已发表 · 操作时的摘要", status: "状态已修改 · 操作时的摘要", field: "字段值已回读核实 · 操作时的摘要", iteration: "迭代已回读核实 · 操作时的摘要" }[operation];
   const { target, setTarget, open } = useEntityNavigation(agentId, openPanel);
   const button = useRef<View>(null);
   const [focused, setFocused] = useState(false);
@@ -21,7 +22,7 @@ export function EntityResultCard({ item, theme, agentId, openPanel }: PluginTime
       style={({ pressed }) => ({ paddingHorizontal: 10, paddingVertical: 6, gap: 4, backgroundColor: pressed ? colors.surface2 : colors.surface1, borderWidth: 1, borderColor: focused ? colors.accent : colors.border, borderRadius: 8 })}>
       <EntitySummary entity={entity} theme={theme} />
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderTopWidth: 1, borderColor: colors.border, paddingTop: 4, gap: 8 }}>
-        <Text style={{ color: operation === "read" ? colors.foregroundMuted : colors.statusSuccess, fontSize: 12, fontWeight: "600", flexShrink: 1 }}>{caption}</Text>
+        <Text style={{ color: unverified ? colors.statusWarning : operation === "read" ? colors.foregroundMuted : colors.statusSuccess, fontSize: 12, fontWeight: "600", flexShrink: 1 }}>{caption}</Text>
         <Text style={{ color: colors.accent, fontSize: 12, fontWeight: "600" }}>查看详情 →</Text>
       </View>
     </Pressable>

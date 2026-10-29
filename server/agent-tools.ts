@@ -14,6 +14,7 @@ import { createOwnershipLifecycle } from "./ownership-lifecycle";
 import { createHandlers } from "./handlers";
 import { labelsRpc, itemLabelsRpc, createLabelRpc, updateLabelsRpc } from "../shared/labels";
 import { safeFailure, resolveConfig, type TapdConfig } from "./tapd";
+import { itemIterationRpc, iterationsRpc } from "../shared/iteration-tools";
 
 type Handlers = ReturnType<typeof createHandlers>;
 const id = z.string().trim().min(1).max(100).regex(/^\d+$/);
@@ -128,6 +129,8 @@ export function createTapdTools(getValues: () => Promise<TapdSettingsValues>, co
   }
 
   return [
+    tool("tapd_iterations", "Read one fresh page (200 maximum) of iteration candidates for an actual verified story/task/bug's configured project. Inspect failure/completeness: only a short error-free first page is complete; a full page requires nextPage. Returned candidates carry verified workspaceId; identical names never establish identity. This read never grants write approval and does not use aggregate filter candidates.", iterationsRpc.input, (input, handlers) => handlers.iterations(input)),
+    tool("tapd_item_iteration", "Read one story/task/bug's raw iteration fresh in its actual configured project. returned=false means not returned; state=unknown is not empty. Only state=unset confirms no iteration. Preserve the exact value for a later authorized update. This read never grants write approval.", itemIterationRpc.input, (input, handlers) => handlers.itemIteration(input)),
     tool("tapd_children", "Read real direct child stories/tasks and related bugs of an actual project requirement, with unique responsible Agents and per-kind partial/truncated/unknown totals. Reading never claims children or completes the parent. No full bodies/comments are fetched.", childrenRpc.input, (input, handlers) => handlers.children(input)),
     tool("tapd_child_types", "Read enabled child requirement categories permitted by BOTH the actual parent category and child parent constraints. Missing/incomplete metadata is a failure, not unrestricted permission. Use a returned ID as workitemTypeId with parentStoryId in tapd_create.", childTypesRpc.input, (input, handlers) => handlers.childTypes(input)),
     tool("tapd_update_labels", "WRITE: add/remove exact item label names only after approval of the actual project, item and selected changes. First read tapd_item_labels and pass its exact non-null raw value as expectedValue. Preserves unrelated names; existing additions/absent removals are no-ops. TAPD may create unknown project labels on attachment. Fresh pre-write checks are not atomic CAS; inspect outcome/writeState and read to reconcile unknown or accepted-unverified writes, never automatically retry. Final-label clearing is unsupported until deployment semantics are verified.", updateLabelsRpc.input, (input, handlers) => handlers.updateLabels(input)),

@@ -9,23 +9,31 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import {settingsRpc} from '@getpaseo/plugin';
 import {ownershipProvider} from './ownership-provider.mjs';
 const pluginDir=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
-export async function runNavigationDaemon(root, workflowMode = false){
+export async function runNavigationDaemon(root, workflowMode = false, iterationMode = false){
  assert.equal(await readFile(join(homedir(),'tapd-test-home-marker'),'utf8'),'isolated');
  const req=createRequire(join(process.env.PASEO_RUNTIME_DIR,'packages/cli/package.json')),load=name=>import(pathToFileURL(req.resolve(name)).href);
  const {createPaseoDaemon,BUILTIN_PROVIDER_IDS}=await load('@getpaseo/server'),{createHostClient}=await load('@getpaseo/client/node');
  const {Client}=await load('@modelcontextprotocol/sdk/client/index.js'),{StreamableHTTPClientTransport}=await load('@modelcontextprotocol/sdk/client/streamableHttp.js');
  const logger=req('pino')({level:'silent'}),home=join(root,'home');await mkdir(home);await mkdir(join(root,'static'));
  process.env.PASEO_HOME=home;let prompts=0,writes=0,fixtureError;const reads=[];
- let workflowStatus="in_progress",workflowScenario="verified";const workflowPosts=[];
+ let workflowStatus="in_progress",workflowScenario="verified";const workflowPosts=[],iterationPosts=[];
  const rows=new Map([
   ['11111111',{id:'11111111',workspace_id:'12345678',name:'Direct task',status:'open',owner:'example-member',label:'example-label',workitem_type_id:'44444444',description:'<h2>Full direct detail</h2><p>Complete body from TAPD</p>'}],
   ['22222222',{id:'22222222',workspace_id:'12345678',name:'Accepted task',status:'open',owner:'example-member',label:'example-label',workitem_type_id:'44444444',description:'<h2>Full accepted detail</h2><p>Accepted delegated body</p>'}],
   ['33333333',{id:'33333333',workspace_id:'12345678',name:'Child task',status:'open',owner:'example-child',label:'child-label',story_id:'11111111',description:'<h2>Full child detail</h2><p>Child body from TAPD</p>'}],
  ]);
+ if(iterationMode)for(const row of rows.values())row.iteration_id='66666666';
  const tapd=createServer(async(request,response)=>{try{
   if(request.method!=='GET'){
-   if(!workflowMode)throw Error('No business writes allowed');
+   if(!workflowMode&&!iterationMode)throw Error('No business writes allowed');
    let raw='';for await(const chunk of request)raw+=chunk;const body=new URLSearchParams(raw);
+   if(iterationMode){
+    assert.equal(request.url,'/stories');assert.deepEqual([...body.keys()].sort(),['id','iteration_id','workspace_id']);
+    assert.equal(body.get('workspace_id'),'12345678');assert.equal(body.get('id'),'11111111');
+    assert(['66666666','77777777'].includes(body.get('iteration_id')));iterationPosts.push(Object.fromEntries(body));
+    rows.get('11111111').iteration_id=body.get('iteration_id');
+    response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({status:1,data:{}}));return;
+   }
    workflowPosts.push({path:request.url,fields:Object.fromEntries(body)});
    assert.equal(request.url,'/bugs');assert.equal(body.get('workspace_id'),'12345678');assert.equal(body.get('id'),'55555555');
    if(workflowScenario==='unknown'){workflowStatus='status_5';request.socket.destroy();return;}
@@ -34,7 +42,8 @@ export async function runNavigationDaemon(root, workflowMode = false){
    response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({status:1,data:{Bug:{id:'55555555'}}}));return;
   }
   const url=new URL(request.url,'http://127.0.0.1');reads.push(url.pathname);let data=[];
-  if(workflowMode&&url.pathname==='/bugs/get_fields_info')data={status:{options:{in_progress:'处理中',status_5:'已解决',closed:'已关闭'}},current_owner:{html_type:'user_chooser',label:'处理人'}};
+  if(iterationMode&&url.pathname==='/iterations')data=['66666666','77777777'].filter(id=>!url.searchParams.get('id')||url.searchParams.get('id')===id).map(id=>({Iteration:{id,workspace_id:'12345678',name:id==='66666666'?'Previous iteration':'Selected iteration'}}));
+  else if(workflowMode&&url.pathname==='/bugs/get_fields_info')data={status:{options:{in_progress:'处理中',status_5:'已解决',closed:'已关闭'}},current_owner:{html_type:'user_chooser',label:'处理人'}};
   else if(workflowMode&&url.pathname==='/workflows/all_transitions')data=[{Name:'in_progress-status_5',StepPrevious:'in_progress',StepNext:'status_5',Appendfield:workflowScenario==='unknown'?[]:[{DBModel:'Bug',FieldName:'remarks',Notnull:'yes'},{DBModel:'Bug',FieldName:'current_owner',Notnull:'no'},{DBModel:'Bug',FieldName:'enable_add_timesheet',Notnull:'no'},{DBModel:'Bug',FieldName:'transition_description',Notnull:'no'}]},{Name:'status_5-closed',StepPrevious:'status_5',StepNext:'closed',Appendfield:[]}];
   else if(workflowMode&&url.pathname==='/bugs'){
    if(workflowStatus==='status_5'&&workflowScenario==='unverified'){response.writeHead(503).end();return;}
@@ -45,6 +54,7 @@ export async function runNavigationDaemon(root, workflowMode = false){
   else if(['/stories','/tasks','/bugs'].includes(url.pathname)){
    const kind={'/stories':'Story','/tasks':'Task','/bugs':'Bug'}[url.pathname],id=url.searchParams.get('id');
    if(id){const row=rows.get(id);data=row?[{[kind]:row}]:[];}
+   else if(iterationMode&&url.pathname==='/stories')data=[{Story:rows.get('11111111')}];
    else if(url.pathname==='/tasks'&&url.searchParams.get('story_id')==='11111111')data=[{Task:rows.get('33333333')}];
   }
   response.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({status:1,data}));
@@ -71,7 +81,9 @@ export async function runNavigationDaemon(root, workflowMode = false){
   bridge=createServer(async(request,response)=>{try{
    let raw='';for await(const chunk of request)raw+=chunk;const input=raw?JSON.parse(raw):{};let result;
    if(request.url==='/rpc')result=await rpc(input.name,input.input);
-   else if(request.url==='/state')result={agentId:agent.id,workspaceId:agent.workspaceId,apiEndpoint:api,reads:reads.length,writes,prompts,workflowPosts};
+   else if(request.url==='/state')result={agentId:agent.id,workspaceId:agent.workspaceId,apiEndpoint:api,reads:reads.length,writes,prompts,workflowPosts,iterationPosts};
+   else if(request.url==='/iteration-tool'&&iterationMode){await useCaller(agent.id);result=await tool('tapd_update_iteration',input);}
+   else if(request.url==='/cards'&&iterationMode)result=(await client.fetchAgentTimeline(agent.id)).entries.map(entry=>entry.item).filter(item=>item.type==='plugin'&&item.kind==='tapd-entity-result');
    else if(request.url==='/scenario'&&workflowMode){workflowScenario=input.scenario;workflowStatus='in_progress';await client.reloadPlugin('tapd-workbench');result={ok:true};}
    else if(request.url==='/stop'){result={ok:true};finish();}
    else throw Error('Unavailable');

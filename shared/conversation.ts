@@ -19,7 +19,8 @@ export const conversationEntitySchema = z.object({
   owner: z.string().max(200).default(""),
 });
 export const entityResultSchema = z.object({
-  operation: z.enum(["read", "create", "comment", "status", "field"]),
+  operation: z.enum(["read", "create", "comment", "status", "field", "iteration"]),
+  verification: z.enum(["verified", "unverified"]).optional(),
   entity: conversationEntitySchema,
   warnings: z.array(z.string().max(300)).max(10).default([]),
 });

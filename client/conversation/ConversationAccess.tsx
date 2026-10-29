@@ -10,7 +10,7 @@ import { taskBoardRpc, type TaskBoard } from "../../shared/task-board";
 import { migrationListRpc, migrationConfirmRpc, type MigrationGroup } from "../../shared/ownership-migration";
 import { MigrationList } from "./MigrationList";
 import {usePanelVisibility} from "./usePanelVisibility";
-import {subscribeBoardUpdates} from "./board-updates";
+import {invalidateBoard,subscribeBoardUpdates} from "./board-updates";
 import { TaskBoardList } from "./TaskBoardList";
 import { ConversationList } from "./ConversationList";
 
@@ -182,7 +182,9 @@ export function contributeConversationAccess(client: PluginClientContext) {
       const [result, saved] = await Promise.all([client.rpc(conversationListRpc, {}), client.rpc(agentLinksRpc, {})]);
       if (!stopped) {
         assignments = saved.links;
-        serverBoardRevision=saved.boardRevision??0;
+        const nextRevision=saved.boardRevision??0;
+        if(nextRevision!==serverBoardRevision)invalidateBoard({});
+        serverBoardRevision=nextRevision;
         pendingAgents = saved.pendingAgents??[];
         summaries = [...result.conversations];
         for (const link of [...assignments,...pendingAgents]) if (link.agentId && link.workspaceId && !summaries.some(item => item.agentId === link.agentId)) summaries.push({ agentId: link.agentId, workspaceId: link.workspaceId, entities: [] });
@@ -193,7 +195,7 @@ export function contributeConversationAccess(client: PluginClientContext) {
     finally { pending = false; if (again && !stopped) { again = false; void refresh(); } }
   }
   const stopUpdates=subscribeBoardUpdates(target=>{
-    for(const link of assignments)if(link.kind===target.kind&&link.id===target.id&&(!target.workspaceId||target.workspaceId===link.tapdWorkspaceId))refreshRequests.set(link.agentId,(refreshRequests.get(link.agentId)??0)+1);
+    for(const link of assignments)if((!target.kind||link.kind===target.kind)&&(!target.id||link.id===target.id)&&(!target.workspaceId||target.workspaceId===link.tapdWorkspaceId))refreshRequests.set(link.agentId,(refreshRequests.get(link.agentId)??0)+1);
     for(const listener of listeners)listener();
   });
   const unsubscribe = client.paseo.agents.subscribe(() => void refresh());

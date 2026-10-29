@@ -1,4 +1,4 @@
-import { StoryShortFields, useStoryFields } from "./StoryShortFields";
+import { StoryShortFields, useStoryFields, type ShortFieldExpansion } from "./StoryShortFields";
 import { StoryDocument } from "./StoryDocument";
 import { toolLinkSchema } from "../../shared/agent-links";
 import { EntityLabels } from "./EntityLabels";
@@ -46,6 +46,7 @@ export interface DetailExtras {
   onOpenEntity?: (target: DetailTarget) => void;
 }
 
+/** Opening-only layout state also survives temporary action-page unmounts. */
 export interface DetailReadingPosition {
   key: string;
   openingId: string;
@@ -53,6 +54,9 @@ export interface DetailReadingPosition {
   tab?: string;
   offsets?: Record<string, number>;
   documentRevisions?: Record<string, number>;
+  shortExpansion?: ShortFieldExpansion;
+  childPages?: Partial<Record<EntityKind,number>>;
+  agentResults?: Record<string,boolean>;
 }
 
 export function EntityDetailContent({ target, theme, extras, hidden = false, readingPosition }: {
@@ -94,6 +98,23 @@ function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition
   const [selectedTab,setSelectedTab]=useState(sameReading?readingPosition.current.tab??'details':'details');
   const [documentRevisions,setDocumentRevisions]=useState<Record<string,number>>(sameReading?readingPosition.current.documentRevisions??{}:{});
   const offsets=useRef<Record<string,number>>(sameReading?readingPosition.current.offsets??{details:readingPosition.current.offset}:{});
+  const [shortExpansion,setShortExpansion]=useState<ShortFieldExpansion>(sameReading?readingPosition.current.shortExpansion??{expanded:false,showEmpty:false}:{expanded:false,showEmpty:false});
+  const [childPages,setChildPages]=useState<Partial<Record<EntityKind,number>>>(sameReading?readingPosition.current.childPages??{}:{});
+  const [agentResults,setAgentResults]=useState<Record<string,boolean>>(sameReading?readingPosition.current.agentResults??{}:{});
+  function changeShortExpansion(next:ShortFieldExpansion){
+    readingPosition.current={...readingPosition.current,key:readingKey,shortExpansion:next};
+    setShortExpansion(next);
+  }
+  function changeChildPage(childKind:EntityKind,page:number){
+    const next={...childPages,[childKind]:page};
+    readingPosition.current={...readingPosition.current,key:readingKey,childPages:next};
+    setChildPages(next);
+  }
+  function changeAgentResult(key:string,open:boolean){
+    const next={...agentResults,[key]:open};
+    readingPosition.current={...readingPosition.current,key:readingKey,agentResults:next};
+    setAgentResults(next);
+  }
   const scroll=useRef<ScrollView>(null),restoring=useRef(true),tabs=useRef(new Map<string,View>());
   const [focusedTab,setFocusedTab]=useState('');
   const activeTab=selectedTab==='details'||richFields.some(field=>field.key===selectedTab)?selectedTab:'details';
@@ -105,12 +126,12 @@ function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition
   useEffect(()=>{restoring.current=true;if(!hidden)restoreScroll();},[restoreScroll,hidden]);
   function selectTab(tab:string){
     restoring.current=true;
-    readingPosition.current={openingId:readingPosition.current.openingId,key:readingKey,offset:offsets.current.details??0,tab,offsets:offsets.current,documentRevisions};
+    readingPosition.current={...readingPosition.current,key:readingKey,offset:offsets.current.details??0,tab,offsets:offsets.current,documentRevisions};
     setSelectedTab(tab);
   }
   function refreshDocument(){
     const next={...documentRevisions,[activeTab]:(documentRevisions[activeTab]??0)+1};
-    readingPosition.current={openingId:readingPosition.current.openingId,key:readingKey,offset:offsets.current.details??0,tab:activeTab,offsets:offsets.current,documentRevisions:next};
+    readingPosition.current={...readingPosition.current,key:readingKey,offset:offsets.current.details??0,tab:activeTab,offsets:offsets.current,documentRevisions:next};
     setDocumentRevisions(next);
   }
 
@@ -390,7 +411,7 @@ function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition
         onContentSizeChange={restoreScroll} onScroll={event=>{
           if(hidden||restoring.current)return;
           offsets.current[activeTab]=event.nativeEvent.contentOffset.y;
-          readingPosition.current={openingId:readingPosition.current.openingId,key:readingKey,offset:offsets.current.details??0,tab:activeTab,offsets:offsets.current,documentRevisions};
+          readingPosition.current={...readingPosition.current,key:readingKey,offset:offsets.current.details??0,tab:activeTab,offsets:offsets.current,documentRevisions};
         }}>
       {activeTab!=='details'?<StoryDocument key={activeTab} openingId={readingPosition.current.openingId} target={{workspaceId:data.workspaceId,id:data.id}} fieldKey={activeTab} revision={documentRevisions[activeTab]??0} refreshToken={extras.refreshToken} baseUrl={data.url} theme={theme} onRefresh={refreshDocument}/>:null}
       <View style={{gap:18,display:activeTab==='details'?'flex':'none'}}>
@@ -407,7 +428,7 @@ function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition
       {metaRow("创建", data.createdAt)}
       {metaRow("更新", data.modifiedAt)}
       </View>
-      {data.kind === "story" ? <StoryShortFields key={`${data.workspaceId}-${data.id}`} query={fields} theme={theme} /> : null}
+      {data.kind === "story" ? <StoryShortFields key={`${data.workspaceId}-${data.id}`} query={fields} theme={theme} expansion={shortExpansion} onExpansionChange={changeShortExpansion} /> : null}
       {data.labels?.length || data.labels == null ? <View style={{ gap: 6 }}><Text style={styles.section}>标签</Text><EntityLabels labels={data.labels} theme={theme} compact={false} /></View> : null}
       {entityLinks.length > 0 ? (
         <>
@@ -420,6 +441,8 @@ function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition
               theme={theme}
               extras={extras}
               status={agentStatusMap.get(link.agentId)}
+              resultOpen={agentResults[`${link.workspaceId}-${link.agentId}`]??false}
+              onResultOpenChange={open=>changeAgentResult(`${link.workspaceId}-${link.agentId}`,open)}
             />
           ))}
         </>
@@ -445,7 +468,7 @@ function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition
         const meta = data.childReads?.[childKind];
         if (!items.length && !meta) return null;
         const hint = meta ? `${items.length} 条已读取 / 共 ${meta.total ?? "未知"} 条${meta.truncated ? " · 已截断" : ""}${meta.error ? ` · ${meta.error}` : ""}` : undefined;
-        return <ChildListSection key={`${data.id}-${childKind}`} label={childKind === "story" ? "子需求" : childKind === "task" ? "需求下任务" : "需求下缺陷"} items={items} totalHint={hint} theme={theme} extras={extras} />;
+        return <ChildListSection key={`${data.id}-${childKind}`} label={childKind === "story" ? "子需求" : childKind === "task" ? "需求下任务" : "需求下缺陷"} items={items} totalHint={hint} theme={theme} extras={extras} page={childPages[childKind]??1} onPageChange={page=>changeChildPage(childKind,page)} />;
       })}
       <Text style={styles.section}>评论（{data.comments.length}）</Text>
       {data.commentsError ? <Text style={styles.error}>评论加载失败：{data.commentsError}</Text> : null}
@@ -485,16 +508,17 @@ function openParentStory(
 }
 
 /** 需求详情：该需求下挂的任务/缺陷列表（10 条一页，可翻页） */
-function ChildListSection({ label, items, totalHint, theme, extras }: {
+function ChildListSection({ label, items, totalHint, theme, extras, page, onPageChange }: {
   label: string;
   items: readonly EntityChildItem[];
   /** 非 undefined 表示列表被上限截断，如「前 200 / 共 235 条」 */
   totalHint?: string;
   theme: WorkbenchTheme;
   extras: DetailExtras;
+  page: number;
+  onPageChange: (page:number)=>void;
 }) {
   const PAGE_SIZE = 10;
-  const [page, setPage] = useState(1);
   const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount);
   const start = (safePage - 1) * PAGE_SIZE;
@@ -555,7 +579,7 @@ function ChildListSection({ label, items, totalHint, theme, extras }: {
             accessibilityLabel="上一页"
             hitSlop={8}
             disabled={safePage <= 1}
-            onPress={() => setPage(safePage - 1)}
+            onPress={() => onPageChange(safePage - 1)}
           >
             <Icon name="ChevronLeft" size={16} color={safePage <= 1 ? theme.colors.border : theme.colors.accent} />
           </Pressable>
@@ -565,7 +589,7 @@ function ChildListSection({ label, items, totalHint, theme, extras }: {
             accessibilityLabel="下一页"
             hitSlop={8}
             disabled={safePage >= pageCount}
-            onPress={() => setPage(safePage + 1)}
+            onPress={() => onPageChange(safePage + 1)}
           >
             <Icon name="ChevronRight" size={16} color={safePage >= pageCount ? theme.colors.border : theme.colors.accent} />
           </Pressable>
@@ -612,14 +636,15 @@ function ChildRow({ item, theme, styles, onOpen }: {
 }
 
 /** 关联 Agent 行：展示 agent 实时状态与最近一次 turn 结果 */
-function AgentLinkRow({ link, data, theme, extras, status }: {
+function AgentLinkRow({ link, data, theme, extras, status, resultOpen, onResultOpenChange }: {
   data: EntityDetailData;
   link: TapdLink;
   theme: WorkbenchTheme;
   extras: DetailExtras;
   status?: AgentStatusItem;
+  resultOpen: boolean;
+  onResultOpenChange: (open:boolean)=>void;
 }) {
-  const [resultOpen, setResultOpen] = useState(false);
   const title = useMemo(() => {
     const base = link.agentTitle || link.workspaceTitle || "";
     return base.length > 40 ? `${base.slice(0, 40)}…` : base;
@@ -737,7 +762,7 @@ function AgentLinkRow({ link, data, theme, extras, status }: {
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="查看上次结果"
-              onPress={() => setResultOpen((value) => !value)}
+              onPress={() => onResultOpenChange(!resultOpen)}
               style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingTop: 2 }}
             >
               <Icon name={resultOpen ? "ChevronDown" : "ChevronRight"} size={11} color={turnColor} />

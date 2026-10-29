@@ -8,7 +8,7 @@ Version 0.4.45 adds readonly custom requirement attributes and on-demand rich-te
 
 ## Features
 
-- Requirement custom fields: six nonempty short attributes by default, expandable remaining/empty values, plus independent rich-text tabs loaded on selection. The same sidebar/dialog keeps title, status, actions and linked Agent visible above horizontally scrollable tabs, retaining each page’s reading position during one opening and expanded detailed-information sections across content tabs; reopening starts in detailed information and reads documents afresh. Comments stay in detailed information. Field editing continues through Agent tools.
+- Requirement custom fields: six nonempty short attributes by default, expandable remaining/empty values, plus independent rich-text tabs loaded on selection. The same sidebar/dialog keeps title, status, actions and linked Agent visible above horizontally scrollable tabs, retaining each page’s reading position and detailed-information layout through content tabs and action-page returns during one opening; reopening starts in detailed information and reads documents afresh. Comments stay in detailed information. Field editing continues through Agent tools.
 - Iteration tools: inspect an item’s exact iteration and its project’s paginated candidates; explicitly approve a single-item set/change, with old-value checks and fresh verification. No iteration clearing or creation.
 
 - Schema-validated Agent tools for TAPD reads and user-approved item writes, using the Paseo mainline SDK
@@ -101,7 +101,7 @@ MIT
 - 状态范围按各项目的工作流结束状态判断，支持自定义完成状态；高级条件中的状态条件与所选范围取交集。
 - 视图 = 可复用的过滤预设：内置「我相关的」（负责人、创建人、开发、参与、关注或评论过，以及关联任务涉及我），另支持关键词、负责人、创建人、状态范围、迭代、最近更新时间、优先级、缺陷严重程度、标签，以及工作区 TAPD 字段定义中的任意字段
 - 单据详情浮窗：描述、评论、在 TAPD 中打开、复制链接；需求详情额外展示真实子需求、任务列表与相关缺陷列表（分页展示，超过 200 条时显示「前 200 / 共 N 条」截断提示，点击可切换到对应单据详情）；任务/缺陷详情显示所属需求入口；关联的 Agent 以名称显示并实时展示状态与最近工作结果
-- 需求详情顶部固定标题、状态、操作和关联 Agent；自定义富文本按定义顺序各有页签，选中才读取，可局部刷新和失败重试。本次打开保留各页阅读位置，关闭重开回到详细信息并重新读取文档。
+- 需求详情顶部固定标题、状态、操作和关联 Agent；自定义富文本按定义顺序各有页签，选中才读取，可局部刷新和失败重试。本次打开保留各页阅读位置；属性展开、空字段显示、子列表分页和 Agent 结果展开在操作页返回后继续保留，关闭或换单时清理。关闭重开回到详细信息并重新读取文档。
 - 需求详情按实际项目及需求类别展示短自定义属性，默认前六个非空值，可展开其余属性及确认空字段；零和 false 保留，未知、未返回、无法识别及失败分别提示并可重试。初始不预取自定义富文本，页面只读，现有 Agent 字段写入权限不变。
 - 任务/缺陷卡片把 `#id` 独立展示在标题下一行，并显示「需求：所属需求」标识；详情浮窗中子单据列表行标题悬停时在行内展开全文
 - 派给 Agent：选择仓库与 provider/model；插件创建 worktree 工作区并启动一个预置了单据快照的 Agent，之后可从卡片追踪

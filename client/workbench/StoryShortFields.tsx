@@ -1,6 +1,5 @@
 import {useRpc,useSettings} from '@getpaseo/plugin/client';
 import {useQuery} from '@tanstack/react-query';
-import {useState} from 'react';
 import {ActivityIndicator,Pressable,Text,View} from 'react-native';
 import {tapdSettings} from '../../shared/contracts';
 import {storyFieldsRpc,type StoryReadingField} from '../../shared/story-fields';
@@ -15,8 +14,9 @@ export function useStoryFields(target:{workspaceId:string;id:string},refreshToke
   });
 }
 
-export function StoryShortFields({query,theme}:{query:ReturnType<typeof useStoryFields>;theme:WorkbenchTheme}){
-  const [expanded,setExpanded]=useState(false),[showEmpty,setShowEmpty]=useState(false),colors=theme.colors;
+export interface ShortFieldExpansion {expanded:boolean;showEmpty:boolean}
+export function StoryShortFields({query,theme,expansion,onExpansionChange}:{query:ReturnType<typeof useStoryFields>;theme:WorkbenchTheme;expansion:ShortFieldExpansion;onExpansionChange:(next:ShortFieldExpansion)=>void}){
+  const {expanded,showEmpty}=expansion,colors=theme.colors;
   const fields=query.data?.fields.filter(field=>field.kind!=='richtext')??[];
   const filled=fields.filter(field=>field.state==='value'),empty=fields.filter(field=>field.state==='empty'),uncertain=fields.filter(field=>!['value','empty'].includes(field.state));
   const visible=expanded?fields.filter(field=>field.state!=='empty'||showEmpty):filled.slice(0,6);
@@ -38,8 +38,8 @@ export function StoryShortFields({query,theme}:{query:ReturnType<typeof useStory
         {visible.map(field=><FieldRow key={field.key} field={field} theme={theme}/>)}
       </View>
       <View style={{flexDirection:'row',flexWrap:'wrap',gap:8}}>
-        {filled.length>6||empty.length>0||uncertain.length>0?action(expanded?'收起属性':filled.length>6?`更多属性（${filled.length-6}）`:'查看全部属性',()=>setExpanded(value=>!value)):null}
-        {expanded&&empty.length?action(showEmpty?'隐藏空字段':`显示空字段（${empty.length}）`,()=>setShowEmpty(value=>!value)):null}
+        {filled.length>6||empty.length>0||uncertain.length>0?action(expanded?'收起属性':filled.length>6?`更多属性（${filled.length-6}）`:'查看全部属性',()=>onExpansionChange({...expansion,expanded:!expanded})):null}
+        {expanded&&empty.length?action(showEmpty?'隐藏空字段':`显示空字段（${empty.length}）`,()=>onExpansionChange({...expansion,showEmpty:!showEmpty})):null}
         {uncertain.length&&!expanded?<Text style={{fontSize:12,color:colors.foregroundMuted,alignSelf:'center'}}>{uncertain.length} 项状态待确认</Text>:null}
       </View>
     </>:null}

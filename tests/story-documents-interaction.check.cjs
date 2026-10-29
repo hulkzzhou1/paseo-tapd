@@ -14,7 +14,7 @@ async function main(){
   const settings=await(await bridge('/rpc',{name:'settings.tapd-workbench-config.read',input:{}})).json();
   const host=path.join(temp,'host.tsx');writeFileSync(host,`
    import React,{useCallback} from 'react';export {TextInput,ScrollView,FlatList} from 'react-native';
-   export const defineRpc=x=>x,defineSettings=x=>x,defineAttachmentSource=x=>x,Icon=()=>null;
+   export const defineRpc=x=>x,defineSettings=x=>x,defineAttachmentSource=x=>x,Icon=({size=14})=><span aria-hidden style={{display:'inline-block',width:size,height:size}}/>;
    export const SettingsAction=()=>null,SettingsCard=()=>null,SettingsInput=()=>null,SettingsRow=()=>null,SettingsSection=()=>null;
    export const useToast=()=>({error:()=>{},show:()=>{}}),copyText=async()=>{},openExternalUrl=async url=>{window.opened.push(url);};
    export const useSettings=()=>window.settings;
@@ -39,11 +39,17 @@ async function main(){
   const initial=await(await bridge('/state')).json();assert(initial.reads.filter(read=>read.path==='/stories').every(read=>!read.query.fields?.split(',').some(key=>key.endsWith('_document')||key.endsWith('_report'))));
   const reader=page.getByTestId('detail-reading-scroll'),header=page.getByTestId('detail-fixed-header');
   const scrollTo=async y=>{await reader.evaluate((element,value)=>element.scrollTop=value,y);await page.waitForFunction(value=>Math.abs(document.querySelector('[data-testid="detail-reading-scroll"]').scrollTop-value)<3,y).catch(async()=>{throw Error(JSON.stringify(await reader.evaluate(element=>({top:element.scrollTop,height:element.clientHeight,full:element.scrollHeight}))))});await page.waitForTimeout(100);};
-  await scrollTo(400);
+  await page.getByRole('button',{name:'更多属性（1）',exact:true}).click();
+  await page.getByRole('button',{name:'显示空字段（1）',exact:true}).click();
+  await page.getByText('Seventh value',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'下一页',exact:true}).click();
+  await page.getByRole('button',{name:'打开任务 #33333011',exact:true}).waitFor();
+  const detailOffset=await reader.evaluate(element=>element.scrollHeight-element.clientHeight-20);
+  await scrollTo(detailOffset);
   const detailsTab=page.getByRole('tab',{name:'详细信息',exact:true});await detailsTab.focus();await page.keyboard.press('ArrowRight');
   await page.getByRole('heading',{name:'Example design',exact:true}).waitFor();
-  assert.equal(await page.getByText('Base detail remains readable',{exact:true}).count(),0);
-  assert.equal(await page.getByText('评论（0）',{exact:true}).count(),0);
+  assert.equal(await page.getByText('Base detail remains readable',{exact:true}).isVisible(),false);
+  assert.equal(await page.getByText('评论（0）',{exact:true}).isVisible(),false);
   for(const value of ['Readable list','const example = 1;','Column 5','Value 5'])await page.getByText(value,{exact:true}).waitFor();
   assert.equal(await page.getByRole('link',{name:'Unsafe link text',exact:true}).count(),0);assert.equal(await page.evaluate(()=>window.unsafeExecuted),undefined);
   await page.getByText('图片加载失败',{exact:true}).waitFor();
@@ -52,7 +58,19 @@ async function main(){
   await page.waitForTimeout(200);assert((await(await bridge('/state')).json()).reads.filter(read=>read.path==='/files/get_image').length>imageBefore);
   await page.getByRole('link',{name:'查看原图：Example diagram',exact:true}).focus();await page.keyboard.press('Enter');assert.deepEqual(await page.evaluate(()=>window.opened),['https://example.com/tfl/captures/example.png']);
   const headerTop=(await header.boundingBox()).y;await scrollTo(600);assert.equal((await header.boundingBox()).y,headerTop);
-  await detailsTab.click();await page.getByText('Base detail remains readable',{exact:true}).waitFor();await page.waitForFunction(()=>document.querySelector('[data-testid="detail-reading-scroll"]').scrollTop>390);
+  await detailsTab.click();await page.getByText('Base detail remains readable',{exact:true}).waitFor();
+  await page.getByText('Seventh value',{exact:true}).waitFor();
+  await page.getByText('Example empty',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'收起属性',exact:true}).waitFor();
+  await page.waitForFunction(offset=>Math.abs(document.querySelector('[data-testid="detail-reading-scroll"]').scrollTop-offset)<3,detailOffset);
+  await page.getByRole('button',{name:'打开任务 #33333011',exact:true}).waitFor();
+  // Returning from an action page must retain all detail layout state, not merely the numeric offset.
+  await page.getByRole('button',{name:'写回评论',exact:true}).click();
+  await page.getByRole('dialog',{name:'写回评论 · #11111111',exact:true}).getByRole('button',{name:'返回详情',exact:true}).click();
+  await page.getByText('Seventh value',{exact:true}).waitFor();
+  await page.getByText('Example empty',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'打开任务 #33333011',exact:true}).waitFor();
+  await page.waitForFunction(offset=>Math.abs(document.querySelector('[data-testid="detail-reading-scroll"]').scrollTop-offset)<3,detailOffset);
   await page.getByRole('tab',{name:'Example document',exact:true}).click();await page.waitForFunction(()=>document.querySelector('[data-testid="detail-reading-scroll"]').scrollTop>590);
   await page.getByRole('tab',{name:'Example second document',exact:true}).click();await page.getByRole('heading',{name:'Example report',exact:true}).waitFor();await scrollTo(350);
   await page.getByRole('tab',{name:'Example document',exact:true}).click();await page.waitForFunction(()=>document.querySelector('[data-testid="detail-reading-scroll"]').scrollTop>590);
@@ -65,7 +83,7 @@ async function main(){
   await comment.getByRole('button',{name:'返回详情',exact:true}).click();await comment.getByRole('button',{name:'放弃修改',exact:true}).click();
   await page.getByRole('heading',{name:'Example design',exact:true}).waitFor();await page.waitForFunction(()=>document.querySelector('[data-testid="detail-reading-scroll"]').scrollTop>590);
   for(const [name,message]of [['Example empty report','尚未填写'],['Example unknown report','字段值未知（null）'],['Example missing report','此字段未返回，无法确认内容。'],['Example malformed report','字段值格式无法识别。']]){
-   await page.getByRole('tab',{name,exact:true}).click();await page.getByText(message,{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'写回评论',exact:true}).count(),1);
+   await page.getByRole('tab',{name,exact:true}).click();await reader.getByText(message,{exact:true}).filter({visible:true}).waitFor();assert.equal(await page.getByRole('button',{name:'写回评论',exact:true}).count(),1);
   }
   await page.getByRole('tab',{name:'Example document',exact:true}).click();await bridge('/scenario',{failDocument:true});await page.getByRole('button',{name:'刷新当前文档',exact:true}).click();await page.getByText('文档读取失败，请重试；其他页仍可阅读。',{exact:true}).waitFor();
   await detailsTab.click();await page.getByText('Base detail remains readable',{exact:true}).waitFor();
@@ -78,9 +96,13 @@ async function main(){
   for(let count=0;(await(await bridge('/state')).json()).held===0;count++){assert(count<80);await page.waitForTimeout(50);}
   await page.evaluate(()=>window.setExample('22222222'));await page.getByText('Other value',{exact:true}).waitFor();await bridge('/release');assert.deepEqual(await page.getByRole('tab').allTextContents(),['详细信息']);assert.equal(await page.getByText('Old target document',{exact:true}).count(),0);
   await page.evaluate(()=>window.setExample('11111111'));await page.getByText('Readonly short value',{exact:true}).waitFor();assert.equal(await detailsTab.getAttribute('aria-selected'),'true');
+  assert.equal(await page.getByText('Seventh value',{exact:true}).count(),0);
+  await page.getByRole('button',{name:'打开任务 #33333001',exact:true}).waitFor();
   await page.getByRole('tab',{name:'Example document',exact:true}).click();await page.getByRole('heading',{name:'Old target document',exact:true}).waitFor();
   await page.getByRole('button',{name:'关闭#11111111 · 单据详情',exact:true}).last().click();
   await bridge('/scenario',{documentValue:'<h2>After reopen document</h2>'});await page.evaluate(()=>window.setExample('11111111'));await page.getByText('Readonly short value',{exact:true}).waitFor();assert.equal(await detailsTab.getAttribute('aria-selected'),'true');
+  assert.equal(await page.getByText('Seventh value',{exact:true}).count(),0);
+  await page.getByRole('button',{name:'打开任务 #33333001',exact:true}).waitFor();
   await page.getByRole('tab',{name:'Example document',exact:true}).click();await page.getByRole('heading',{name:'After reopen document',exact:true}).waitFor();assert.equal(await page.getByText('Old target document',{exact:true}).count(),0);
   await bridge('/scenario',{documentValue:'<h2>Toolbar refreshed document</h2>'});await page.getByRole('button',{name:'刷新',exact:true}).click();await page.getByRole('heading',{name:'Toolbar refreshed document',exact:true}).waitFor();
   // Both entry points, both themes and widths; tab focus and table overflow stay local.

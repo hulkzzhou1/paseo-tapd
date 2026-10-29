@@ -26,7 +26,9 @@ export async function runStoryFieldsDaemon(root,{documents=false}={}){
  const tapd=createServer((request,response)=>{
   if(request.method!=='GET'){writes++;response.writeHead(403).end();return;}
   const url=new URL(request.url,'http://example.com');reads.push({path:url.pathname,query:Object.fromEntries(url.searchParams)});let data=[];
-  if(url.pathname==='/stories/get_fields_info'){
+  if(documents&&url.pathname==='/tasks'&&url.searchParams.get('story_id')==='11111111'){
+   data=Array.from({length:12},(_,index)=>({Task:{id:String(33333001+index),workspace_id:'12345678',story_id:'11111111',name:'Example child task '+(index+1),status:'open',owner:''}}));
+  }else if(url.pathname==='/stories/get_fields_info'){
    if(failFields){response.writeHead(503).end();return;}
    data=url.searchParams.get('workitem_type_id')==='33333333'?{custom_field_one:{label:'Other category',html_type:'text'}}:fields;
   }else if(url.pathname==='/stories'&&url.searchParams.has('id')){

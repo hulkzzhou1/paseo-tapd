@@ -133,8 +133,9 @@ export function EntityDetailExperience({ target: detail, onTargetChange: setDeta
     onTransition: setTransitionTarget,
     onOpenEntity: (target) => setDetail({ ...detail, ...target }),
   };
+  const readingKey=`${detail?.siteUrl}:${detail?.apiEndpoint}:${detail?.workspaceId}:${detail?.kind}:${detail?.id}`;
   return <>
-      {presentation === "panel" ? <EntityDetailContent target={detail} theme={theme} extras={detailExtras} hidden={createOpen || !!dispatchTarget || !!commentTarget || !!bindTarget || !!transitionTarget} /> : <EntityDetailModal onDismiss={() => { if (!detail) onDismiss?.(); }} hidden={createOpen || !!dispatchTarget || !!commentTarget || !!bindTarget || !!transitionTarget} target={detail} onClose={() => setDetail(null)} theme={theme} extras={detailExtras} />}
+      {presentation === "panel" ? <EntityDetailContent key={readingKey} target={detail} theme={theme} extras={detailExtras} hidden={createOpen || !!dispatchTarget || !!commentTarget || !!bindTarget || !!transitionTarget} /> : <EntityDetailModal onDismiss={() => { if (!detail) onDismiss?.(); }} hidden={createOpen || !!dispatchTarget || !!commentTarget || !!bindTarget || !!transitionTarget} target={detail} onClose={() => setDetail(null)} theme={theme} extras={detailExtras} />}
         <CreateEntityModal
           backToDetail={!!detail}
           open={createOpen}

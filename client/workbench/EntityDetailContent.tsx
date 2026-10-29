@@ -1,4 +1,5 @@
-import { StoryShortFields } from "./StoryShortFields";
+import { StoryShortFields, useStoryFields } from "./StoryShortFields";
+import { StoryDocument } from "./StoryDocument";
 import { toolLinkSchema } from "../../shared/agent-links";
 import { EntityLabels } from "./EntityLabels";
 import { RichText } from "./RichText";
@@ -6,8 +7,8 @@ import type { RpcOutput } from "@getpaseo/plugin";
 import { openExternalUrl, usePaseo, useRpc, type PluginScreenProps } from "@getpaseo/plugin/client";
 import { Icon, copyText, useToast } from "@getpaseo/plugin/client/react-native";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { ActivityIndicator, Pressable, ScrollView, Text, View, useWindowDimensions, type TextStyle, type ViewStyle } from "react-native";
+import { useCallback, useEffect, useMemo, useRef, useState, useId, type RefObject } from "react";
+import { ActivityIndicator, Pressable, Platform, ScrollView, Text, View, useWindowDimensions, type TextStyle, type ViewStyle } from "react-native";
 import { agentStatusRpc, entityRpc, type EntityKind, type TapdLink } from "../../shared/contracts";
 import { Chip, agentStatusColor, formatTime, formatIsoTime, type WorkbenchTheme } from "./bits";
 import { priorityTone, statusTone, toneColor } from "./status-tones";
@@ -44,33 +45,32 @@ export interface DetailExtras {
   onOpenEntity?: (target: DetailTarget) => void;
 }
 
+export interface DetailReadingPosition {
+  key: string;
+  openingId: string;
+  offset: number;
+  tab?: string;
+  offsets?: Record<string, number>;
+  documentRevisions?: Record<string, number>;
+}
+
 export function EntityDetailContent({ target, theme, extras, hidden = false, readingPosition }: {
   target: DetailTarget | null;
   theme: WorkbenchTheme;
   extras: DetailExtras;
   hidden?: boolean;
-  readingPosition?: RefObject<{ key: string; offset: number }>;
+  readingPosition?: RefObject<DetailReadingPosition>;
 }) {
-  const localPosition = useRef({ key: "", offset: 0 });
-  const position = readingPosition ?? localPosition;
-  const scroll = useRef<ScrollView>(null);
-  const restoring = useRef(true);
-  const [panelWidth, setPanelWidth] = useState<number>();
-  useEffect(() => {
-    const key = `${target?.siteUrl}:${target?.apiEndpoint}:${target?.workspaceId}:${target?.kind}:${target?.id}`;
-    if (position.current.key !== key) position.current = { key, offset: 0 };
-  }, [target?.siteUrl, target?.apiEndpoint, target?.workspaceId, target?.kind, target?.id, position]);
-  useEffect(() => { restoring.current = true; }, [hidden]);
-  return <View onLayout={event => setPanelWidth(event.nativeEvent.layout.width)} style={{ flexShrink: 1, minHeight: 0, backgroundColor: theme.colors.surface0, display: hidden ? "none" : "flex" }}>
-    <ScrollView ref={scroll} style={{ flexShrink: 1 }} contentContainerStyle={{ padding: 24 }}
-      scrollEventThrottle={16} onScroll={event => { if (!restoring.current) position.current.offset = event.nativeEvent.contentOffset.y; }}
-      onContentSizeChange={() => { scroll.current?.scrollTo({ y: position.current.offset, animated: false }); restoring.current = false; }}>
-      <DetailBody target={target} theme={theme} extras={extras} panelWidth={panelWidth} />
-    </ScrollView>
+  const openingId=useId();
+  const localPosition = useRef<DetailReadingPosition>({key:"",offset:0,openingId});
+  const [panelWidth,setPanelWidth]=useState<number>();
+  const key = `${target?.siteUrl}:${target?.apiEndpoint}:${target?.workspaceId}:${target?.kind}:${target?.id}`;
+  return <View onLayout={event=>setPanelWidth(event.nativeEvent.layout.width)} style={{flexGrow:1,flexShrink:1,minHeight:0,backgroundColor:theme.colors.surface0,display:hidden?'none':'flex'}}>
+    {target?<DetailBody key={key} target={target} theme={theme} extras={extras} panelWidth={panelWidth} hidden={hidden} readingPosition={readingPosition??localPosition} readingKey={key}/>:null}
   </View>;
 }
 
-function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarget | null; theme: WorkbenchTheme; extras: DetailExtras; panelWidth?: number }) {
+function DetailBody({ target, theme, extras, panelWidth, hidden, readingPosition, readingKey }: { target: DetailTarget; theme: WorkbenchTheme; extras: DetailExtras; panelWidth?: number; hidden:boolean; readingPosition:RefObject<DetailReadingPosition>; readingKey:string }) {
   const window = useWindowDimensions();
   const width = panelWidth ?? window.width;
   const open = target !== null;
@@ -86,6 +86,32 @@ function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarge
     staleTime: target?.siteUrl ? 0 : 60_000,
     retry: 1,
   });
+
+  const fields = useStoryFields({workspaceId:detail.data?.kind==='story'?detail.data.workspaceId:'',id:kind==='story'?id:''},extras.refreshToken);
+  const richFields = fields.data?.fields.filter(field=>field.kind==='richtext')??[];
+  const sameReading = readingPosition.current.key===readingKey;
+  const [selectedTab,setSelectedTab]=useState(sameReading?readingPosition.current.tab??'details':'details');
+  const [documentRevisions,setDocumentRevisions]=useState<Record<string,number>>(sameReading?readingPosition.current.documentRevisions??{}:{});
+  const offsets=useRef<Record<string,number>>(sameReading?readingPosition.current.offsets??{details:readingPosition.current.offset}:{});
+  const scroll=useRef<ScrollView>(null),restoring=useRef(true),tabs=useRef(new Map<string,View>());
+  const [focusedTab,setFocusedTab]=useState('');
+  const activeTab=selectedTab==='details'||richFields.some(field=>field.key===selectedTab)?selectedTab:'details';
+  const restoreScroll=useCallback(()=>{
+    restoring.current=true;
+    scroll.current?.scrollTo({y:offsets.current[activeTab]??0,animated:false});
+    requestAnimationFrame(()=>{restoring.current=false;});
+  },[activeTab]);
+  useEffect(()=>{restoring.current=true;if(!hidden)restoreScroll();},[restoreScroll,hidden]);
+  function selectTab(tab:string){
+    restoring.current=true;
+    readingPosition.current={openingId:readingPosition.current.openingId,key:readingKey,offset:offsets.current.details??0,tab,offsets:offsets.current,documentRevisions};
+    setSelectedTab(tab);
+  }
+  function refreshDocument(){
+    const next={...documentRevisions,[activeTab]:(documentRevisions[activeTab]??0)+1};
+    readingPosition.current={openingId:readingPosition.current.openingId,key:readingKey,offset:offsets.current.details??0,tab:activeTab,offsets:offsets.current,documentRevisions:next};
+    setDocumentRevisions(next);
+  }
 
   const agentIds = useMemo(() => {
     if (!open || id === "") return [];
@@ -167,7 +193,7 @@ function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarge
       paddingVertical: 7,
     },
     actionLabel: { color: theme.colors.foreground, fontSize: 13 },
-    title: { color: theme.colors.foreground, fontSize: 23, lineHeight: 32, fontWeight: "600" },
+    title: { color: theme.colors.foreground, fontSize: width<500?18:21, lineHeight: width<500?26:30, fontWeight: "600" },
     metaRow: { flexDirection: "row", gap: 8, alignItems: "flex-start", width: width >= 900 ? "48%" : "100%" },
     metaLabel: { color: theme.colors.foregroundMuted, fontSize: 12, width: 64 },
     metaValue: { color: theme.colors.foreground, fontSize: 13, lineHeight: 21, flex: 1 },
@@ -260,8 +286,12 @@ function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarge
   const hasAgent = entityLinks.some(link => link.agentId.trim().length > 0);
 
   return (
-    <View style={{ gap: 18 }}>
-      <Text accessibilityRole="header" style={styles.title}>{data.title}</Text>
+    <View style={{flexGrow:1,flexShrink:1,minHeight:0}}>
+      <View testID="detail-fixed-header" style={{paddingHorizontal:width<500?16:24,paddingTop:16,paddingBottom:12,gap:10,borderBottomWidth:1,borderColor:theme.colors.border}}>
+      <View style={{flexDirection:'row',alignItems:'flex-start',gap:12}}>
+        <Text accessibilityRole="header" accessibilityLabel={data.title} numberOfLines={2} style={[styles.title,{flex:1}]}>{data.title}</Text>
+        <Chip label={data.statusLabel} theme={theme} tone={tone==='neutral'?'muted':'plain'} color={toneColor(tone,theme)}/>
+      </View>
       <View style={styles.actions}>
         {!hasAgent && <>
           <Pressable accessibilityRole="button" style={styles.action} onPress={() => extras.onDispatch?.(data)}>
@@ -322,24 +352,39 @@ function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarge
             </Pressable>
           </>
         ) : null}
-        <Pressable accessibilityRole="button" style={styles.action} onPress={() => void detail.refetch()}>
+        <Pressable accessibilityRole="button" style={styles.action} onPress={() => { void detail.refetch(); if(activeTab!=="details")refreshDocument();else if(kind==="story")void fields.refetch(); }}>
           <Icon name="RefreshCw" size={14} color={theme.colors.foreground} />
           <Text style={styles.actionLabel}>刷新</Text>
         </Pressable>
         {removeAction}
       </View>
-      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, padding: 16, backgroundColor: theme.colors.surface1, borderRadius: 10 }}>
-      <View style={styles.metaRow}>
-        <Text style={styles.metaLabel}>状态</Text>
-        <View style={{ flex: 1, alignItems: "flex-start" }}>
-          <Chip
-            label={data.statusLabel}
-            theme={theme}
-            tone={tone === "neutral" ? "muted" : "plain"}
-            color={toneColor(tone, theme)}
-          />
-        </View>
+      {entityLinks.length?<View style={{flexDirection:'row',alignItems:'center',gap:8}}>
+        <Text style={{fontSize:12,color:theme.colors.foregroundMuted}}>关联 Agent</Text>
+        <Text numberOfLines={1} style={{flex:1,fontSize:12,color:theme.colors.foreground}}>{entityLinks.map(link=>link.agentTitle||link.workspaceTitle||link.agentId).join('、')}</Text>
+      </View>:null}
       </View>
+      {kind==='story'?<ScrollView horizontal showsHorizontalScrollIndicator style={{flexGrow:0,flexShrink:0,borderBottomWidth:1,borderColor:theme.colors.border}} contentContainerStyle={{paddingHorizontal:width<500?12:20}}>
+        <View accessibilityRole="tablist" accessibilityLabel="需求内容" style={{flexDirection:'row'}}>
+          {[{key:'details',label:'详细信息'},...richFields].map((tab,index,list)=><Pressable key={tab.key} ref={element=>{if(element)tabs.current.set(tab.key,element);else tabs.current.delete(tab.key);}}
+            nativeID={`${readingPosition.current.openingId}-${tab.key}`} aria-controls={`${readingPosition.current.openingId}-content`} accessibilityRole="tab" aria-selected={activeTab===tab.key} accessibilityState={{selected:activeTab===tab.key}} accessibilityLabel={tab.label||tab.key}
+            {...(Platform.OS==='web'?{tabIndex:activeTab===tab.key?0:-1,onKeyDown:(event:{key:string;preventDefault():void})=>{
+              const next=event.key==='ArrowRight'?(index+1)%list.length:event.key==='ArrowLeft'?(index+list.length-1)%list.length:event.key==='Home'?0:event.key==='End'?list.length-1:null;
+              if(next!==null){event.preventDefault();selectTab(list[next].key);tabs.current.get(list[next].key)?.focus();}
+            }}:{})}
+            onFocus={()=>setFocusedTab(tab.key)} onBlur={()=>setFocusedTab('')} onPress={()=>selectTab(tab.key)}
+            style={{paddingHorizontal:12,paddingVertical:12,borderBottomWidth:2,borderBottomColor:activeTab===tab.key?theme.colors.accent:'transparent',backgroundColor:focusedTab===tab.key?theme.colors.surface2:'transparent'}}>
+            <Text style={{fontSize:13,fontWeight:activeTab===tab.key?'600':'400',color:activeTab===tab.key?theme.colors.accent:theme.colors.foregroundMuted}}>{tab.label||tab.key}</Text>
+          </Pressable>)}
+        </View>
+      </ScrollView>:null}
+      <ScrollView testID="detail-reading-scroll" nativeID={`${readingPosition.current.openingId}-content`} {...(kind==="story"?{role:"tabpanel" as const,"aria-labelledby":`${readingPosition.current.openingId}-${activeTab}`}:{})} ref={scroll} style={{flexGrow:1,flexShrink:1,minHeight:0}} contentContainerStyle={{padding:width<500?16:24}} scrollEventThrottle={16}
+        onContentSizeChange={restoreScroll} onScroll={event=>{
+          if(hidden||restoring.current)return;
+          offsets.current[activeTab]=event.nativeEvent.contentOffset.y;
+          readingPosition.current={openingId:readingPosition.current.openingId,key:readingKey,offset:offsets.current.details??0,tab:activeTab,offsets:offsets.current,documentRevisions};
+        }}>
+      {activeTab!=='details'?<StoryDocument key={activeTab} openingId={readingPosition.current.openingId} target={{workspaceId:data.workspaceId,id:data.id}} fieldKey={activeTab} revision={documentRevisions[activeTab]??0} refreshToken={extras.refreshToken} baseUrl={data.url} theme={theme} onRefresh={refreshDocument}/>:<View style={{gap:18}}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12, padding: 16, backgroundColor: theme.colors.surface1, borderRadius: 10 }}>
       {metaRow("处理人", data.owner)}
       {metaRow("创建人", data.creator)}
       {data.priority ? (
@@ -352,7 +397,7 @@ function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarge
       {metaRow("创建", data.createdAt)}
       {metaRow("更新", data.modifiedAt)}
       </View>
-      {data.kind === "story" ? <StoryShortFields key={`${data.workspaceId}-${data.id}`} target={{ workspaceId: data.workspaceId, id: data.id }} theme={theme} refreshToken={extras.refreshToken} /> : null}
+      {data.kind === "story" ? <StoryShortFields key={`${data.workspaceId}-${data.id}`} query={fields} theme={theme} /> : null}
       {data.labels?.length || data.labels == null ? <View style={{ gap: 6 }}><Text style={styles.section}>标签</Text><EntityLabels labels={data.labels} theme={theme} compact={false} /></View> : null}
       {entityLinks.length > 0 ? (
         <>
@@ -408,6 +453,8 @@ function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarge
           </View>
         ))
       )}
+    </View>}
+      </ScrollView>
     </View>
   );
 }

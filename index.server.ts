@@ -1,4 +1,4 @@
-import { storyFieldsRpc } from "./shared/story-fields";
+import { storyFieldsRpc, storyDocumentRpc } from "./shared/story-fields";
 import { createOwnershipLifecycle } from "./server/ownership-lifecycle";
 import { itemIterationRpc, iterationsRpc } from "./shared/iteration-tools";
 
@@ -75,6 +75,7 @@ export default function contribute(server: PluginServerContext) {
     try { await conversations.bootstrap(context); await conversations.reconcile(agent.id); if (event === "agent.created") await conversations.observeMessages({ paseo: context.paseo, agentId: agent.id }); } catch { /* Retry through the next public context. */ }
   });
   server.handle(storyFieldsRpc, handlers.storyFields);
+  server.handle(storyDocumentRpc, handlers.storyDocument);
   server.handle(boardRpc, handlers.board);
   server.handle(updateFieldRpc, handlers.updateField);
   server.handle(readFieldRpc, handlers.readField);

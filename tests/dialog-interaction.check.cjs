@@ -51,6 +51,7 @@ async function main() {
       if(rpc.name==='tapd.update_check')return {updateAvailable:false};
       if(rpc.name==='tapd.entity'&&window.detailFailure)throw new Error('untrusted private failure');
       if(rpc.name==='tapd.entity'&&input.siteUrl&&(input.siteUrl!=='https://example.com'||input.apiEndpoint!=='https://api.example.com'||input.workspaceId!=='12345678'))throw new Error('wrong reference');
+      if(rpc.name==='tapd.story-fields')return {...input,workitemTypeId:null,fields:[],readError:null};
       if(rpc.name==='tapd.entity')return {...item,kind:input.kind,id:input.id,title:input.kind==='story'?'示例需求':'新建示例任务'};
       if(rpc.name==='tapd.create_fields')return {me:'example-member',fields:[{key:'custom_text',label:'扩展文本',required:false,inputKind:'text',single:true,options:[]}]};
       if(rpc.name==='tapd.create'){if(!window.createRetried){window.createRetried=true;throw new Error('模拟创建失败');}return {kind:input.kind,id:'87654321',url:'https://example.com/new'};}

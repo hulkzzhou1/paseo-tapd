@@ -1,4 +1,6 @@
+import { storyFieldsRpc, storyDocumentRpc } from "./shared/story-fields";
 import { createOwnershipLifecycle } from "./server/ownership-lifecycle";
+import { itemIterationRpc, iterationsRpc, updateIterationRpc } from "./shared/iteration-tools";
 
 import { childrenRpc, childTypesRpc } from "./shared/contracts";
 import { createOwnershipMigration } from "./server/ownership-migration";
@@ -54,6 +56,9 @@ export default function contribute(server: PluginServerContext) {
     return { state: { ...suppressTask(state, link, "user"), links: state.links.filter(item => !matches(item)) }, result: { ok: true as const } };
   }));
   const handlers = createHandlers(getValues, {}, agentLinks);
+  server.handle(itemIterationRpc, handlers.itemIteration);
+  server.handle(updateIterationRpc, handlers.updateIteration);
+  server.handle(iterationsRpc, handlers.iterations);
   server.handle(childrenRpc, async (input, context) => { await ownership.reconcile(context).catch(() => {}); return handlers.children(input); });
   server.handle(childTypesRpc, handlers.childTypes);
   server.handle(labelsRpc, handlers.labels);
@@ -70,6 +75,8 @@ export default function contribute(server: PluginServerContext) {
   for (const event of ["agent.created", "agent.archived", "agent.closed"] as const) server.on(event, async ({ agent }, context) => {
     try { await conversations.bootstrap(context); await conversations.reconcile(agent.id); if (event === "agent.created") await conversations.observeMessages({ paseo: context.paseo, agentId: agent.id }); } catch { /* Retry through the next public context. */ }
   });
+  server.handle(storyFieldsRpc, handlers.storyFields);
+  server.handle(storyDocumentRpc, handlers.storyDocument);
   server.handle(boardRpc, handlers.board);
   server.handle(updateFieldRpc, handlers.updateField);
   server.handle(readFieldRpc, handlers.readField);

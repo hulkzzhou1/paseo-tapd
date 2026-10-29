@@ -59,8 +59,9 @@ export default function contribute(client: PluginClientContext) {
   client.addTimelineRenderer({ kind: "tapd-entity-result", version: 1, schema: entityResultSchema, Component: (props) => {
     const workspaceId = useAgent(props.agentId, agent => agent.workspaceId);
     const result=entityResultSchema.safeParse(props.item.data);
-    const entity=result.success&&result.data.operation==="status"?result.data.entity:null;
-    useEffect(()=>{if(entity)invalidateBoard(entity);},[entity?.workspaceId,entity?.kind,entity?.id,entity?.status]);
+    const entity=result.success&&["status","iteration"].includes(result.data.operation)?result.data.entity:null;
+    const eventTime=props.timestamp?.getTime();
+    useEffect(()=>{if(entity)invalidateBoard(entity);},[eventTime,entity?.workspaceId,entity?.kind,entity?.id,entity?.status]);
     return <EntityResultCard {...props} openPanel={entity => conversation.openEntity(props.agentId, workspaceId, entity)} />;
   } });
   return conversation.dispose;

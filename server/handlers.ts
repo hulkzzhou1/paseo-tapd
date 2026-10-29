@@ -1,3 +1,4 @@
+import { storyFieldsRpc, storyDocumentRpc } from "../shared/story-fields";
 import { invalidateTaskBoards } from "./task-board-state";
 import { sameTask, type AgentLinks } from "./agent-links";
 import { childrenRpc, childTypesRpc } from "../shared/contracts";
@@ -30,6 +31,8 @@ import {
   fetchChildTypes,
   type EntityChildItem,
   fetchFieldDefinitions,
+  fetchStoryReadingFields,
+  fetchStoryDocument,
   fetchProjectLabels,
   readItemLabels,
   updateItemLabels,
@@ -45,6 +48,8 @@ import {
   type TapdConfig,
 } from "./tapd";
 import { checkForUpdate } from "./update-check";
+import { itemIterationRpc, iterationsRpc, updateIterationRpc } from "../shared/iteration-tools";
+import { readItemIteration, fetchItemIterations, updateItemIteration } from "./iterations";
 
 type GetValues = () => Promise<TapdSettingsValues>;
 
@@ -83,6 +88,31 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
   }
 
   return {
+    async storyDocument(raw: RpcInput<typeof storyDocumentRpc>): Promise<RpcOutput<typeof storyDocumentRpc>> {
+      const input = storyDocumentRpc.input.parse(raw);
+      const { config } = await requireConfig();
+      return fetchStoryDocument(config, input);
+    },
+    async updateIteration(raw: RpcInput<typeof updateIterationRpc>): Promise<RpcOutput<typeof updateIterationRpc>> {
+      const input = updateIterationRpc.input.parse(raw);
+      const { config } = await requireConfig();
+      return updateItemIteration(config, input);
+    },
+    async storyFields(raw: RpcInput<typeof storyFieldsRpc>): Promise<RpcOutput<typeof storyFieldsRpc>> {
+      const input = storyFieldsRpc.input.parse(raw);
+      const { config } = await requireConfig();
+      return fetchStoryReadingFields(config, input);
+    },
+    async iterations(raw: RpcInput<typeof iterationsRpc>): Promise<RpcOutput<typeof iterationsRpc>> {
+      const input = iterationsRpc.input.parse(raw);
+      const { config } = await requireConfig();
+      return protectedResult(config, await fetchItemIterations(config, input));
+    },
+    async itemIteration(raw: RpcInput<typeof itemIterationRpc>): Promise<RpcOutput<typeof itemIterationRpc>> {
+      const input = itemIterationRpc.input.parse(raw);
+      const { config } = await requireConfig();
+      return readItemIteration(config, input);
+    },
     async children(raw: RpcInput<typeof childrenRpc>): Promise<RpcOutput<typeof childrenRpc>> {
       const input = childrenRpc.input.parse(raw);
       const { config, values } = await requireConfig();

@@ -16,6 +16,7 @@ import type { AgentStatusItem, DetailTarget } from "./EntityDetailContent";
 import { EntityDetailExperience } from "./EntityDetailExperience";
 import { FilterBar } from "./FilterBar";
 import { SettingsModal } from "./SettingsForm";
+import { subscribeBoardUpdates } from "../conversation/board-updates";
 
 const KINDS = ["story", "task", "bug"] as const;
 const EMPTY_LINKS: readonly TapdLink[] = [];
@@ -124,6 +125,11 @@ export function WorkbenchScreen({ theme, layout, navigation }: PluginScreenProps
     staleTime: 30_000,
     retry: 1,
   });
+  const refetchBoard = board.refetch;
+  useEffect(() => subscribeBoardUpdates(() => {
+    boardForceRef.current = true;
+    void refetchBoard().finally(() => { boardForceRef.current = false; });
+  }), [refetchBoard]);
 
   const fetchOptions = useRpc(filterOptionsRpc);
   const optionsQuery = useQuery({

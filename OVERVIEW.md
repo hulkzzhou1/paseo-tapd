@@ -247,6 +247,15 @@ The existing detail experience switches to a field page when needed, preserving 
 
 缺陷流转读取实际单据及当前规则，仅展示可达状态；附加必填字段（含流转评论）在确认页填写，写入前在共用服务端边界重新校验，以一次状态请求提交，不新增普通评论。规则不完整或字段不支持时停止并引导原站；权限仍由 TAPD 决定。写入失败保留输入，未知或未核实结果不直接重试。
 
+
+## Story short custom attributes / 需求短自定义属性
+
+The schema-validated readonly `tapd.story-fields` RPC verifies the requested configured project and story identity, reads its actual `workitem_type_id`, and obtains `/stories/get_fields_info` definitions for that category. A fresh selective `/stories` read fetches only known short custom fields, retaining definition order, enum labels and original scalar values. Null, absent, malformed and failed values remain distinct from confirmed empty strings/arrays; zero and false remain visible. Unknown types stay explicit without interpreting arbitrary structures. Missing category metadata stops discovery rather than borrowing another category. Definitions and results are bounded and protected against credentials before returning to the client.
+
+Both shared detail entry points show the first six nonempty attributes, with expansion and a confirmed-empty toggle, refresh and retry. Base details remain available when field reads fail. Initial story detail requests select their existing standard fields and description explicitly; neither these requests nor short-field reads fetch custom rich-text values. Rich-text definitions remain available for later demand reading. Values live only in the client's short-lived query cache and are not added to historical cards, provider prompts or persistent body storage. This RPC introduces no write, endpoint or dependency, and does not relax the existing Agent text/rich-text editing checks.
+
+需求短字段通过只读 schema RPC 按实际项目、目标及类别隔离读取。前六个非空属性默认展示，展开后可显示已确认空字段；未知、缺失、无法识别和失败单独标记，元数据失败可重试且不阻塞基础详情。只请求已知短字段及必要标准字段，不预取自定义富文本正文；字段值不进入历史卡片、提示词或本机正文持久化。只读或权限未知不阻碍安全阅读，也不授予写入权限。
+
 ## Readonly requirement custom fields and iteration tools
 
 Requirement detail reads field definitions for the actual configured project/category and requests short values explicitly. Standard detail excludes unopened custom rich-text values; selecting a rich-text tab requests that field. Short fields show six confirmed nonempty values, with more/empty expansion; zero and false remain values. Missing, null/unknown, unrecognized and failed reads remain distinct from confirmed empty. Rich-text tabs reuse existing safe structured rendering, inline images and link rules. Comments stay in detailed information; per-tab positions last only for the current opening. No custom field editor or new body persistence is added, and existing Agent text-field update permissions remain unchanged.

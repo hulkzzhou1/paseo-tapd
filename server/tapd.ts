@@ -1,3 +1,4 @@
+import type { StoryReadingField, StoryFieldsResult } from "../shared/story-fields";
 // TAPD OpenAPI 客户端核心逻辑。
 // 本文件刻意保持零导入（无 zod、无 SDK），既用于插件后端，也可被 node 直接加载做集成测试。
 
@@ -1333,6 +1334,101 @@ export async function fetchFieldDefinitions(config: TapdConfig, kind: string, wo
   return { fields };
 }
 
+function storyReadingKind(htmlType: string): StoryReadingField["kind"] {
+  const kinds: Record<string, StoryReadingField["kind"]> = {
+    text: "text", input: "text", textarea: "text", integer: "number", float: "number", number: "number",
+    boolean: "boolean", bool: "boolean", radio: "enum", checkbox: "enum", select: "enum", multi_select: "enum",
+    user_chooser: "user", single_user_chooser: "user", mix_chooser: "user", dateinput: "date", datetime: "date",
+    rich_edit: "richtext", rich_text: "richtext",
+  };
+  return Object.hasOwn(kinds, htmlType) ? kinds[htmlType] : "unknown";
+}
+
+function storyReadingValue(field: StoryReadingField, row: Record<string, unknown>): StoryReadingField {
+  if (field.kind === "richtext" || field.kind === "unknown") return field;
+  if (!Object.hasOwn(row, field.key)) return { ...field, state: "not_returned" };
+  const value = row[field.key];
+  if (value === null) return { ...field, state: "unknown" };
+  const scalar = (item: unknown): item is string | number | boolean => typeof item === "string" ? item.length <= 50_000
+    : typeof item === "boolean" || typeof item === "number" && Number.isFinite(item);
+  if ((!scalar(value) && !(Array.isArray(value) && value.length <= 1000 && value.every(scalar)))
+    || (Array.isArray(value) && !["enum", "user"].includes(field.kind))) {
+    return { ...field, state: "unrecognized", warning: "字段值格式无法识别。" };
+  }
+  const values = Array.isArray(value) ? value : [value];
+  if (!values.length || values.every(item => typeof item === "string" && !item.trim())) return { ...field, state: "empty", value };
+  if ((field.kind === "number" && (typeof value === "boolean" || !Number.isFinite(Number(value))))
+    || (field.kind === "boolean" && ![true, false, 0, 1, "0", "1", "true", "false"].some(item => item === value))) {
+    return { ...field, state: "unrecognized", warning: "字段值与已知类型不匹配。" };
+  }
+  let warning: string | null = null;
+  const selections = field.kind === "enum" && typeof value === "string" && !field.options.some(option => option.value === value)
+    ? value.split(/[;|]/).filter(Boolean) : values;
+  const display = selections.map(item => {
+    if (field.kind !== "enum") return String(item);
+    const match = field.options.find(option => option.value === String(item));
+    if (!match) warning = "部分候选映射未返回，保留原值。";
+    return match?.label ?? String(item);
+  }).join("、");
+  if (display.length > 50_000) return { ...field, state: "unrecognized", warning: "字段值超出读取长度限制。" };
+  return { ...field, state: "value", value, display, warning };
+}
+
+/** A separate readonly surface; editing retains the stricter existing text-field contract. */
+export async function fetchStoryReadingFields(config: TapdConfig, input: { workspaceId: string; id: string }): Promise<StoryFieldsResult> {
+  validateFieldProject(config, "story", input.workspaceId);
+  if (!/^\d{1,100}$/.test(input.id)) throw new TapdApiError("需求目标无效。");
+  const numericIdentity = (value: unknown): value is string | number => typeof value === "string"
+    ? /^\d{1,100}$/.test(value) : typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+  const read = async (fields: string) => {
+    const rows = await requestJson(config, "/stories", { workspace_id: input.workspaceId, id: input.id, limit: 1, fields }, 0, true);
+    if (!Array.isArray(rows) || rows.length !== 1) throw new TapdApiError("需求字段目标不可核实。");
+    const row = unwrapRow(rows[0], ["Story"]);
+    if (!row || !numericIdentity(row.id) || !numericIdentity(row.workspace_id)
+      || String(row.id) !== input.id || String(row.workspace_id) !== input.workspaceId
+      || (row.entity_type !== undefined && row.entity_type !== "story")) throw new TapdApiError("需求字段目标不匹配。");
+    return row as Record<string, unknown>;
+  };
+  const identity = await read("id,workspace_id,workitem_type_id");
+  if (identity.workitem_type_id === undefined || identity.workitem_type_id === null) throw new TapdApiError("需求类别未返回，无法核实字段定义。");
+  if (identity.workitem_type_id !== "" && !numericIdentity(identity.workitem_type_id)) throw new TapdApiError("需求类别无法识别。");
+  const category = String(identity.workitem_type_id);
+  const workitemTypeId = category && category !== "0" ? category : null;
+  const metadata = await requestJson(config, FIELDS_INFO_PATH.story, { workspace_id: input.workspaceId, workitem_type_id: workitemTypeId ?? undefined }, 0, true);
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) throw new TapdApiError("需求字段定义读取失败，请重试。");
+  protectFieldData(config, metadata);
+  let fields: StoryReadingField[] = Object.entries(metadata).filter(([key]) => /^custom_field_[a-zA-Z0-9_]+$/.test(key)).map(([key, raw]) => {
+    if (key.length > 100) throw new TapdApiError("需求字段定义超出读取限制。");
+    const info = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
+    const htmlType = typeof info.html_type === "string" ? info.html_type.slice(0, 100) : "";
+    const kind = storyReadingKind(htmlType);
+    const options = info.options && typeof info.options === "object" && !Array.isArray(info.options) ? Object.entries(info.options).map(([value, label]) => ({ value, label: typeof label === "string" ? label : value })) : [];
+    if (options.length > 500 || options.some(option => option.value.length > 500 || option.label.length > 500)) throw new TapdApiError("需求字段候选超出读取限制。");
+    return { key, label: typeof info.label === "string" ? info.label.slice(0, 500) : key, htmlType, kind,
+      readonly: info.readonly === true || info.readonly === 1 || info.readonly === "1" ? true : info.readonly === false || info.readonly === 0 || info.readonly === "0" ? false : null,
+      options, state: kind === "richtext" ? "unread" : "unrecognized", value: null, display: null,
+      warning: kind === "unknown" ? "字段类型无法识别。" : null };
+  });
+  if (fields.length > 200) throw new TapdApiError("需求自定义字段超出读取数量限制。");
+  let readError: string | null = null;
+  const shortKeys = fields.filter(field => field.kind !== "richtext" && field.kind !== "unknown").map(field => field.key);
+  if (shortKeys.length) {
+    try {
+      const row = await read(["id", "workspace_id", "workitem_type_id", ...shortKeys].join(","));
+      if ((row.workitem_type_id !== "" && !numericIdentity(row.workitem_type_id)) || String(row.workitem_type_id) !== category) throw new TapdApiError("需求类别已变化，请重试。");
+      protectFieldData(config, row);
+      fields = fields.map(field => storyReadingValue(field, row));
+    } catch {
+      readError = "短字段读取失败，请重试；定义与富文本入口仍保留。";
+      fields = fields.map(field => shortKeys.includes(field.key) ? { ...field, state: "failed", warning: readError } : field);
+    }
+  }
+  const result = { workspaceId: input.workspaceId, id: input.id, workitemTypeId, fields, readError };
+  protectFieldData(config, result);
+  if (Buffer.byteLength(JSON.stringify(result)) > 512_000) throw new TapdApiError("需求字段结果超出读取大小限制。");
+  return result;
+}
+
 export interface FieldTarget { kind: "story"; workspaceId: string; id: string; fieldKey: string }
 export async function readEntityField(config: TapdConfig, input: FieldTarget) {
   validateFieldProject(config, input.kind, input.workspaceId);
@@ -1879,7 +1975,8 @@ export async function fetchEntity(config: TapdConfig, kind: EntityKind, id: stri
   let row: any = null;
   let workspaceId = config.workspaceIds[0] ?? "";
   for (const candidate of config.workspaceIds) {
-    const data = await requestJson(config, LIST_PATH[kind], { workspace_id: candidate, id, limit: 1 });
+    const data = await requestJson(config, LIST_PATH[kind], { workspace_id: candidate, id, limit: 1,
+      ...(kind === "story" ? { fields: "id,workspace_id,entity_type,name,status,owner,creator,priority_label,iteration_id,created,modified,description,parent_id,workitem_type_id,step,flows,label" } : {}) });
     const rows = unwrapRows(data, [KIND_WRAPPER[kind]]);
     const match = rows.find(value => String(value?.id) === id && (value.workspace_id === undefined || String(value.workspace_id) === candidate));
     if (match) {

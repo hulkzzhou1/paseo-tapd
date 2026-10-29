@@ -1,3 +1,4 @@
+import { storyFieldsRpc } from "../shared/story-fields";
 import { invalidateTaskBoards } from "./task-board-state";
 import { sameTask, type AgentLinks } from "./agent-links";
 import { childrenRpc, childTypesRpc } from "../shared/contracts";
@@ -30,6 +31,7 @@ import {
   fetchChildTypes,
   type EntityChildItem,
   fetchFieldDefinitions,
+  fetchStoryReadingFields,
   fetchProjectLabels,
   readItemLabels,
   updateItemLabels,
@@ -89,6 +91,11 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
       const input = updateIterationRpc.input.parse(raw);
       const { config } = await requireConfig();
       return updateItemIteration(config, input);
+    },
+    async storyFields(raw: RpcInput<typeof storyFieldsRpc>): Promise<RpcOutput<typeof storyFieldsRpc>> {
+      const input = storyFieldsRpc.input.parse(raw);
+      const { config } = await requireConfig();
+      return fetchStoryReadingFields(config, input);
     },
     async iterations(raw: RpcInput<typeof iterationsRpc>): Promise<RpcOutput<typeof iterationsRpc>> {
       const input = iterationsRpc.input.parse(raw);

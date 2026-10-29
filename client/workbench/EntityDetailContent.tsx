@@ -1,3 +1,4 @@
+import { StoryShortFields } from "./StoryShortFields";
 import { toolLinkSchema } from "../../shared/agent-links";
 import { EntityLabels } from "./EntityLabels";
 import { RichText } from "./RichText";
@@ -360,6 +361,7 @@ function DetailBody({ target, theme, extras, panelWidth }: { target: DetailTarge
       {metaRow("创建", data.createdAt)}
       {metaRow("更新", data.modifiedAt)}
       </View>
+      {data.kind === "story" ? <StoryShortFields key={`${data.workspaceId}-${data.id}`} target={{ workspaceId: data.workspaceId, id: data.id }} theme={theme} refreshToken={extras.refreshToken} /> : null}
       {data.labels?.length || data.labels == null ? <View style={{ gap: 6 }}><Text style={styles.section}>标签</Text><EntityLabels labels={data.labels} theme={theme} compact={false} /></View> : null}
       {entityLinks.length > 0 ? (
         <>

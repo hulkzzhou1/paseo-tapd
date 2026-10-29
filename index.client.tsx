@@ -44,12 +44,5 @@ export default function contribute(client: PluginClientContext) {
     },
   });
   client.addAttachmentSource(tapdAttachmentSource);
-  // Hide retired TAPD result cards without rewriting conversation history.
-  client.addTimelineTransformer({
-    id: "hide-retired-results",
-    query: { itemType: "plugin" },
-    transform({ item }) {
-      if (item.pluginId === "tapd-workbench" && ["tapd-entity-result", "tapd-batch-result"].includes(item.kind)) return { items: [] };
-    },
-  });
+  return () => {};
 }

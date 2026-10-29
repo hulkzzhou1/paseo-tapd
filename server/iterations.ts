@@ -1,7 +1,6 @@
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
 import { itemIterationRpc, iterationsRpc, iterationTargetSchema, projectIterationSchema, updateIterationRpc } from "../shared/iteration-tools";
 import { createReadInvalidationGuard, fetchEntitySummary, protectFieldData, readCacheKey, requestJson, requestPost, safeFailure, TapdApiError, type TapdConfig } from "./tapd";
-import { invalidateTaskBoards } from "./task-board-state";
 
 const paths = { story: "/stories", task: "/tasks", bug: "/bugs" } as const;
 const wrappers = { story: "Story", task: "Task", bug: "Bug" } as const;
@@ -111,7 +110,6 @@ async function applyIterationUpdate(config: TapdConfig, input: IterationUpdate, 
   await requestPost(config, paths[input.kind], { workspace_id: input.workspaceId, id: input.id, iteration_id: input.iterationId });
   // Everything after acceptance is a read/presentation concern; it must never turn into a retryable write failure.
   try {
-    invalidateTaskBoards(config);
     const after = await readItemIteration(config, target);
     const verified = after.state === "set" && String(after.value) === input.iterationId;
     let entity = base.entity;
@@ -119,7 +117,7 @@ async function applyIterationUpdate(config: TapdConfig, input: IterationUpdate, 
       const summary = await fetchEntitySummary({ ...config, freshReads: true }, input.kind, input.id, input.workspaceId, true);
       protectFieldData(config, summary);
       entity = { ...target, title: summary.title.slice(0, 500), status: summary.status.slice(0, 200), statusLabel: summary.statusLabel.slice(0, 200), owner: summary.owner.slice(0, 200) };
-    } catch { /* A missing optional card summary does not undo iteration verification. */ }
+    } catch { /* A missing optional item summary does not undo iteration verification. */ }
     const result = updateIterationRpc.output.parse({ ...base, entity, ok: verified, outcome: verified ? "verified" : "unverified", writeState: "accepted",
       ...(!verified ? { warning: "TAPD 已接受迭代修改，但当前值未核实；请读取核对，勿重复提交。" } : {}) });
     protectFieldData(config, result);

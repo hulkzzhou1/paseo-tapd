@@ -1,7 +1,7 @@
 {
   "name": "tapd-workbench",
   "private": true,
-  "version": "0.4.45",
+  "version": "0.4.46",
   "files": [
     "LICENSE",
     "README.md",
@@ -20,13 +20,11 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint client index.client.tsx",
     "test": "node --test tests/*.test.mjs",
-    "test:navigation": "node tests/navigation-interaction.check.cjs",
     "test:settings": "node tests/settings-interaction.check.cjs",
-    "test:ownership": "node tests/public-daemon-ownership.check.mjs",
-    "test:daemon": "node tests/daemon-lifecycle.check.mjs",
-    "test:ui": "node tests/dropdown-interaction.check.cjs && node tests/filter-dropdown-interaction.check.cjs && node tests/status-dropdown-interaction.check.cjs && node tests/dialog-interaction.check.cjs && TAPD_DIALOG_CONVERSATION=1 node tests/dialog-interaction.check.cjs && node tests/conversation-interaction.check.cjs && node tests/batch-interaction.check.cjs && node tests/hierarchy-interaction.check.cjs && node tests/label-display-interaction.check.cjs",
+    "test:ui": "node tests/dropdown-interaction.check.cjs && node tests/filter-dropdown-interaction.check.cjs && node tests/status-dropdown-interaction.check.cjs && node tests/dialog-interaction.check.cjs && node tests/hierarchy-interaction.check.cjs && node tests/label-display-interaction.check.cjs",
     "sdk:main": "node scripts/use-main-sdk.mjs",
-    "test:workflow": "node tests/workflow-interaction.check.cjs"
+    "test:workflow": "node tests/workflow-interaction.check.cjs",
+    "test:basic": "node tests/iteration-interaction.check.cjs"
   },
   "devDependencies": {
     "@getpaseo/plugin": "0.14.0-beta.1",
@@ -41,6 +39,6 @@
     "typescript-eslint": "^8.0.0",
     "zod": "4.4.3"
   },
-  "description": "Paseo TAPD workbench with conversation shortcuts, recoverable result cards, filters and user-approved writes",
+  "description": "Paseo TAPD workbench with full details, direct tools and approved Agent dispatch",
   "license": "MIT"
 }

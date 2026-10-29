@@ -1,4 +1,4 @@
-import {invalidateBoard} from "../conversation/board-updates";
+import {invalidateBoard} from "./board-updates";
 import { WorkbenchDialog as Modal, dialogFormStyles } from "./WorkbenchDialog";
 import { useRpc } from "@getpaseo/plugin/client";
 import { TextInput, useToast } from "@getpaseo/plugin/client/react-native";

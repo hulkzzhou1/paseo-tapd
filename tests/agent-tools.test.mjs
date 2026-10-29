@@ -259,7 +259,7 @@ test("session-open attaches tools alongside existing tools, skips history, and p
     const request = { purpose: "launch", tools: [{ name: "example_existing" }], env: { TAPD_TOKEN: "example-existing", EXAMPLE: "keep" } };
     const updated = await hook({ request });
     assert.equal(new Set(updated.tools.map(tool => tool.name)).size, updated.tools.length);
-    for (const name of ["tapd_agent_options", "tapd_bind_agent", "tapd_dispatch_agent", "tapd_take_task", "tapd_task_board", "tapd_labels", "tapd_item_labels", "tapd_create_label"]) assert.ok(updated.tools.some(tool => tool.name === name));
+    for (const name of ["tapd_labels", "tapd_item_labels", "tapd_create_label"]) assert.ok(updated.tools.some(tool => tool.name === name));
     assert.equal(updated.tools[0].name, "example_existing");
     assert.equal(updated.env.TAPD_TOKEN, "example-existing");
     assert.equal(updated.env.EXAMPLE, "keep");
@@ -282,37 +282,17 @@ test("main SDK setup rejects a checkout without tool support before replacing an
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test("single entity tool appends a bounded actual-project card without copying content or extra reads", async (t) => {
+test("single entity tool returns direct actual-project data without host calls or extra presentation reads", async t => {
   const { call, requests } = setup(t, entityApi);
-  const rows = [];
   const result = await call("tapd_entity", { kind: "story", id: "11111111" }, {
-    ...context(), agent: { id: "example-agent" }, paseo: { agents: { ref: agentId => ({ timeline: { append: async row => { assert.equal(agentId, "example-agent"); rows.push(row); } } }) } },
+    ...context(), paseo: new Proxy({}, {get(){throw Error("Host state must not be accessed");}}),
   });
-  assert.ok(result.structuredContent);
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].kind, "tapd-entity-result");
-  assert.equal(rows[0].data.entity.workspaceId, "87654321");
-  assert.equal(rows[0].data.entity.title, "示例需求");
-  assert.equal(rows[0].data.operation, "read");
-  assert.equal(JSON.stringify(rows).includes("完整正文"), false);
-  assert.equal(JSON.stringify(rows).includes(initial.token), false);
-  const detailReads = requests.filter(({ url }) => url.pathname === "/stories" && url.searchParams.get("id") === "11111111" && url.searchParams.get("fields")?.split(",").includes("description"));
-  assert.equal(detailReads.length, 2, "full detail lookup is not repeated for presentation");
-  assert.deepEqual(detailReads.map(({ url }) => url.searchParams.get("workspace_id")).sort(), ["12345678", "87654321"]);
-  for (const { url } of detailReads) assert.equal(url.searchParams.get("fields"), "id,workspace_id,entity_type,name,status,owner,creator,priority_label,iteration_id,created,modified,description,parent_id,workitem_type_id,step,flows,label", "detail requests standard fields only; card creation adds no custom-field reads");
-});
-
-test("single entity keeps read success when presentation fails, and a failed read never appends success", async (t) => {
-  const { call } = setup(t, entityApi);
-  let appends = 0;
-  const ctx = { ...context(), agent: { id: "example-agent" }, paseo: { agents: { ref: () => ({ timeline: { append: async () => { appends++; throw new Error("untrusted host error"); } } }) } } };
-  const result = await call("tapd_entity", { kind: "story", id: "11111111" }, ctx);
-  assert.equal(result.structuredContent.title, "示例需求");
-  assert.ok(result.structuredContent.presentationWarning);
-  assert.equal(JSON.stringify(result).includes("untrusted host error"), false);
-  const failed = await call("tapd_entity", { kind: "task", id: "22222222" }, ctx);
-  assert.equal(failed.isError, true);
-  assert.equal(appends, 1);
+  assert.equal(result.structuredContent.workspaceId,"87654321");
+  assert.equal(result.structuredContent.title,"示例需求");
+  assert.equal(result.structuredContent.presentationWarning,undefined);
+  const reads=requests.filter(({url})=>url.pathname==="/stories"&&url.searchParams.get("id")==="11111111"&&url.searchParams.get("fields")?.split(",").includes("description"));
+  assert.equal(reads.length,2);
+  assert.deepEqual(reads.map(({url})=>url.searchParams.get("workspace_id")).sort(),["12345678","87654321"]);
 });
 
 test("registered detail RPC rejects changed connection and restricts guarded reads to the recorded project", async (t) => {
@@ -332,19 +312,14 @@ test("registered detail RPC rejects changed connection and restricts guarded rea
   } finally { cleanup(); }
 });
 
-test("single card keeps partial-read warnings, bounds untrusted summaries and excludes credentials", async (t) => {
-  const { call } = setup(t, request => {
-    if (request.url.pathname === "/tasks" && request.url.searchParams.has("story_id")) throw new Error("untrusted failure");
-    const result = entityApi(request);
-    if (Array.isArray(result) && result[0]?.Story) result[0].Story.name = "x".repeat(1000);
-    return result;
-  });
-  const rows = [];
-  const result = await call("tapd_entity", { kind: "story", id: "11111111" }, { ...context(), agent: { id: "example-agent" },
-    paseo: { agents: { ref: () => ({ timeline: { append: async row => rows.push(row) } }) } } });
-  assert.equal(result.isError, undefined);
-  assert.equal(rows[0].data.entity.title.length, 500);
-  assert.equal(rows[0].data.warnings[0], "部分数据读取失败，请在详情中重试。");
-  assert.equal(JSON.stringify(rows).includes(initial.token), false);
-  assert.equal(JSON.stringify(rows).includes("untrusted failure"), false);
+test("direct reads retain partial-read warnings and exclude credentials",async t=>{
+ const {call}=setup(t, request=>{
+   if(request.url.pathname==="/tasks"&&request.url.searchParams.has("story_id"))throw Error("untrusted failure");
+   return entityApi(request);
+ });
+ const result=await call("tapd_entity",{kind:"story",id:"11111111"});
+ assert.equal(result.isError,undefined);
+ assert.ok(result.structuredContent.warnings.some(warning=>warning.includes("不完整")));
+ assert.equal(JSON.stringify(result).includes(initial.token),false);
+ assert.equal(JSON.stringify(result).includes("untrusted failure"),false);
 });

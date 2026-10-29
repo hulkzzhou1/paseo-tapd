@@ -1,13 +1,9 @@
 import { storyFieldsRpc, storyDocumentRpc } from "../shared/story-fields";
-import { invalidateTaskBoards } from "./task-board-state";
-import { sameTask, type AgentLinks } from "./agent-links";
 import { childrenRpc, childTypesRpc } from "../shared/contracts";
-import type { PluginHandlerContext } from "@getpaseo/plugin/server";
 import { labelsRpc, itemLabelsRpc, createLabelRpc, updateLabelsRpc } from "../shared/labels";
 import type { RpcInput, RpcOutput } from "@getpaseo/plugin";
-import type { imageRpc, addCommentRpc, agentStatusRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, updateCheckRpc, updateStatusRpc } from "../shared/contracts";
+import type { imageRpc, addCommentRpc, boardRpc, checkRpc, createFieldsRpc, createRpc, entityRpc, filterFieldsRpc, filterOptionsRpc, membersRpc, searchRpc, statusOptionsRpc, updateCheckRpc, updateStatusRpc } from "../shared/contracts";
 import { updateFieldRpc, readFieldRpc, fieldDefinitionsRpc, DEFAULT_FILTERS, type EntityKind, type TapdSettingsValues } from "../shared/contracts";
-import { getTurnRecord } from "./agent-state";
 import {
   addComment,
   boardWithCache,
@@ -29,7 +25,6 @@ import {
   fetchCreateFields,
   fetchChildHierarchy,
   fetchChildTypes,
-  type EntityChildItem,
   fetchFieldDefinitions,
   fetchStoryReadingFields,
   fetchStoryDocument,
@@ -53,7 +48,7 @@ import { readItemIteration, fetchItemIterations, updateItemIteration } from "./i
 
 type GetValues = () => Promise<TapdSettingsValues>;
 
-export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig, "writeSignal" | "readWarnings"> = {}, agentLinks?: Pick<AgentLinks, "list"> & Partial<Pick<AgentLinks, "state">>) {
+export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig, "writeSignal" | "readWarnings"> = {}) {
   async function requireConfig(): Promise<{ config: TapdConfig; values: TapdSettingsValues }> {
     const values = await getValues();
     const config = { ...resolveConfig(values), ...execution };
@@ -64,22 +59,6 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
       throw new Error("未配置 TAPD 项目 ID：请在设置中填写，或为 daemon 配置环境变量 TAPD_WORKSPACE_IDS。");
     }
     return { config, values };
-  }
-
-  async function childOwners(items: EntityChildItem[], config: TapdConfig, values: TapdSettingsValues) {
-    let links: Awaited<ReturnType<AgentLinks["list"]>> | null = null;
-    let snapshot: Awaited<ReturnType<AgentLinks["state"]>> | null = null;
-    try { if (agentLinks) { snapshot = agentLinks.state ? await agentLinks.state() : null; links = snapshot?.links ?? await agentLinks.list(); } } catch { /* Keep the child data; ownership stays unknown. */ }
-    return items.map(item => {
-      const suppressed = snapshot?.suppressed.some(scope => sameTask(scope, { apiEndpoint: config.endpoint, siteUrl: config.site, tapdWorkspaceId: item.workspaceId, kind: item.kind, id: item.id })) ?? false;
-      const pendingLegacy = !suppressed && values.links.some(link => !snapshot?.deletedAgents?.includes(link.agentId) && link.kind === item.kind && link.id === item.id);
-      const matches = links?.filter(link => link.kind === item.kind && link.id === item.id && link.tapdWorkspaceId === item.workspaceId
-        && link.apiEndpoint === config.endpoint && (!link.siteUrl || link.siteUrl === config.site) && (link.responsibility || !suppressed)) ?? [];
-      const owner = !pendingLegacy && matches.length === 1 && matches[0].responsibility ? { id: matches[0].agentId, title: matches[0].agentTitle } : null;
-      let unsafe = false;
-      try { protectFieldData(config, owner); } catch { unsafe = true; }
-      return { ...item, responsibleAgent: unsafe ? null : owner, ownershipUnknown: links === null || !!unsafe || (matches.length > 0 && !owner) || pendingLegacy };
-    });
   }
 
   function protectedResult<T>(config: TapdConfig, result: T): T {
@@ -115,9 +94,9 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
     },
     async children(raw: RpcInput<typeof childrenRpc>): Promise<RpcOutput<typeof childrenRpc>> {
       const input = childrenRpc.input.parse(raw);
-      const { config, values } = await requireConfig();
+      const { config } = await requireConfig();
       const result = await fetchChildHierarchy(config, input.workspaceId, input.id);
-      return protectedResult(config, { ...result, items: await childOwners(result.items, config, values) });
+      return protectedResult(config, result);
     },
     async childTypes(raw: RpcInput<typeof childTypesRpc>): Promise<RpcOutput<typeof childTypesRpc>> {
       const input = childTypesRpc.input.parse(raw); const { config } = await requireConfig();
@@ -281,7 +260,6 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
       const status = input.status.trim();
       if (!status) throw new Error("状态不能为空");
       const workspaceId = await updateEntityStatus(config, input.workspaceId ?? "", input.kind, input.id, status, input.transitionFields, input.expectedStatus);
-      invalidateTaskBoards(config);
       try {
         const actual = await fetchEntitySummary({ ...config, freshReads: true }, input.kind, input.id, workspaceId);
         protectFieldData(config, actual);
@@ -306,15 +284,14 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
     },
 
     async entity(input: RpcInput<typeof entityRpc>): Promise<RpcOutput<typeof entityRpc>> {
-      const { config, values } = await requireConfig();
+      const { config } = await requireConfig();
       if ((input.siteUrl !== undefined && input.siteUrl !== config.site)
         || (input.apiEndpoint !== undefined && input.apiEndpoint !== config.endpoint)
         || (input.workspaceId !== undefined && !config.workspaceIds.includes(input.workspaceId))) {
         throw new Error("此单据与当前 TAPD 连接或项目不匹配，请检查插件设置。");
       }
       const result = await fetchEntity({ ...config, freshReads: input.fresh ?? false, ...(input.workspaceId ? { workspaceIds: [input.workspaceId] } : {}) }, input.kind, input.id);
-      const children = await childOwners([...result.childStories, ...result.childTasks, ...result.childBugs], config, values);
-      return protectedResult(config, { ...result, childStories: children.filter(item => item.kind === "story"), childTasks: children.filter(item => item.kind === "task"), childBugs: children.filter(item => item.kind === "bug") });
+      return protectedResult(config, result);
     },
 
     async search(input: RpcInput<typeof searchRpc>): Promise<RpcOutput<typeof searchRpc>> {
@@ -375,41 +352,6 @@ export function createHandlers(getValues: GetValues, execution: Pick<TapdConfig,
 
     async updateCheck(): Promise<RpcOutput<typeof updateCheckRpc>> {
       return checkForUpdate();
-    },
-
-    async agentStatus(
-      input: RpcInput<typeof agentStatusRpc>,
-      context: PluginHandlerContext,
-    ): Promise<RpcOutput<typeof agentStatusRpc>> {
-      const ids = [...new Set(input.agentIds.map((id) => id.trim()).filter(Boolean))].slice(0, 100);
-      const agents = new Map<string, { status: string; updatedAt: string }>();
-      if (ids.length > 0) {
-        try {
-          const list = await context.paseo.agents.list({ page: { limit: 200 }, filter: { includeArchived: true } });
-          for (const entry of list.entries) {
-            if (ids.includes(entry.agent.id)) {
-              agents.set(entry.agent.id, { status: entry.agent.status, updatedAt: entry.agent.updatedAt });
-            }
-          }
-        } catch {
-          // daemon 查询失败仅缺实时状态，不阻塞详情面板
-        }
-      }
-      return protectedResult(resolveConfig(await getValues()), {
-        items: ids.map((agentId) => {
-          const live = agents.get(agentId);
-          const record = getTurnRecord(agentId);
-          return {
-            agentId,
-            status: live?.status ?? "",
-            updatedAt: live?.updatedAt ?? "",
-            turnOutcome: record?.outcome ?? "",
-            turnEndedAt: record?.endedAt ?? "",
-            turnSummary: record?.summary ?? "",
-            turnError: record?.error ?? "",
-          };
-        }),
-      });
     },
 
   };

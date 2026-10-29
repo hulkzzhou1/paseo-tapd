@@ -1,6 +1,6 @@
 // Synthetic provider: creating/restoring sessions is allowed; any execution fails the acceptance run.
 import {randomUUID} from 'node:crypto';
-export function ownershipProvider(onPrompt) {
+export function syntheticProvider(onPrompt) {
  const provider='codex';
  const capabilities={supportsStreaming:true,supportsSessionPersistence:true,supportsDynamicModes:true,supportsMcpServers:true,supportsReasoningStream:false,supportsToolInvocations:false,supportsRewindConversation:false,supportsRewindFiles:false,supportsRewindBoth:false};
  const modes=[{id:'full-access',label:'Fixture',description:'Synthetic fixture'}];

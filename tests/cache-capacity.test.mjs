@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 const run=promisify(execFile);
 
-test('one thousand zero-lifetime summary HTTP payloads become collectible after public RPC reads',async()=>{
+test('one thousand fresh HTTP payloads become collectible after public RPC reads',async()=>{
   const {stdout}=await run(process.execPath,['--expose-gc',fileURLToPath(new URL('./fixtures/cache-retention.mjs',import.meta.url))]);
   const report=JSON.parse(stdout.trim().split('\n').at(-1));
   assert.equal(report.observed,1000);assert.ok(report.retained<=2);
@@ -59,19 +59,16 @@ test('response capacity eviction and expiry cause scoped HTTP rereads rather tha
   assert.equal((await s.rpc('tapd.entity',input)).title,'Task 10000000');assert.equal(count(),3);
 });
 
-test('one thousand workbench queries stay bounded without erasing responsibility, recent viewing or cards',async t=>{
+test('one thousand workbench queries stay bounded without creating local Agent records',async t=>{
   const s=await fixture(t),target={kind:'task',id:'11111111',workspaceId:'12345678'};
-  await s.rpc('tapd.task.claim',{...target,agentId:'example-agent',confirmed:true});
   assert.notEqual((await s.tool('tapd_entity',target)).isError,true);
-  const before=await s.rpc('tapd.conversations'),owner=(await s.rpc('tapd.task-board',{agentId:'example-agent'})).items[0].link;
   const board=keyword=>s.rpc('tapd.board',{filters:{ownerMode:'all',statusScope:'all',keyword}});
   assert.equal((await board('query-0')).columns.story.items[0].title,'Result query-0');
   const count=()=>s.requests.filter(u=>u.pathname==='/stories'&&u.searchParams.get('name')==='query-0').length;
   await board('query-0');assert.equal(count(),1);
   for(let i=1;i<=1000;i++)await board(`query-${i}`);
   assert.equal((await board('query-0')).columns.story.items[0].title,'Result query-0');assert.equal(count(),2);
-  assert.deepEqual((await s.rpc('tapd.task-board',{agentId:'example-agent'})).items[0].link,owner);
-  assert.deepEqual((await s.rpc('tapd.conversations')).conversations,before.conversations);assert.equal(s.rows.length,1);
+  assert.equal(s.rows.length,0);
   s.advance(31*60_000);
   const expired=await board('query-0');assert.equal(expired.stale,false);assert.equal(expired.columns.story.items[0].title,'Result query-0');assert.equal(count(),3);
 });

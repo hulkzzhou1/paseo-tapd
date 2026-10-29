@@ -182,7 +182,7 @@ test("field RPCs refuse credential-bearing data instead of returning a lossy old
   assert.equal(state.requests.filter(x => x.method === "POST").length,0);
 });
 
-test("accepted edits remain accepted when readback differs, fails or presentation fails", async t => {
+test("accepted edits remain accepted when readback differs, fails or host presentation is unavailable", async t => {
   const { call, state } = fixture(t);
   for (const mode of ["readback_fail","normalized"]) {
     state.postMode = mode;
@@ -199,7 +199,7 @@ test("accepted edits remain accepted when readback differs, fails or presentatio
   });
   assert.equal(result.structuredContent.outcome,"verified");
   assert.equal(result.structuredContent.ok,true);
-  assert.match(result.structuredContent.presentationWarning,/勿重复提交/);
+  assert.equal(result.structuredContent.presentationWarning,undefined);
   assert.equal(state.requests.filter(x=>x.method==="POST").length,3);
 });
 

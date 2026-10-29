@@ -1,12 +1,5 @@
-import {useEffect} from "react";
-import {invalidateBoard} from "./client/conversation/board-updates";
-import { useAgent } from "@getpaseo/plugin/client";
 import type { PluginClientContext, PluginSidebarItemProps } from "@getpaseo/plugin/client";
 import { SidebarRow } from "@getpaseo/plugin/client/ui";
-import { contributeConversationAccess } from "./client/conversation/ConversationAccess";
-import { BatchResultCard } from "./client/conversation/BatchResultCard";
-import { EntityResultCard } from "./client/conversation/EntityResultCard";
-import { batchResultSchema, entityResultSchema } from "./shared/conversation";
 import { tapdAttachmentSource } from "./shared/contracts";
 import { WorkbenchScreen } from "./client/workbench/WorkbenchScreen";
 import { TapdSettingsScreen } from "./client/workbench/SettingsForm";
@@ -30,7 +23,6 @@ export default function contribute(client: PluginClientContext) {
     Component: TapdSettingsScreen,
   });
   client.addSidebarHeaderItem({ id: "tapd-board", title: "TAPD 工作台", Component: TapdSidebarItem });
-  const conversation = contributeConversationAccess(client);
   client.addCommandCenterItem({
     id: "tapd-open-board",
     title: "打开 TAPD 工作台",
@@ -52,17 +44,12 @@ export default function contribute(client: PluginClientContext) {
     },
   });
   client.addAttachmentSource(tapdAttachmentSource);
-  client.addTimelineRenderer({ kind: "tapd-batch-result", version: 1, schema: batchResultSchema, Component: (props) => {
-    const workspaceId = useAgent(props.agentId, agent => agent.workspaceId);
-    return <BatchResultCard {...props} openPanel={entity => conversation.openEntity(props.agentId, workspaceId, entity)} />;
-  } });
-  client.addTimelineRenderer({ kind: "tapd-entity-result", version: 1, schema: entityResultSchema, Component: (props) => {
-    const workspaceId = useAgent(props.agentId, agent => agent.workspaceId);
-    const result=entityResultSchema.safeParse(props.item.data);
-    const entity=result.success&&["status","iteration"].includes(result.data.operation)?result.data.entity:null;
-    const eventTime=props.timestamp?.getTime();
-    useEffect(()=>{if(entity)invalidateBoard(entity);},[eventTime,entity?.workspaceId,entity?.kind,entity?.id,entity?.status]);
-    return <EntityResultCard {...props} openPanel={entity => conversation.openEntity(props.agentId, workspaceId, entity)} />;
-  } });
-  return conversation.dispose;
+  // Hide retired TAPD result cards without rewriting conversation history.
+  client.addTimelineTransformer({
+    id: "hide-retired-results",
+    query: { itemType: "plugin" },
+    transform({ item }) {
+      if (item.pluginId === "tapd-workbench" && ["tapd-entity-result", "tapd-batch-result"].includes(item.kind)) return { items: [] };
+    },
+  });
 }

@@ -25,19 +25,18 @@ globalThis.fetch=async(source,init)=>{
 const rpcs=new Map();
 const close=contribute({registerSettings:()=>({read:async()=>({status:'ready',values}),subscribe:()=>()=>{}}),handle:(schema,handler)=>rpcs.set(schema.name,{schema,handler}),before:()=>{},on:()=>{}});
 try {
-  const {schema,handler}=rpcs.get(mode==='zero'?'tapd.task.claim':'tapd.entity');
+  const {schema,handler}=rpcs.get('tapd.entity');
   const context={paseo:{agents:{ref:id=>({id,refresh:async()=>null,current:()=>null})}}};
   for(let i=0;i<1000;i++){
-    const input=mode==='zero'?{kind:'story',id:String(10000000+i),workspaceId:'12345678',agentId:'example-unavailable-agent',confirmed:true}:{kind:'task',id:String(10000000+i),fresh:false};
-    if(mode==='zero')await assert.rejects(handler(schema.input.parse(input),context),/Agent/);
-    else await handler(schema.input.parse(input),context);
+    const input={kind:'task',id:String(10000000+i),fresh:mode==='zero'};
+    await handler(schema.input.parse(input),context);
   }
   assert.equal(refs.length,1000);
   for(let i=0;i<8;i++){await new Promise(resolve=>setImmediate(resolve));global.gc();}
   const retained=refs.filter(ref=>ref.deref()!==undefined).length;
   if(mode==='zero'){
     console.log(JSON.stringify({observed:refs.length,retained}));
-    assert.ok(retained<=2,'zero-lifetime summary payloads must be collectible after their RPC finishes');
+    assert.ok(retained<=2,'fresh payloads must be collectible after their RPC finishes');
   } else {
     now+=31*60_000;await handler(schema.input.parse({kind:'task',id:'22222222',fresh:false}),context);
     for(let i=0;i<8;i++){await new Promise(resolve=>setImmediate(resolve));global.gc();}

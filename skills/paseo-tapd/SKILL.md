@@ -47,6 +47,7 @@ description: 在 Paseo 中通过 TAPD 工具查询、接手、创建单据，记
 | 建需求、任务、缺陷 | 先用 `tapd_create_fields` 读取目标项目/类型的必填字段和可选值，再用 `tapd_create`。子任务或子缺陷先读取父需求，用其实际项目及 `storyId`；子需求先用 `tapd_child_types` 取得双方允许的类别，再显式提供 `parentStoryId` 和 `workitemTypeId`；不要静默选首个项目或猜必填值。 |
 | 改状态 | 先读详情；缺陷用实际项目、类型及 `id` 读取 `tapd_status_options` 的 `current`、`transitions` 和 `fields`，只选支持的当前可达目标。获批字段（包括必填 `remarks`）放入 `transitionFields`，以 `expectedStatus: current` 调用 `tapd_update_status`；不能用另发普通评论代替流转评论，也不能猜字段值。不带 `id` 的项目候选仅供筛选。需求/任务沿用项目状态路径；`unchanged: true` 表示没有发生变更。 |
 | 更新需求方案字段 | 用 `tapd_field_definitions` 按 label 确认实际 key，再用 `tapd_read_field` 读原文；保留人工内容，展示旧值与完整新值后，以 `tapd_update_field` 提交。 |
+| 设置或更换迭代 | 用 `tapd_item_iteration` 读取明确单据的原始迭代，再用同一实际项目、类型及编号调用 `tapd_iterations` 选择已有迭代；以完整原始 `expectedValue`、所选 `iterationId` 和 `confirmed: true` 调用 `tapd_update_iteration`。支持需求、任务、缺陷，每次一张。 |
 | 查询、创建项目标签 | `tapd_labels` 读取项目定义，满页按 `nextPage` 继续；`name` 是模糊筛选。明确授权完整项目、名称及可选颜色后用 `tapd_create_label`，仅创建定义、不附加单据；同名不写入或改色。 |
 | 增删单据标签 | 先用 `tapd_item_labels` 实时取得原始 `value`，以其作为 `expectedValue`，通过 `tapd_update_labels` 仅提交获批的 `add` / `remove` 名称；其他标签由工具保留，无需重拼新集合。 |
 | 记录进展、验收或阻塞 | 先读详情，再用 `tapd_add_comment` 提交获批的纯文本。正文聚焦结果、验证和下一步，避免无关会话内容。 |
@@ -58,6 +59,8 @@ description: 在 Paseo 中通过 TAPD 工具查询、接手、创建单据，记
 字段工具首版支持需求 description/custom_field_* 的文本或富文本；key 必须来自实际项目元数据，readonly=false 仍需远端权限校验。未知类型、只读、可编辑性未知或旧值未返回时停止提交并说明限制。删除单据和其他类型字段尚不支持，退出使用本人退出工具或详情界面。普通回合结束只更新本地 Agent 状态，旧自动回评设置不再生效；明确阶段成果使用显式评论工具，不把回合结束当业务完成。
 
 字段原文/HTML/空白保持原样；区分 returned=false、null 与空串，只在用户明确请求清空时传 value=""。更新带完整 expectedValue；冲突时 fresh 重读后重新拟定，客户端比较不是原子锁。只有 outcome=verified 才报告已核实；accepted/unverified 表示远端已接受但内容未核实，先 tapd_read_field 核对，勿重复写入。
+
+迭代使用单据实际 `workspaceId`、`kind` 和 `id`，不用聚合筛选的名称猜编号。`tapd_iterations` 按 `nextPage` 继续，检查 `completeness`、`truncated` 和 `failure`；部分候选没找到不等于不存在。`tapd_item_iteration` 的 `returned`、`state`、`value` 区分未返回、未知、未设置和具体编号；仅 `state=set/unset` 且原始值可核实才能更新，完整保留字符串或数字类型作为 `expectedValue`。相同迭代返回 unchanged，无 POST；旧值冲突先重读，写前比较不是远端原子锁。目标必须是同项目已有非零编号，首版不支持解除、创建或批量设置迭代，也不联动父子单据或承担关系。只有 `outcome=verified` 才报告已核实；accepted/unverified 或 unknown 先用 `tapd_item_iteration` 核对，不重复写。缺陷迭代写入的实际部署兼容性未经真实目标验证，远端拒绝时如实报告，不改其他字段或重放请求。
 
 错误 failure.writeState 区分 not_sent、rejected 和 unknown；错误 code 只代表已知分类，api_rejected 无法细分权限/字段/工作流。写入超时或结果不确定时先读取核对，不自动重试。tapd_entity 默认 fresh，字段读取始终 fresh，绕过缓存及旧在途请求。创建结果未知时搜索并核查；评论仅返回最近 30 条，没查到不等于未写入，证据不足时说明不确定性；可在已有同平台授权范围内用 TAPD 页面核对并回读。写入成功但卡片展示或持久化失败仍是写入成功，不能因此重复写入。
 

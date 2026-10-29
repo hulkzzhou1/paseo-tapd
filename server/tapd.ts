@@ -316,7 +316,7 @@ function buildQuery(params: Record<string, QueryValue>): string {
   return parts.join("&");
 }
 
-async function requestJson(
+export async function requestJson(
   config: TapdConfig,
   path: string,
   params: Record<string, QueryValue>,

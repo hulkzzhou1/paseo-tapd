@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { registerHooks } from "node:module";
 import { createServer } from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
+import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 registerHooks({ resolve(s, c, next) { try { return next(s, c); } catch (e) { if (e.code === "ERR_MODULE_NOT_FOUND" && s.startsWith(".") && !/\.[a-z]+$/.test(s)) return next(s + ".ts", c); throw e; } } });
@@ -50,7 +51,7 @@ async function fixture(t) {
   const close = contribute({ registerSettings: () => ({ read: async () => ({ status: "ready", values }), subscribe: fn => { changed = fn; return () => {}; } }), handle: (rpc, fn) => rpcs.set(rpc.name, async input => rpc.output.parse(await fn(rpc.input.parse(input), context))), before: (_, fn) => { before = fn; }, on: () => {} });
   const tools = (await before({ request: { purpose: "interactive", agentId: "example-agent", tools: [], env: {} } }, context)).tools;
   t.after(async () => { close(); http.closeAllConnections(); await new Promise(resolve => http.close(resolve)); if (prior === undefined) delete process.env.PASEO_HOME; else process.env.PASEO_HOME = prior; await rm(home, { recursive: true, force: true }); });
-  return { state, rpc: (name, input) => { assert.ok(rpcs.has(name), `${name} is registered`); return rpcs.get(name)(input); },
+  return { state, home, rpc: (name, input) => { assert.ok(rpcs.has(name), `${name} is registered`); return rpcs.get(name)(input); },
     tool: (input, extra = {}) => { const tool = tools.find(tool => tool.name === "tapd_update_iteration"); assert.ok(tool, "iteration write tool registered"); return tool.execute(input, { ...context, ...extra }); },
     change: patch => { values = { ...values, ...patch }; changed(); } };
 }
@@ -80,6 +81,16 @@ test("an accepted iteration write survives cancellation and card append failure 
   assert.match(result.structuredContent.presentationWarning, /勿重复提交/);
   assert.equal(JSON.stringify(result).includes("example-secret"), false);
   assert.equal(f.state.posts.length, 1);
+});
+
+test("local card persistence failure preserves the accepted iteration and a later read does not replay it", async t => {
+  const f = await fixture(t), blocked = join(f.home, "plugin-data/tapd-workbench/conversations.json");
+  f.state.afterPost = () => { rmSync(blocked, { force: true, recursive: true }); mkdirSync(blocked, { recursive: true }); };
+  const result = await f.tool(approved);
+  assert.equal(result.isError, undefined); assert.equal(result.structuredContent.outcome, "verified"); assert.equal(result.structuredContent.writeState, "accepted");
+  assert.match(result.structuredContent.presentationWarning, /勿重复提交/); assert.equal(f.state.cards.length, 0);
+  rmSync(blocked, { recursive: true });
+  assert.equal((await f.rpc("tapd.item_iteration", target)).value, approved.iterationId); assert.equal(f.state.posts.length, 1);
 });
 
 test("iteration writes reject missing authorization, unsafe targets, unverifiable old values and stale plans before POST", async t => {

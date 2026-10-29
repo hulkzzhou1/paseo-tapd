@@ -56,6 +56,8 @@ description: 在 Paseo 中通过 TAPD 工具查询、接手、创建单据，记
 
 增删名称区分大小写，不同时添加和移除同名；TAPD 附加未知名称会自动创建项目定义，获批范围应覆盖新名称。同名添加与不存在移除返回 unchanged、不 POST。旧值冲突时先用 `tapd_item_labels` 重新读取，保留他人分类后重新拟定；同插件写入串行与写前检查不能充当外部编辑的原子锁。只有 `outcome=verified` 才报告增删和保留项均已核实；accepted/unverified 或 unknown 先实时读标签核对，不重复写。最后标签清空尚无可靠接口语义，`label_clear_unsupported/not_sent` 表示工具没有提交；说明限制，不用空串或其他字段绕过。
 
+共用需求详情的自定义属性与文档页签只读，选中页签才加载该文档；阅读不授权编辑，也不自动接手。需要修改时沿用字段工具的元数据、旧值和授权校验。
+
 字段工具首版支持需求 description/custom_field_* 的文本或富文本；key 必须来自实际项目元数据，readonly=false 仍需远端权限校验。未知类型、只读、可编辑性未知或旧值未返回时停止提交并说明限制。删除单据和其他类型字段尚不支持，退出使用本人退出工具或详情界面。普通回合结束只更新本地 Agent 状态，旧自动回评设置不再生效；明确阶段成果使用显式评论工具，不把回合结束当业务完成。
 
 字段原文/HTML/空白保持原样；区分 returned=false、null 与空串，只在用户明确请求清空时传 value=""。更新带完整 expectedValue；冲突时 fresh 重读后重新拟定，客户端比较不是原子锁。只有 outcome=verified 才报告已核实；accepted/unverified 表示远端已接受但内容未核实，先 tapd_read_field 核对，勿重复写入。

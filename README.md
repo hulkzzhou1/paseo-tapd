@@ -391,3 +391,5 @@ New single-item and batch result cards are saved locally before direct timeline 
 Agent 改缺陷状态前须以实际项目、类型和 `id` 调用 `tapd_status_options`，检查 `current`、`transitions` 及 `fields`，将获批字段放入 `transitionFields`，并以 `expectedStatus` 提交；不带 `id` 的项目全量候选仅用于筛选。
 
 当前缺陷流转明确列出的已知字段支持官方字段接口省略 `readonly` 的形态；明确只读或无法识别的标记仍停止。可选的原站工时开关和流转说明不当作业务字段提交，必填时仍引导原站。未编辑的空可选字段不提交，避免意外清空处理人。
+
+本次自定义字段阅读与迭代工具的合成验收范围、复现命令及部署限制见 [联合验收记录](docs/validation/2026-10-29-story-fields-and-iteration-tools.md)。详情只读；迭代设置通过获授权的 Agent 工具执行。
